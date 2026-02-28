@@ -61,18 +61,26 @@ func (s StatusBar) View() string {
 		left += " ●"
 	}
 
+	hotkeys := "  ^C quit │ Esc cancel │ ^L clear"
+
 	right := fmt.Sprintf("%s │ %s", s.mode, s.model)
 	if s.tokens > 0 {
 		right += fmt.Sprintf(" │ %s tokens", formatTokens(s.tokens))
 	}
 	right += " "
 
-	gap := s.width - lipgloss.Width(left) - lipgloss.Width(right)
+	// Check if hotkeys fit
+	gap := s.width - lipgloss.Width(left) - lipgloss.Width(hotkeys) - lipgloss.Width(right)
+	if gap < 1 {
+		hotkeys = ""
+		gap = s.width - lipgloss.Width(left) - lipgloss.Width(right)
+	}
 	if gap < 0 {
 		gap = 0
 	}
 
-	bar := left + strings.Repeat(" ", gap) + right
+	hotkeyStyled := styles.Muted.Render(hotkeys)
+	bar := left + hotkeyStyled + strings.Repeat(" ", gap) + right
 	return styles.StatusBar.Width(s.width).Render(bar)
 }
 

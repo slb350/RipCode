@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -33,6 +34,7 @@ type App struct {
 	maxSteps  int
 	streaming bool
 	cancel    context.CancelFunc
+	eventCh   <-chan agent.Event
 }
 
 // NewApp creates the initial application model.
@@ -42,7 +44,6 @@ func NewApp() App {
 		input:     components.NewInput(),
 		statusbar: components.NewStatusBar(),
 		toolpanel: components.NewToolPanel(),
-		agent:     agent.BuildAgent(),
 		maxSteps:  100,
 	}
 }
@@ -60,6 +61,11 @@ func (a *App) SetRegistry(r *tool.Registry) {
 // SetSession configures the session.
 func (a *App) SetSession(s *session.Session) {
 	a.session = s
+}
+
+// SetAgent configures the agent.
+func (a *App) SetAgent(ag agent.Agent) {
+	a.agent = ag
 }
 
 // SetModel updates the displayed model name.
@@ -81,10 +87,14 @@ func (a App) Init() tea.Cmd {
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		firstReady := !a.ready
 		a.width = msg.Width
 		a.height = msg.Height
 		a.ready = true
 		a.layout()
+		if firstReady {
+			a.showWelcome()
+		}
 		return a, nil
 
 	case tea.KeyPressMsg:
@@ -116,6 +126,7 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				a.cancel()
 				a.cancel = nil
 			}
+			a.eventCh = nil
 			a.streaming = false
 			a.statusbar.SetSpinning(false)
 			a.chat.CommitStream()
@@ -156,15 +167,16 @@ func (a App) handleSubmit(input string) (tea.Model, tea.Cmd) {
 	a.cancel = cancel
 
 	loop := agent.NewLoop(a.provider, a.registry, a.session, a.agent, a.maxSteps)
-	eventCh := loop.Run(ctx, input)
+	a.eventCh = loop.Run(ctx, input)
 
-	return a, listenForEvents(eventCh)
+	return a, listenForEvents(a.eventCh)
 }
 
 func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 	switch event.Type {
 	case agent.EventContentDelta:
 		a.chat.StreamContent(event.Content)
+		return a, listenForEvents(a.eventCh)
 
 	case agent.EventToolStart:
 		if event.Tool != nil {
@@ -174,6 +186,7 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 				Args: event.Tool.Args,
 			})
 		}
+		return a, listenForEvents(a.eventCh)
 
 	case agent.EventToolEnd:
 		if event.Tool != nil {
@@ -184,8 +197,10 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 				Error:  event.Tool.Error,
 			})
 		}
+		return a, listenForEvents(a.eventCh)
 
 	case agent.EventDone:
+		a.eventCh = nil
 		a.streaming = false
 		a.statusbar.SetSpinning(false)
 		a.chat.CommitStream()
@@ -196,6 +211,7 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case agent.EventError:
+		a.eventCh = nil
 		a.streaming = false
 		a.statusbar.SetSpinning(false)
 		a.chat.CommitStream()
@@ -209,7 +225,6 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
-	// Keep listening for more events while streaming
 	return a, nil
 }
 
@@ -222,6 +237,15 @@ func listenForEvents(ch <-chan agent.Event) tea.Cmd {
 		}
 		return AgentEventMsg{Event: event}
 	}
+}
+
+func (a *App) showWelcome() {
+	workDir := "."
+	if a.session != nil {
+		workDir = a.session.WorkDir
+	}
+	welcome := fmt.Sprintf("Welcome to ripcode.\nWorking in: %s\n\nHotkeys: Enter submit | Shift+Enter newline | Esc cancel | Ctrl+C quit | Ctrl+L clear", workDir)
+	a.chat.AddEntry(components.ChatEntry{Role: "system", Content: welcome})
 }
 
 func (a *App) layout() {

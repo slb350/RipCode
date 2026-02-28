@@ -32,6 +32,16 @@ func TestChat_StreamAndCommit(t *testing.T) {
 	assert.Contains(t, view, "Hello world")
 }
 
+func TestChat_SystemRole(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+
+	c.AddEntry(ChatEntry{Role: "system", Content: "Welcome to ripcode."})
+	view := c.View()
+	assert.Contains(t, view, "Welcome to ripcode.")
+	assert.Contains(t, view, "~")
+}
+
 func TestChat_Clear(t *testing.T) {
 	c := NewChat()
 	c.SetSize(80, 20)
@@ -88,6 +98,25 @@ func TestStatusBar_Spinning(t *testing.T) {
 
 	view := sb.View()
 	assert.Contains(t, view, "●")
+}
+
+func TestStatusBar_ShowsHotkeys(t *testing.T) {
+	sb := NewStatusBar()
+	sb.SetSize(120)
+
+	view := sb.View()
+	assert.Contains(t, view, "^C quit")
+	assert.Contains(t, view, "Esc cancel")
+	assert.Contains(t, view, "^L clear")
+}
+
+func TestStatusBar_HidesHotkeys_WhenNarrow(t *testing.T) {
+	sb := NewStatusBar()
+	sb.SetSize(30) // too narrow for hotkeys
+
+	view := sb.View()
+	assert.Contains(t, view, "ripcode")
+	assert.NotContains(t, view, "^C quit")
 }
 
 // --- ToolPanel tests ---

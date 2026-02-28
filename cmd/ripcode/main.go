@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/stephenbrandon/ripcode/internal/agent"
 	"github.com/stephenbrandon/ripcode/internal/client"
 	"github.com/stephenbrandon/ripcode/internal/config"
 	"github.com/stephenbrandon/ripcode/internal/session"
@@ -35,14 +36,19 @@ func main() {
 	registry.Register(tool.NewLsTool())
 	registry.Register(tool.NewTodoTool())
 
+	// Agent
+	ag := agent.BuildAgent()
+
 	// Session
 	sess := session.New(cfg.WorkDir)
+	sess.SetSystemPrompt(ag.SystemPrompt)
 
 	// TUI
 	app := tui.NewApp()
 	app.SetProvider(provider)
 	app.SetRegistry(registry)
 	app.SetSession(sess)
+	app.SetAgent(ag)
 	app.SetModel(shortModel(cfg.Model))
 	app.SetMaxSteps(cfg.MaxSteps)
 

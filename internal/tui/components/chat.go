@@ -131,6 +131,8 @@ func (c Chat) renderEntry(entry ChatEntry) []string {
 		prefix = styles.Tool.Render("tool") + " "
 	case "error":
 		prefix = styles.Error.Render("error") + " "
+	case "system":
+		prefix = styles.Muted.Render("~") + " "
 	}
 
 	// Word wrap content to width
