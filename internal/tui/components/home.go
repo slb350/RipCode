@@ -170,11 +170,3 @@ func centerLine(line string, totalW, maxW int) string {
 	}
 	return strings.Repeat(" ", leftPad) + line
 }
-
-// min returns the smaller of two ints.
-func minHome(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
