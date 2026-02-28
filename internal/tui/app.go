@@ -31,6 +31,7 @@ type App struct {
 	registry  *tool.Registry
 	session   *session.Session
 	agent     agent.Agent
+	model     string // model name for display
 	maxSteps  int
 	streaming bool
 	cancel    context.CancelFunc
@@ -66,11 +67,15 @@ func (a *App) SetSession(s *session.Session) {
 // SetAgent configures the agent.
 func (a *App) SetAgent(ag agent.Agent) {
 	a.agent = ag
+	a.input.SetMode(ag.Name)
+	a.statusbar.SetMode(ag.Name)
 }
 
 // SetModel updates the displayed model name.
 func (a *App) SetModel(model string) {
+	a.model = model
 	a.statusbar.SetModel(model)
+	a.input.SetModel(model)
 }
 
 // SetMaxSteps sets the max agent loop steps.
@@ -250,7 +255,7 @@ func (a *App) showWelcome() {
 
 func (a *App) layout() {
 	statusH := 1
-	inputH := 3
+	inputH := 5 // accent border + cap + badge + hints + spacing
 	toolH := 0
 	if tv := a.toolpanel.View(); tv != "" {
 		toolH = strings.Count(tv, "\n") + 1

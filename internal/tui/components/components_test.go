@@ -69,10 +69,60 @@ func TestInput_Reset(t *testing.T) {
 	assert.Equal(t, 0, i.cursorX)
 }
 
-func TestInput_View(t *testing.T) {
+func TestInput_View_HasAccentBorder(t *testing.T) {
 	i := NewInput()
+	i.SetSize(80, 6)
 	view := i.View()
-	assert.Contains(t, view, ">")
+	assert.Contains(t, view, "┃", "input should render left accent border")
+	assert.Contains(t, view, "╹", "input should render bottom cap")
+}
+
+func TestInput_View_ShowsPlaceholder(t *testing.T) {
+	i := NewInput()
+	i.SetSize(80, 6)
+	view := i.View()
+	assert.Contains(t, view, "What do you want to do?", "empty input shows placeholder")
+}
+
+func TestInput_View_HidesPlaceholderWhenTyping(t *testing.T) {
+	i := NewInput()
+	i.SetSize(80, 6)
+	i.value = []string{"hello world"}
+	i.cursorX = 11
+	view := i.View()
+	assert.NotContains(t, view, "What do you want to do?")
+	assert.Contains(t, view, "hello world")
+}
+
+func TestInput_View_ShowsBadge(t *testing.T) {
+	i := NewInput()
+	i.SetSize(80, 6)
+	i.SetMode("build")
+	i.SetModel("glm-5")
+	view := i.View()
+	assert.Contains(t, view, "▣")
+	assert.Contains(t, view, "Build")
+	assert.Contains(t, view, "glm-5")
+}
+
+func TestInput_View_ShowsHints(t *testing.T) {
+	i := NewInput()
+	i.SetSize(80, 6)
+	view := i.View()
+	assert.Contains(t, view, "Enter send")
+	assert.Contains(t, view, "Shift+Enter newline")
+}
+
+func TestInput_SetMode(t *testing.T) {
+	i := NewInput()
+	i.SetMode("plan")
+	assert.Equal(t, "plan", i.mode)
+}
+
+func TestInput_SetModel(t *testing.T) {
+	i := NewInput()
+	i.SetModel("test-model")
+	assert.Equal(t, "test-model", i.model)
 }
 
 // --- StatusBar tests ---

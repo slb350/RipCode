@@ -13,7 +13,7 @@ type InputSubmitMsg struct {
 	Value string
 }
 
-// Input is a multi-line text input component.
+// Input is a multi-line text input component with accent border and agent badge.
 type Input struct {
 	value   []string
 	cursorX int
@@ -21,7 +21,9 @@ type Input struct {
 	width   int
 	height  int
 	focused bool
-	prompt  string
+	mode    string
+	model   string
+	theme   *styles.Theme
 }
 
 // NewInput creates a new input component.
@@ -29,7 +31,9 @@ func NewInput() Input {
 	return Input{
 		value:   []string{""},
 		focused: true,
-		prompt:  "> ",
+		mode:    "build",
+		model:   "",
+		theme:   styles.DefaultTheme,
 	}
 }
 
@@ -38,6 +42,15 @@ func (i *Input) SetSize(width, height int) {
 	i.width = width
 	i.height = height
 }
+
+// SetMode sets the agent mode displayed in the badge.
+func (i *Input) SetMode(mode string) { i.mode = mode }
+
+// SetModel sets the model name displayed in the badge.
+func (i *Input) SetModel(model string) { i.model = model }
+
+// SetTheme sets the theme used for rendering.
+func (i *Input) SetTheme(t *styles.Theme) { i.theme = t }
 
 // Focus sets focus state.
 func (i *Input) Focus() { i.focused = true }
@@ -67,7 +80,6 @@ func (i *Input) Update(msg tea.Msg) tea.Cmd {
 	case tea.KeyPressMsg:
 		switch {
 		case msg.Code == tea.KeyEnter && msg.Mod == 0:
-			// Submit on Enter
 			val := i.Value()
 			if strings.TrimSpace(val) == "" {
 				return nil
@@ -76,7 +88,6 @@ func (i *Input) Update(msg tea.Msg) tea.Cmd {
 			return func() tea.Msg { return InputSubmitMsg{Value: val} }
 
 		case msg.Code == tea.KeyEnter && msg.Mod == tea.ModShift:
-			// Newline on Shift+Enter
 			line := i.value[i.cursorY]
 			before := line[:i.cursorX]
 			after := line[i.cursorX:]
@@ -96,7 +107,6 @@ func (i *Input) Update(msg tea.Msg) tea.Cmd {
 				i.value[i.cursorY] = line[:i.cursorX-1] + line[i.cursorX:]
 				i.cursorX--
 			} else if i.cursorY > 0 {
-				// Join with previous line
 				prevLine := i.value[i.cursorY-1]
 				i.cursorX = len(prevLine)
 				i.value[i.cursorY-1] = prevLine + i.value[i.cursorY]
@@ -131,7 +141,6 @@ func (i *Input) Update(msg tea.Msg) tea.Cmd {
 			}
 
 		default:
-			// Regular character input
 			if msg.Text != "" {
 				line := i.value[i.cursorY]
 				i.value[i.cursorY] = line[:i.cursorX] + msg.Text + line[i.cursorX:]
@@ -143,36 +152,70 @@ func (i *Input) Update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
-// View renders the input.
+// View renders the input with accent border, placeholder, badge, and hints.
 func (i Input) View() string {
-	promptStyle := styles.Muted
-	if i.focused {
-		promptStyle = lipgloss.NewStyle().Foreground(styles.ColorGreen)
+	t := i.theme
+	if t == nil {
+		t = styles.DefaultTheme
 	}
 
+	modeColor := t.ModeColor(i.mode)
+	accentStyle := lipgloss.NewStyle().Foreground(modeColor)
+	mutedStyle := t.TextMutedStyle
+
+	var sb strings.Builder
+
+	// Line 1: accent border + content (or placeholder)
+	accent := accentStyle.Render("┃")
+	hasContent := strings.TrimSpace(i.Value()) != ""
+	if hasContent {
+		sb.WriteString(accent + " " + i.renderContent())
+	} else {
+		sb.WriteString(accent + " " + mutedStyle.Render("What do you want to do?"))
+		if i.focused {
+			sb.WriteString("█")
+		}
+	}
+	sb.WriteByte('\n')
+
+	// Line 2: bottom cap
+	sb.WriteString(accentStyle.Render("╹"))
+	sb.WriteByte('\n')
+
+	// Line 3: agent badge
+	modeLabel := strings.ToUpper(i.mode[:1]) + i.mode[1:]
+	badge := "    " + accentStyle.Render("▣") + " " + mutedStyle.Render(modeLabel)
+	if i.model != "" {
+		badge += mutedStyle.Render(" · " + i.model)
+	}
+	sb.WriteString(badge)
+	sb.WriteByte('\n')
+
+	// Line 4: keyboard hints
+	sb.WriteString("    " + mutedStyle.Render("Enter send · Shift+Enter newline · Esc cancel"))
+
+	return sb.String()
+}
+
+// renderContent renders the multi-line text content with cursor.
+func (i Input) renderContent() string {
 	var sb strings.Builder
 	for lineIdx, line := range i.value {
-		prompt := "  "
-		if lineIdx == 0 {
-			prompt = promptStyle.Render(i.prompt)
+		if lineIdx > 0 {
+			sb.WriteByte('\n')
+			sb.WriteString("  ") // indent continuation lines
 		}
 
 		if i.focused && lineIdx == i.cursorY {
-			// Show cursor position
 			before := line[:i.cursorX]
 			after := ""
 			if i.cursorX < len(line) {
 				after = line[i.cursorX:]
 			}
-			sb.WriteString(prompt + before + "█" + after)
+			sb.WriteString(before + "█" + after)
 		} else {
-			sb.WriteString(prompt + line)
-		}
-
-		if lineIdx < len(i.value)-1 {
-			sb.WriteByte('\n')
+			sb.WriteString(line)
 		}
 	}
-
 	return sb.String()
 }
