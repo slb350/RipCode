@@ -16,11 +16,11 @@ type ChatEntry struct {
 
 // Chat is a scrollable viewport displaying conversation messages.
 type Chat struct {
-	entries    []ChatEntry
-	scrollPos  int
-	width      int
-	height     int
-	streaming  string // content being streamed (not yet committed)
+	entries   []ChatEntry
+	scrollPos int
+	width     int
+	height    int
+	streaming string // content being streamed (not yet committed)
 }
 
 // NewChat creates a new chat component.
@@ -223,4 +223,3 @@ func min(a, b int) int {
 	}
 	return b
 }
-

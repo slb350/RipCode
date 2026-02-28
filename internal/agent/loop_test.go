@@ -49,8 +49,8 @@ func (m *mockProvider) Name() string { return "mock" }
 // echoTool is a simple tool that echoes its args.
 type echoTool struct{}
 
-func (e *echoTool) ID() string              { return "echo" }
-func (e *echoTool) Description() string      { return "Echo args" }
+func (e *echoTool) ID() string                 { return "echo" }
+func (e *echoTool) Description() string        { return "Echo args" }
 func (e *echoTool) Parameters() map[string]any { return map[string]any{"type": "object"} }
 func (e *echoTool) Execute(_ tool.Context, args string) tool.Result {
 	return tool.Result{Output: "echoed: " + args}
@@ -59,8 +59,8 @@ func (e *echoTool) Execute(_ tool.Context, args string) tool.Result {
 // failTool is a tool that always returns an error.
 type failTool struct{}
 
-func (f *failTool) ID() string              { return "fail" }
-func (f *failTool) Description() string      { return "Always fails" }
+func (f *failTool) ID() string                 { return "fail" }
+func (f *failTool) Description() string        { return "Always fails" }
 func (f *failTool) Parameters() map[string]any { return map[string]any{"type": "object"} }
 func (f *failTool) Execute(_ tool.Context, _ string) tool.Result {
 	return tool.Result{Error: fmt.Errorf("tool failed")}

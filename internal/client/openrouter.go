@@ -256,10 +256,10 @@ type apiToolDef struct {
 }
 
 type apiChunk struct {
-	ID      string       `json:"id"`
-	Model   string       `json:"model"`
-	Choices []apiChoice  `json:"choices"`
-	Usage   *apiUsage    `json:"usage,omitempty"`
+	ID      string      `json:"id"`
+	Model   string      `json:"model"`
+	Choices []apiChoice `json:"choices"`
+	Usage   *apiUsage   `json:"usage,omitempty"`
 }
 
 type apiChoice struct {
@@ -269,14 +269,14 @@ type apiChoice struct {
 }
 
 type apiDelta struct {
-	Content   string           `json:"content,omitempty"`
+	Content   string             `json:"content,omitempty"`
 	ToolCalls []apiToolCallDelta `json:"tool_calls,omitempty"`
 }
 
 type apiToolCallDelta struct {
-	Index    int              `json:"index"`
-	ID       string           `json:"id,omitempty"`
-	Function apiPartialFunc   `json:"function,omitempty"`
+	Index    int            `json:"index"`
+	ID       string         `json:"id,omitempty"`
+	Function apiPartialFunc `json:"function,omitempty"`
 }
 
 type apiPartialFunc struct {

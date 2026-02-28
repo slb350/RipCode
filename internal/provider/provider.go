@@ -4,7 +4,7 @@ import "context"
 
 // Message represents a single message in a conversation.
 type Message struct {
-	Role       string     // "system", "user", "assistant", "tool"
+	Role       string // "system", "user", "assistant", "tool"
 	Content    string
 	ToolCalls  []ToolCall // present on assistant messages with tool invocations
 	ToolCallID string     // present on tool result messages

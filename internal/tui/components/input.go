@@ -15,13 +15,13 @@ type InputSubmitMsg struct {
 
 // Input is a multi-line text input component.
 type Input struct {
-	value    []string
-	cursorX  int
-	cursorY  int
-	width    int
-	height   int
-	focused  bool
-	prompt   string
+	value   []string
+	cursorX int
+	cursorY int
+	width   int
+	height  int
+	focused bool
+	prompt  string
 }
 
 // NewInput creates a new input component.

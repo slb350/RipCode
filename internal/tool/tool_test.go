@@ -16,8 +16,8 @@ type fakeTool struct {
 	execFn      func(ctx Context, args string) Result
 }
 
-func (f *fakeTool) ID() string              { return f.id }
-func (f *fakeTool) Description() string      { return f.description }
+func (f *fakeTool) ID() string                 { return f.id }
+func (f *fakeTool) Description() string        { return f.description }
 func (f *fakeTool) Parameters() map[string]any { return f.params }
 func (f *fakeTool) Execute(ctx Context, args string) Result {
 	if f.execFn != nil {
