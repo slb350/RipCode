@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	charm.land/bubbletea/v2 v2.0.0
+	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/joho/godotenv v1.5.1
 	github.com/stretchr/testify v1.11.1
 )
