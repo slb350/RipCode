@@ -1,0 +1,134 @@
+package tool
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestEdit_ImplementsTool(t *testing.T) {
+	var _ Tool = &EditTool{}
+}
+
+func TestEdit_SimpleReplace(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.go")
+	require.NoError(t, os.WriteFile(path, []byte("func hello() {\n\treturn\n}\n"), 0644))
+
+	e := NewEditTool()
+	ctx := newTestCtx(t)
+
+	result := e.Execute(ctx, `{"file_path":"`+path+`","old_string":"return","new_string":"return \"world\""}`)
+	require.NoError(t, result.Error)
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `return "world"`)
+	assert.NotContains(t, string(data), "\treturn\n")
+}
+
+func TestEdit_NonUniqueMatch(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.go")
+	require.NoError(t, os.WriteFile(path, []byte("foo\nfoo\nbar\n"), 0644))
+
+	e := NewEditTool()
+	ctx := newTestCtx(t)
+
+	result := e.Execute(ctx, `{"file_path":"`+path+`","old_string":"foo","new_string":"baz"}`)
+	assert.Error(t, result.Error)
+	assert.Contains(t, result.Error.Error(), "2 matches")
+}
+
+func TestEdit_NoMatch(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.go")
+	require.NoError(t, os.WriteFile(path, []byte("hello world\n"), 0644))
+
+	e := NewEditTool()
+	ctx := newTestCtx(t)
+
+	result := e.Execute(ctx, `{"file_path":"`+path+`","old_string":"nonexistent","new_string":"replaced"}`)
+	assert.Error(t, result.Error)
+	assert.Contains(t, result.Error.Error(), "no match")
+}
+
+func TestEdit_WhitespaceFallback(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.go")
+	// File has tabs
+	require.NoError(t, os.WriteFile(path, []byte("func main() {\n\tfmt.Println(\"hello\")\n}\n"), 0644))
+
+	e := NewEditTool()
+	ctx := newTestCtx(t)
+
+	// Provide with spaces instead of tabs — should still match via whitespace normalization
+	result := e.Execute(ctx, `{"file_path":"`+path+`","old_string":"    fmt.Println(\"hello\")","new_string":"\tfmt.Println(\"world\")"}`)
+	require.NoError(t, result.Error)
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `fmt.Println("world")`)
+}
+
+func TestEdit_MissingFile(t *testing.T) {
+	e := NewEditTool()
+	ctx := newTestCtx(t)
+
+	result := e.Execute(ctx, `{"file_path":"/nonexistent/file.go","old_string":"a","new_string":"b"}`)
+	assert.Error(t, result.Error)
+}
+
+func TestEdit_InvalidJSON(t *testing.T) {
+	e := NewEditTool()
+	ctx := newTestCtx(t)
+
+	result := e.Execute(ctx, `{bad}`)
+	assert.Error(t, result.Error)
+}
+
+func TestEdit_MultiLineReplace(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.go")
+	content := "line1\nline2\nline3\nline4\n"
+	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
+
+	e := NewEditTool()
+	ctx := newTestCtx(t)
+
+	result := e.Execute(ctx, `{"file_path":"`+path+`","old_string":"line2\nline3","new_string":"replaced2\nreplaced3"}`)
+	require.NoError(t, result.Error)
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "line1\nreplaced2\nreplaced3\nline4\n", string(data))
+}
+
+func TestEdit_PreservesFilePermissions(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "script.sh")
+	require.NoError(t, os.WriteFile(path, []byte("#!/bin/bash\necho old\n"), 0755))
+
+	e := NewEditTool()
+	ctx := newTestCtx(t)
+
+	result := e.Execute(ctx, `{"file_path":"`+path+`","old_string":"echo old","new_string":"echo new"}`)
+	require.NoError(t, result.Error)
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0755), info.Mode().Perm())
+}
+
+func TestEdit_Parameters(t *testing.T) {
+	e := NewEditTool()
+	params := e.Parameters()
+
+	props := params["properties"].(map[string]any)
+	assert.Contains(t, props, "file_path")
+	assert.Contains(t, props, "old_string")
+	assert.Contains(t, props, "new_string")
+}
