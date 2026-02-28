@@ -14,6 +14,7 @@ func TestNewApp(t *testing.T) {
 	assert.False(t, app.ready)
 	assert.False(t, app.streaming)
 	assert.Empty(t, app.agent.Name, "NewApp should not set a default agent")
+	assert.Equal(t, StateHome, app.state, "NewApp should start in StateHome")
 }
 
 func TestApp_SetAgent(t *testing.T) {
@@ -35,38 +36,28 @@ func TestApp_WindowSize(t *testing.T) {
 	assert.Equal(t, 24, a.height)
 }
 
-func TestApp_WelcomeOnFirstReady(t *testing.T) {
+func TestApp_StartsInHomeState(t *testing.T) {
 	app := NewApp()
 	sess := &session.Session{WorkDir: "/tmp/project"}
 	app.SetSession(sess)
 
-	model, _ := app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
 	a := model.(App)
 
+	assert.Equal(t, StateHome, a.state)
 	view := a.View()
-	assert.Contains(t, view.Content, "Welcome to ripcode")
-	assert.Contains(t, view.Content, "/tmp/project")
-	assert.Contains(t, view.Content, "Ctrl+C quit")
+	assert.Contains(t, view.Content, "██████╗", "home state should render logo")
+	assert.Contains(t, view.Content, "ripcode")
 }
 
-func TestApp_WelcomeOnlyOnce(t *testing.T) {
+func TestApp_HomeShowsLogo(t *testing.T) {
 	app := NewApp()
-	sess := &session.Session{WorkDir: "/tmp"}
-	app.SetSession(sess)
-
-	// First resize: shows welcome
-	model, _ := app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
 	a := model.(App)
 
-	// Clear chat
-	a.chat.Clear()
-
-	// Second resize: should NOT re-add welcome
-	model, _ = a.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
-	a = model.(App)
-
 	view := a.View()
-	assert.NotContains(t, view.Content, "Welcome to ripcode")
+	assert.Contains(t, view.Content, "██████╗")
+	assert.Contains(t, view.Content, "code")
 }
 
 func TestApp_View_NotReady(t *testing.T) {
@@ -85,7 +76,7 @@ func TestApp_View_Ready(t *testing.T) {
 	assert.True(t, view.AltScreen)
 }
 
-func TestApp_EscQuits(t *testing.T) {
+func TestApp_EscQuits_InHome(t *testing.T) {
 	app := NewApp()
 	_, cmd := app.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	assert.NotNil(t, cmd)
@@ -101,6 +92,7 @@ func TestApp_ContentDelta_ContinuesListening(t *testing.T) {
 	app := NewApp()
 	ch := make(chan agent.Event, 1)
 	app.streaming = true
+	app.state = StateSession
 	app.eventCh = ch
 
 	model, cmd := app.Update(AgentEventMsg{
@@ -116,6 +108,7 @@ func TestApp_ToolStart_ContinuesListening(t *testing.T) {
 	app := NewApp()
 	ch := make(chan agent.Event, 1)
 	app.streaming = true
+	app.state = StateSession
 	app.eventCh = ch
 
 	model, cmd := app.Update(AgentEventMsg{
@@ -134,6 +127,7 @@ func TestApp_ToolEnd_ContinuesListening(t *testing.T) {
 	app := NewApp()
 	ch := make(chan agent.Event, 1)
 	app.streaming = true
+	app.state = StateSession
 	app.eventCh = ch
 
 	model, cmd := app.Update(AgentEventMsg{
@@ -152,6 +146,7 @@ func TestApp_AgentEventDone(t *testing.T) {
 	app := NewApp()
 	ch := make(chan agent.Event, 1)
 	app.streaming = true
+	app.state = StateSession
 	app.eventCh = ch
 
 	model, cmd := app.Update(AgentEventMsg{
@@ -168,6 +163,7 @@ func TestApp_AgentEventError(t *testing.T) {
 	app := NewApp()
 	ch := make(chan agent.Event, 1)
 	app.streaming = true
+	app.state = StateSession
 	app.eventCh = ch
 
 	model, cmd := app.Update(AgentEventMsg{
@@ -187,6 +183,7 @@ func TestApp_EscCancel_ClearsChannel(t *testing.T) {
 	app := NewApp()
 	ch := make(chan agent.Event, 1)
 	app.streaming = true
+	app.state = StateSession
 	app.eventCh = ch
 	app.cancel = func() {} // no-op cancel
 

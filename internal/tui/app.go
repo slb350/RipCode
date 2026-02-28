@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -15,24 +14,34 @@ import (
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 )
 
+// AppState represents which screen is active.
+type AppState int
+
+const (
+	StateHome    AppState = iota // startup home screen with logo
+	StateSession                 // active conversation session
+)
+
 // App is the top-level Bubble Tea model for ripcode.
 type App struct {
 	width  int
 	height int
 	ready  bool
+	state  AppState
 
 	// Core components
 	chat      components.Chat
 	input     components.Input
 	statusbar components.StatusBar
 	toolpanel components.ToolPanel
+	home      components.Home
 
 	// Agent state
 	provider      provider.Provider
 	registry      *tool.Registry
 	session       *session.Session
 	agent         agent.Agent
-	model         string // model name for display
+	model         string
 	maxSteps      int
 	streaming     bool
 	responseStart time.Time
@@ -47,6 +56,8 @@ func NewApp() App {
 		input:     components.NewInput(),
 		statusbar: components.NewStatusBar(),
 		toolpanel: components.NewToolPanel(),
+		home:      components.NewHome(),
+		state:     StateHome,
 		maxSteps:  100,
 	}
 }
@@ -64,6 +75,9 @@ func (a *App) SetRegistry(r *tool.Registry) {
 // SetSession configures the session.
 func (a *App) SetSession(s *session.Session) {
 	a.session = s
+	if s != nil {
+		a.home.SetWorkDir(s.WorkDir)
+	}
 }
 
 // SetAgent configures the agent.
@@ -72,6 +86,7 @@ func (a *App) SetAgent(ag agent.Agent) {
 	a.input.SetMode(ag.Name)
 	a.chat.SetMode(ag.Name)
 	a.statusbar.SetMode(ag.Name)
+	a.home.SetMode(ag.Name)
 }
 
 // SetModel updates the displayed model name.
@@ -79,6 +94,7 @@ func (a *App) SetModel(model string) {
 	a.model = model
 	a.statusbar.SetModel(model)
 	a.input.SetModel(model)
+	a.home.SetModel(model)
 }
 
 // SetMaxSteps sets the max agent loop steps.
@@ -95,14 +111,10 @@ func (a App) Init() tea.Cmd {
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		firstReady := !a.ready
 		a.width = msg.Width
 		a.height = msg.Height
 		a.ready = true
 		a.layout()
-		if firstReady {
-			a.showWelcome()
-		}
 		return a, nil
 
 	case tea.KeyPressMsg:
@@ -115,7 +127,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.handleAgentEvent(msg.Event)
 
 	case tea.MouseWheelMsg:
-		a.chat.Update(msg)
+		if a.state == StateSession {
+			a.chat.Update(msg)
+		}
 		return a, nil
 	}
 
@@ -142,12 +156,18 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a, tea.Quit
 
 	case msg.Mod == tea.ModCtrl && msg.Code == 'l':
-		a.chat.Clear()
-		a.toolpanel.Clear()
+		if a.state == StateSession {
+			a.chat.Clear()
+			a.toolpanel.Clear()
+		}
 		return a, nil
 
 	default:
 		if !a.streaming {
+			if a.state == StateHome {
+				cmd := a.home.Input().Update(msg)
+				return a, cmd
+			}
 			cmd := a.input.Update(msg)
 			return a, cmd
 		}
@@ -157,6 +177,11 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (a App) handleSubmit(input string) (tea.Model, tea.Cmd) {
+	// Transition from home to session on first submit
+	if a.state == StateHome {
+		a.state = StateSession
+	}
+
 	if a.provider == nil || a.registry == nil || a.session == nil {
 		a.chat.AddEntry(components.ChatEntry{
 			Role:    "error",
@@ -188,7 +213,6 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 
 	case agent.EventToolStart:
 		if event.Tool != nil {
-			// Inline tool call in chat
 			a.chat.AddEntry(components.ChatEntry{
 				Role:       "tool",
 				Content:    toolSummary(event.Tool),
@@ -196,7 +220,6 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 				ToolName:   event.Tool.Name,
 				ToolStatus: "pending",
 			})
-			// Keep toolpanel in sync for backward compat
 			a.toolpanel.AddEvent(agent.ToolEvent{
 				ID:   event.Tool.ID,
 				Name: event.Tool.Name,
@@ -240,7 +263,6 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 		if a.session != nil {
 			a.statusbar.SetTokens(a.session.Tokens.Input + a.session.Tokens.Output)
 		}
-		// Add completion bar
 		dur := time.Since(a.responseStart)
 		modeName := a.agent.Name
 		if modeName == "" {
@@ -300,18 +322,14 @@ func listenForEvents(ch <-chan agent.Event) tea.Cmd {
 	}
 }
 
-func (a *App) showWelcome() {
-	workDir := "."
-	if a.session != nil {
-		workDir = a.session.WorkDir
-	}
-	welcome := fmt.Sprintf("Welcome to ripcode.\nWorking in: %s\n\nHotkeys: Enter submit | Shift+Enter newline | Esc cancel | Ctrl+C quit | Ctrl+L clear", workDir)
-	a.chat.AddEntry(components.ChatEntry{Role: "system", Content: welcome})
-}
-
 func (a *App) layout() {
+	if a.state == StateHome {
+		a.home.SetSize(a.width, a.height)
+		return
+	}
+
 	statusH := 1
-	inputH := 5 // accent border + cap + badge + hints + spacing
+	inputH := 5
 
 	chatH := a.height - statusH - inputH
 	if chatH < 1 {
@@ -332,15 +350,25 @@ func (a App) View() tea.View {
 
 	a.layout()
 
+	var content string
+	if a.state == StateHome {
+		content = a.home.View()
+	} else {
+		content = a.renderSessionView()
+	}
+
+	v := tea.NewView(content)
+	v.AltScreen = true
+	v.WindowTitle = "ripcode"
+	return v
+}
+
+func (a App) renderSessionView() string {
 	var sb strings.Builder
 	sb.WriteString(a.statusbar.View())
 	sb.WriteByte('\n')
 	sb.WriteString(a.chat.View())
 	sb.WriteByte('\n')
 	sb.WriteString(a.input.View())
-
-	v := tea.NewView(sb.String())
-	v.AltScreen = true
-	v.WindowTitle = "ripcode"
-	return v
+	return sb.String()
 }
