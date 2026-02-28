@@ -60,7 +60,7 @@ bin/ripcode
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OPENROUTER_API_KEY` | (required) | OpenRouter API key |
-| `RIPCODE_MODEL` | `anthropic/claude-sonnet-4` | Model to use |
+| `RIPCODE_MODEL` | `z-ai/glm-5` | Model to use |
 | `RIPCODE_MAX_STEPS` | `100` | Max agentic loop iterations |
 
 ## Key Bindings

@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	DefaultModel    = "anthropic/claude-sonnet-4"
+	DefaultModel    = "z-ai/glm-5"
 	DefaultMaxSteps = 100
 )
 
