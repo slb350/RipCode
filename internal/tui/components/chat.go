@@ -1,17 +1,30 @@
 package components
 
 import (
+	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/stephenbrandon/ripcode/internal/tui/styles"
 )
 
+// CompleteMeta holds metadata for a completion info bar entry.
+type CompleteMeta struct {
+	Mode     string
+	Model    string
+	Duration time.Duration
+}
+
 // ChatEntry represents a single rendered entry in the chat.
 type ChatEntry struct {
-	Role    string // "user", "assistant", "tool", "error"
-	Content string
+	Role       string // "user", "assistant", "tool", "error", "system", "complete"
+	Content    string
+	ToolID     string        // tool call ID for matching updates
+	ToolName   string        // tool name (bash, read, write, etc.)
+	ToolStatus string        // "pending", "success", "error"
+	Meta       *CompleteMeta // for "complete" role entries
 }
 
 // Chat is a scrollable viewport displaying conversation messages.
@@ -20,12 +33,17 @@ type Chat struct {
 	scrollPos int
 	width     int
 	height    int
-	streaming string // content being streamed (not yet committed)
+	streaming string
+	mode      string
+	theme     *styles.Theme
 }
 
 // NewChat creates a new chat component.
 func NewChat() Chat {
-	return Chat{}
+	return Chat{
+		mode:  "build",
+		theme: styles.DefaultTheme,
+	}
 }
 
 // SetSize updates the chat viewport dimensions.
@@ -34,11 +52,27 @@ func (c *Chat) SetSize(width, height int) {
 	c.height = height
 }
 
+// SetMode sets the current agent mode for accent colors.
+func (c *Chat) SetMode(mode string) { c.mode = mode }
+
+// SetTheme sets the theme.
+func (c *Chat) SetTheme(t *styles.Theme) { c.theme = t }
+
 // AddEntry adds a completed message to the chat.
 func (c *Chat) AddEntry(entry ChatEntry) {
 	c.entries = append(c.entries, entry)
 	c.streaming = ""
 	c.scrollToBottom()
+}
+
+// UpdateLastTool updates the last tool entry matching the given ID.
+func (c *Chat) UpdateLastTool(id string, entry ChatEntry) {
+	for i := len(c.entries) - 1; i >= 0; i-- {
+		if c.entries[i].ToolID == id {
+			c.entries[i] = entry
+			return
+		}
+	}
 }
 
 // StreamContent appends to the current streaming content.
@@ -90,8 +124,7 @@ func (c Chat) View() string {
 
 	// Streaming content
 	if c.streaming != "" {
-		prefix := styles.Assistant.Render("assistant") + " "
-		lines = append(lines, prefix+c.streaming)
+		lines = append(lines, "   "+c.streaming)
 	}
 
 	// Apply scroll
@@ -121,30 +154,135 @@ func (c Chat) View() string {
 }
 
 func (c Chat) renderEntry(entry ChatEntry) []string {
-	var prefix string
-	switch entry.Role {
-	case "user":
-		prefix = styles.User.Render("you") + " "
-	case "assistant":
-		prefix = styles.Assistant.Render("assistant") + " "
-	case "tool":
-		prefix = styles.Tool.Render("tool") + " "
-	case "error":
-		prefix = styles.Error.Render("error") + " "
-	case "system":
-		prefix = styles.Muted.Render("~") + " "
+	t := c.theme
+	if t == nil {
+		t = styles.DefaultTheme
 	}
 
-	// Word wrap content to width
-	content := entry.Content
+	switch entry.Role {
+	case "user":
+		return c.renderUserEntry(entry, t)
+	case "assistant":
+		return c.renderAssistantEntry(entry, t)
+	case "tool":
+		return c.renderToolEntry(entry, t)
+	case "error":
+		return c.renderErrorEntry(entry, t)
+	case "system":
+		return c.renderSystemEntry(entry, t)
+	case "complete":
+		return c.renderCompleteEntry(entry, t)
+	default:
+		return []string{entry.Content}
+	}
+}
+
+// renderUserEntry renders user messages with left accent border.
+func (c Chat) renderUserEntry(entry ChatEntry, t *styles.Theme) []string {
+	modeColor := t.ModeColor(c.mode)
+	accentStyle := lipgloss.NewStyle().Foreground(modeColor)
+
+	maxWidth := c.width - 4 // ┃ + space + padding
+	if maxWidth < 20 {
+		maxWidth = 20
+	}
+
+	wrapped := wrapText(entry.Content, maxWidth)
+	contentLines := strings.Split(wrapped, "\n")
+
+	result := make([]string, 0, len(contentLines)+1)
+	for _, line := range contentLines {
+		result = append(result, accentStyle.Render("┃")+" "+line)
+	}
+	result = append(result, accentStyle.Render("╹"))
+	return result
+}
+
+// renderAssistantEntry renders assistant messages with 3-space indent.
+func (c Chat) renderAssistantEntry(entry ChatEntry, _ *styles.Theme) []string {
+	maxWidth := c.width - 3
+	if maxWidth < 20 {
+		maxWidth = 20
+	}
+
+	wrapped := wrapText(entry.Content, maxWidth)
+	lines := strings.Split(wrapped, "\n")
+	result := make([]string, len(lines))
+	for i, line := range lines {
+		result[i] = "   " + line
+	}
+	return result
+}
+
+// toolIcon returns the icon for a tool name.
+func toolIcon(name string) string {
+	switch name {
+	case "bash":
+		return "$"
+	case "read":
+		return "→"
+	case "write", "edit":
+		return "←"
+	case "glob", "grep", "ls":
+		return "⌕"
+	case "todo":
+		return "☐"
+	default:
+		return "·"
+	}
+}
+
+// statusIcon returns the status indicator.
+func statusIcon(status string) string {
+	switch status {
+	case "success":
+		return "✓"
+	case "error":
+		return "✗"
+	default:
+		return "~"
+	}
+}
+
+// renderToolEntry renders inline tool calls with icons.
+func (c Chat) renderToolEntry(entry ChatEntry, t *styles.Theme) []string {
+	icon := toolIcon(entry.ToolName)
+	status := statusIcon(entry.ToolStatus)
+
+	var statusStyle lipgloss.Style
+	switch entry.ToolStatus {
+	case "success":
+		statusStyle = t.SuccessStyle
+	case "error":
+		statusStyle = t.ErrorStyle
+	default:
+		statusStyle = t.TextMutedStyle
+	}
+
+	content := truncateStr(firstLine(entry.Content), 60)
+	line := "   " + statusStyle.Render(status) + " " + icon + " " +
+		t.TextMutedStyle.Render(entry.ToolName) + " · " +
+		t.TextMutedStyle.Render(content)
+
+	return []string{line}
+}
+
+// renderErrorEntry renders error messages.
+func (c Chat) renderErrorEntry(entry ChatEntry, t *styles.Theme) []string {
+	return []string{t.ErrorStyle.Render("error") + " " + entry.Content}
+}
+
+// renderSystemEntry renders system messages with muted ~ prefix.
+func (c Chat) renderSystemEntry(entry ChatEntry, t *styles.Theme) []string {
+	prefix := t.TextMutedStyle.Render("~") + " "
+
 	maxWidth := c.width - lipgloss.Width(prefix)
 	if maxWidth < 20 {
 		maxWidth = 20
 	}
 
-	wrapped := wrapText(content, maxWidth)
+	wrapped := wrapText(entry.Content, maxWidth)
 	lines := strings.Split(wrapped, "\n")
-
 	result := make([]string, len(lines))
 	for i, line := range lines {
 		if i == 0 {
@@ -156,8 +294,25 @@ func (c Chat) renderEntry(entry ChatEntry) []string {
 	return result
 }
 
+// renderCompleteEntry renders the completion info bar.
+func (c Chat) renderCompleteEntry(entry ChatEntry, t *styles.Theme) []string {
+	if entry.Meta == nil {
+		return nil
+	}
+
+	modeColor := t.ModeColor(entry.Meta.Mode)
+	accentStyle := lipgloss.NewStyle().Foreground(modeColor)
+
+	modeLabel := strings.ToUpper(entry.Meta.Mode[:1]) + entry.Meta.Mode[1:]
+	dur := fmt.Sprintf("%.1fs", entry.Meta.Duration.Seconds())
+
+	line := "   " + accentStyle.Render("▣") + " " +
+		t.TextMutedStyle.Render(modeLabel+" · "+entry.Meta.Model+" · "+dur)
+
+	return []string{line}
+}
+
 func (c *Chat) scrollToBottom() {
-	// Set scrollPos to show the bottom
 	c.scrollPos = max(0, c.totalLines()-c.height)
 }
 

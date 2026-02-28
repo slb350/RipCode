@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -27,15 +28,16 @@ type App struct {
 	toolpanel components.ToolPanel
 
 	// Agent state
-	provider  provider.Provider
-	registry  *tool.Registry
-	session   *session.Session
-	agent     agent.Agent
-	model     string // model name for display
-	maxSteps  int
-	streaming bool
-	cancel    context.CancelFunc
-	eventCh   <-chan agent.Event
+	provider      provider.Provider
+	registry      *tool.Registry
+	session       *session.Session
+	agent         agent.Agent
+	model         string // model name for display
+	maxSteps      int
+	streaming     bool
+	responseStart time.Time
+	cancel        context.CancelFunc
+	eventCh       <-chan agent.Event
 }
 
 // NewApp creates the initial application model.
@@ -68,6 +70,7 @@ func (a *App) SetSession(s *session.Session) {
 func (a *App) SetAgent(ag agent.Agent) {
 	a.agent = ag
 	a.input.SetMode(ag.Name)
+	a.chat.SetMode(ag.Name)
 	a.statusbar.SetMode(ag.Name)
 }
 
@@ -126,7 +129,6 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	case msg.Code == tea.KeyEscape:
 		if a.streaming {
-			// Cancel streaming
 			if a.cancel != nil {
 				a.cancel()
 				a.cancel = nil
@@ -165,6 +167,7 @@ func (a App) handleSubmit(input string) (tea.Model, tea.Cmd) {
 
 	a.chat.AddEntry(components.ChatEntry{Role: "user", Content: input})
 	a.streaming = true
+	a.responseStart = time.Now()
 	a.statusbar.SetSpinning(true)
 	a.input.Blur()
 
@@ -185,6 +188,15 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 
 	case agent.EventToolStart:
 		if event.Tool != nil {
+			// Inline tool call in chat
+			a.chat.AddEntry(components.ChatEntry{
+				Role:       "tool",
+				Content:    toolSummary(event.Tool),
+				ToolID:     event.Tool.ID,
+				ToolName:   event.Tool.Name,
+				ToolStatus: "pending",
+			})
+			// Keep toolpanel in sync for backward compat
 			a.toolpanel.AddEvent(agent.ToolEvent{
 				ID:   event.Tool.ID,
 				Name: event.Tool.Name,
@@ -195,6 +207,21 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 
 	case agent.EventToolEnd:
 		if event.Tool != nil {
+			status := "success"
+			if event.Tool.Error != "" {
+				status = "error"
+			}
+			content := event.Tool.Output
+			if status == "error" {
+				content = event.Tool.Error
+			}
+			a.chat.UpdateLastTool(event.Tool.ID, components.ChatEntry{
+				Role:       "tool",
+				Content:    content,
+				ToolID:     event.Tool.ID,
+				ToolName:   event.Tool.Name,
+				ToolStatus: status,
+			})
 			a.toolpanel.AddEvent(agent.ToolEvent{
 				ID:     event.Tool.ID,
 				Name:   event.Tool.Name,
@@ -213,6 +240,20 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 		if a.session != nil {
 			a.statusbar.SetTokens(a.session.Tokens.Input + a.session.Tokens.Output)
 		}
+		// Add completion bar
+		dur := time.Since(a.responseStart)
+		modeName := a.agent.Name
+		if modeName == "" {
+			modeName = "build"
+		}
+		a.chat.AddEntry(components.ChatEntry{
+			Role: "complete",
+			Meta: &components.CompleteMeta{
+				Mode:     modeName,
+				Model:    a.model,
+				Duration: dur,
+			},
+		})
 		return a, nil
 
 	case agent.EventError:
@@ -231,6 +272,21 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 	}
 
 	return a, nil
+}
+
+// toolSummary extracts a short summary from tool args.
+func toolSummary(te *agent.ToolEvent) string {
+	if te.Args != "" {
+		s := te.Args
+		if idx := strings.IndexByte(s, '\n'); idx >= 0 {
+			s = s[:idx]
+		}
+		if len(s) > 80 {
+			s = s[:77] + "..."
+		}
+		return s
+	}
+	return te.Name
 }
 
 // listenForEvents returns a cmd that reads events from the channel.
@@ -256,12 +312,8 @@ func (a *App) showWelcome() {
 func (a *App) layout() {
 	statusH := 1
 	inputH := 5 // accent border + cap + badge + hints + spacing
-	toolH := 0
-	if tv := a.toolpanel.View(); tv != "" {
-		toolH = strings.Count(tv, "\n") + 1
-	}
 
-	chatH := a.height - statusH - inputH - toolH
+	chatH := a.height - statusH - inputH
 	if chatH < 1 {
 		chatH = 1
 	}
@@ -285,9 +337,6 @@ func (a App) View() tea.View {
 	sb.WriteByte('\n')
 	sb.WriteString(a.chat.View())
 	sb.WriteByte('\n')
-	if tv := a.toolpanel.View(); tv != "" {
-		sb.WriteString(tv)
-	}
 	sb.WriteString(a.input.View())
 
 	v := tea.NewView(sb.String())

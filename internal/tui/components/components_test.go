@@ -2,6 +2,7 @@ package components
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stephenbrandon/ripcode/internal/agent"
 	"github.com/stretchr/testify/assert"
@@ -16,6 +17,107 @@ func TestChat_AddEntry(t *testing.T) {
 	c.AddEntry(ChatEntry{Role: "user", Content: "hello"})
 	view := c.View()
 	assert.Contains(t, view, "hello")
+}
+
+func TestChat_UserMessage_HasAccentBorder(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+
+	c.AddEntry(ChatEntry{Role: "user", Content: "Fix the bug"})
+	view := c.View()
+	assert.Contains(t, view, "┃", "user message should have left accent border")
+	assert.Contains(t, view, "Fix the bug")
+}
+
+func TestChat_AssistantMessage_HasIndent(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+
+	c.AddEntry(ChatEntry{Role: "assistant", Content: "Here is my analysis"})
+	view := c.View()
+	assert.Contains(t, view, "   Here is my analysis", "assistant message should have 3-space indent")
+}
+
+func TestChat_ToolCall_ShowsIcon(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+
+	c.AddEntry(ChatEntry{Role: "tool", Content: "ls -la", ToolName: "bash", ToolStatus: "success"})
+	view := c.View()
+	assert.Contains(t, view, "$", "bash tool should show $ icon")
+	assert.Contains(t, view, "✓", "success tool should show ✓")
+}
+
+func TestChat_ToolCall_ReadIcon(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+
+	c.AddEntry(ChatEntry{Role: "tool", Content: "main.go", ToolName: "read", ToolStatus: "success"})
+	view := c.View()
+	assert.Contains(t, view, "→", "read tool should show → icon")
+}
+
+func TestChat_ToolCall_WriteIcon(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+
+	c.AddEntry(ChatEntry{Role: "tool", Content: "main.go", ToolName: "write", ToolStatus: "success"})
+	view := c.View()
+	assert.Contains(t, view, "←", "write tool should show ← icon")
+}
+
+func TestChat_ToolCall_GlobIcon(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+
+	c.AddEntry(ChatEntry{Role: "tool", Content: "*.go", ToolName: "glob", ToolStatus: "success"})
+	view := c.View()
+	assert.Contains(t, view, "⌕", "glob tool should show ⌕ icon")
+}
+
+func TestChat_ToolCall_PendingStatus(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+
+	c.AddEntry(ChatEntry{Role: "tool", Content: "ls", ToolName: "bash", ToolStatus: "pending"})
+	view := c.View()
+	assert.Contains(t, view, "~", "pending tool should show ~")
+}
+
+func TestChat_ToolCall_ErrorStatus(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+
+	c.AddEntry(ChatEntry{Role: "tool", Content: "failed", ToolName: "write", ToolStatus: "error"})
+	view := c.View()
+	assert.Contains(t, view, "✗", "error tool should show ✗")
+}
+
+func TestChat_CompletionBar(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+
+	c.AddEntry(ChatEntry{
+		Role: "complete",
+		Meta: &CompleteMeta{Mode: "build", Model: "glm-5", Duration: 4700 * time.Millisecond},
+	})
+	view := c.View()
+	assert.Contains(t, view, "▣", "completion bar should show mode icon")
+	assert.Contains(t, view, "Build", "completion bar should show mode name")
+	assert.Contains(t, view, "glm-5", "completion bar should show model")
+	assert.Contains(t, view, "4.7s", "completion bar should show duration")
+}
+
+func TestChat_UpdateLastTool(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+
+	c.AddEntry(ChatEntry{Role: "tool", Content: "ls", ToolName: "bash", ToolStatus: "pending", ToolID: "t1"})
+	c.UpdateLastTool("t1", ChatEntry{Role: "tool", Content: "file.go", ToolName: "bash", ToolStatus: "success", ToolID: "t1"})
+
+	view := c.View()
+	assert.Contains(t, view, "✓")
+	assert.NotContains(t, view, "~")
 }
 
 func TestChat_StreamAndCommit(t *testing.T) {
