@@ -31,3 +31,7 @@ reference/
 
 # Go
 vendor/
+
+# Project instructions (local only)
+CLAUDE.md
+AGENTS.md
