@@ -26,6 +26,9 @@ bin/
 .DS_Store
 Thumbs.db
 
+# Temporary files
+.tmp*
+
 # Reference repos (cloned for study, not part of this project)
 reference/
 
