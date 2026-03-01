@@ -34,6 +34,15 @@ func (s *PromptStash) Push(content string) string {
 	return id
 }
 
+// PushWithID saves content with a specific ID (used for loading from disk).
+func (s *PromptStash) PushWithID(id, content string) {
+	s.entries = append(s.entries, StashEntry{
+		ID:        id,
+		Content:   content,
+		CreatedAt: time.Now(),
+	})
+}
+
 // Pop removes and returns the most recent entry.
 func (s *PromptStash) Pop() (StashEntry, bool) {
 	if len(s.entries) == 0 {

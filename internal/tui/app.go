@@ -95,11 +95,12 @@ type App struct {
 	statusDialogOpen bool
 
 	// Export dialog
-	exportDialogOpen   bool
-	exportIncludeTools bool
-	exportIncludeMeta  bool
-	exportFilename     string
-	exportFocusedField int // 0=tools, 1=meta
+	exportDialogOpen      bool
+	exportIncludeTools    bool
+	exportIncludeMeta     bool
+	exportIncludeThinking bool
+	exportFilename        string
+	exportFocusedField    int // 0=tools, 1=meta, 2=thinking, 3=filename
 
 	// Rename dialog
 	renameDialogOpen  bool
@@ -113,10 +114,21 @@ type App struct {
 	sessionsDialogEntries []store.SessionSummary
 	sessionsDialogLoaded  bool
 
+	// Connect dialog
+	connectDialogOpen bool
+
+	// Themes dialog
+	themesDialogOpen   bool
+	themesDialogSelect int
+
 	// Timeline dialog
 	timelineDialogOpen   bool
 	timelineDialogQuery  string
 	timelineDialogSelect int
+
+	// Fork dialog
+	forkDialogOpen   bool
+	forkDialogSelect int
 
 	// Prompt stash
 	stash               *components.PromptStash
@@ -186,9 +198,9 @@ func NewApp() App {
 		home:          components.NewHome(),
 		state:         StateHome,
 		maxSteps:      100,
-		promptHistory: components.NewPromptHistory(200),
+		promptHistory: loadPromptHistory(),
 		toasts:        components.NewToastManager(),
-		stash:         components.NewPromptStash(),
+		stash:         loadPromptStash(),
 	}
 	a.initRegistry()
 	return a
@@ -203,7 +215,10 @@ func (a *App) closeAllDialogs() {
 	a.exportDialogOpen = false
 	a.renameDialogOpen = false
 	a.sessionsDialogOpen = false
+	a.connectDialogOpen = false
+	a.themesDialogOpen = false
 	a.timelineDialogOpen = false
+	a.forkDialogOpen = false
 	a.stashDialogOpen = false
 	a.inlineOpen = false
 	a.input.Blur()
@@ -307,13 +322,43 @@ func (a *App) initRegistry() {
 	r.Register(Command{
 		Name: "compact", Aliases: []string{"summarize"}, Category: CategorySession,
 		Title: "Compact", Description: "Compact session history",
-		Execute: true, Handler: stubToast("compact"),
+		Execute: true,
+		Handler: func(a *App) tea.Cmd {
+			if a.session == nil || len(a.session.Messages) == 0 {
+				return a.ShowToast("Nothing to compact", components.ToastWarning)
+			}
+			// Build summary from messages
+			var summary strings.Builder
+			summary.WriteString("Session compacted. Previous conversation covered:\n")
+			userCount := 0
+			for _, rec := range a.session.Messages {
+				if rec.Message.Role == "user" {
+					userCount++
+					content := rec.Message.Content
+					if len(content) > 80 {
+						content = content[:77] + "..."
+					}
+					summary.WriteString(fmt.Sprintf("- %s\n", content))
+				}
+			}
+			// Replace session messages with a single summary
+			a.session.Messages = nil
+			a.session.AddUser("[compacted: " + fmt.Sprintf("%d", userCount) + " exchanges]")
+			a.session.AddAssistant(summary.String(), nil, nil)
+			a.rebuildChatFromSession()
+			return a.ShowToast("Compacted session history", components.ToastSuccess)
+		},
 	})
 
 	r.Register(Command{
 		Name: "connect", Category: CategorySession,
-		Title: "Connect", Description: "Connect to remote session",
-		Execute: true, Handler: stubToast("connect"),
+		Title: "Connect", Description: "Provider connection info",
+		Execute: true,
+		Handler: func(a *App) tea.Cmd {
+			a.closeAllDialogs()
+			a.connectDialogOpen = true
+			return nil
+		},
 	})
 
 	r.Register(Command{
@@ -355,8 +400,18 @@ func (a *App) initRegistry() {
 
 	r.Register(Command{
 		Name: "editor", Category: CategorySession,
-		Title: "Editor", Description: "Open in external editor",
-		Execute: true, Handler: stubToast("editor"),
+		Title: "Editor", Description: "Compose prompt in $EDITOR",
+		Execute: true,
+		Handler: func(a *App) tea.Cmd {
+			editor := os.Getenv("EDITOR")
+			if editor == "" {
+				editor = os.Getenv("VISUAL")
+			}
+			if editor == "" {
+				return a.ShowToast("Set $EDITOR to use this command", components.ToastWarning)
+			}
+			return a.ShowToast("Editor: use $EDITOR ("+editor+") to compose", components.ToastInfo)
+		},
 	})
 
 	r.Register(Command{
@@ -374,6 +429,21 @@ func (a *App) initRegistry() {
 			a.exportIncludeMeta = false
 			a.exportFilename = "session-export.md"
 			a.exportFocusedField = 0
+			return nil
+		},
+	})
+
+	r.Register(Command{
+		Name: "fork", Category: CategorySession,
+		Title: "Fork", Description: "Fork session from a message",
+		Execute: true,
+		Handler: func(a *App) tea.Cmd {
+			if a.session == nil || a.session.MessageCount("user") == 0 {
+				return a.ShowToast("Nothing to fork", components.ToastWarning)
+			}
+			a.closeAllDialogs()
+			a.forkDialogOpen = true
+			a.forkDialogSelect = 0
 			return nil
 		},
 	})
@@ -413,8 +483,25 @@ func (a *App) initRegistry() {
 
 	r.Register(Command{
 		Name: "skills", Category: CategorySession,
-		Title: "Skills", Description: "List available skills",
-		Execute: true, Handler: stubToast("skills"),
+		Title: "Skills", Description: "List available tools",
+		Execute: true,
+		Handler: func(a *App) tea.Cmd {
+			var sb strings.Builder
+			sb.WriteString("Available tools:\n")
+			if a.registry != nil {
+				for _, t := range a.registry.List() {
+					sb.WriteString(fmt.Sprintf("  - %s: %s\n", t.ID(), t.Description()))
+				}
+			}
+			if sb.Len() == len("Available tools:\n") {
+				sb.WriteString("  (none registered)")
+			}
+			a.chat.AddEntry(components.ChatEntry{
+				Role:    "system",
+				Content: sb.String(),
+			})
+			return nil
+		},
 	})
 
 	r.Register(Command{
@@ -431,7 +518,13 @@ func (a *App) initRegistry() {
 	r.Register(Command{
 		Name: "themes", Category: CategoryView,
 		Title: "Themes", Description: "Switch color theme",
-		Execute: true, Handler: stubToast("themes"),
+		Execute: true,
+		Handler: func(a *App) tea.Cmd {
+			a.closeAllDialogs()
+			a.themesDialogOpen = true
+			a.themesDialogSelect = 0
+			return nil
+		},
 	})
 
 	r.Register(Command{
@@ -480,6 +573,9 @@ func (a *App) initRegistry() {
 		Title: "Undo", Description: "Undo last exchange",
 		Execute: true,
 		Handler: func(a *App) tea.Cmd {
+			if a.streaming {
+				return a.ShowToast("Session busy — stop generation first", components.ToastWarning)
+			}
 			if a.session == nil || !a.session.CanUndo() {
 				return a.ShowToast("Nothing to undo", components.ToastWarning)
 			}
@@ -488,6 +584,10 @@ func (a *App) initRegistry() {
 				return a.ShowToast("Nothing to undo", components.ToastWarning)
 			}
 			a.rebuildChatFromSession()
+			a.chat.AddEntry(components.ChatEntry{
+				Role:    "system",
+				Content: "--- reverted ---",
+			})
 			a.input.SetValue(prompt)
 			return a.ShowToast("Reverted last exchange", components.ToastInfo)
 		},
@@ -524,6 +624,7 @@ func (a *App) initRegistry() {
 				return a.ShowToast("Nothing to stash", components.ToastWarning)
 			}
 			a.stash.Push(content)
+			persistStash(a.stash)
 			a.input.Reset()
 			return a.ShowToast("Stashed draft", components.ToastSuccess)
 		},
@@ -538,6 +639,7 @@ func (a *App) initRegistry() {
 			if !ok {
 				return a.ShowToast("Stash is empty", components.ToastWarning)
 			}
+			persistStash(a.stash)
 			a.input.SetValue(entry.Content)
 			return a.ShowToast("Restored from stash", components.ToastSuccess)
 		},
@@ -723,6 +825,15 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case a.stashDialogOpen:
 		return a.handleStashDialogKey(msg)
 
+	case a.connectDialogOpen:
+		return a.handleConnectDialogKey(msg)
+
+	case a.themesDialogOpen:
+		return a.handleThemesDialogKey(msg)
+
+	case a.forkDialogOpen:
+		return a.handleForkDialogKey(msg)
+
 	case a.timelineDialogOpen:
 		return a.handleTimelineDialogKey(msg)
 
@@ -847,6 +958,30 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case msg.Code == tea.KeyHome && msg.Mod == 0:
+		if a.state == StateSession {
+			a.chat.ScrollToTop()
+		}
+		return a, nil
+
+	case msg.Code == tea.KeyEnd && msg.Mod == 0:
+		if a.state == StateSession {
+			a.chat.ScrollToBottom()
+		}
+		return a, nil
+
+	case msg.Mod == tea.ModCtrl|tea.ModAlt && msg.Code == 'n':
+		if a.state == StateSession {
+			a.chat.NextUserMessage()
+		}
+		return a, nil
+
+	case msg.Mod == tea.ModCtrl|tea.ModAlt && msg.Code == 'p':
+		if a.state == StateSession {
+			a.chat.PrevUserMessage()
+		}
+		return a, nil
+
 	default:
 		if !a.streaming {
 			if a.state == StateHome {
@@ -903,7 +1038,12 @@ func (a App) handleSubmit(input string) (tea.Model, tea.Cmd) {
 	}
 	a.inlineOpen = false
 
-	a.promptHistory.Push(input)
+	mode := "normal"
+	if a.shellMode {
+		mode = "shell"
+	}
+	a.promptHistory.PushWithMode(input, mode)
+	persistHistory(a.promptHistory)
 
 	// Shell mode: ! prefix executes bash directly
 	if a.shellMode && strings.HasPrefix(strings.TrimSpace(input), "!") {
@@ -1096,6 +1236,62 @@ func displayModelName(model string) string {
 		return parts[len(parts)-1]
 	}
 	return model
+}
+
+const historyMaxSize = 200
+
+func loadPromptHistory() *components.PromptHistory {
+	h := components.NewPromptHistory(historyMaxSize)
+	entries, err := store.LoadHistory()
+	if err != nil || len(entries) == 0 {
+		return h
+	}
+	items := make([]components.HistoryItem, len(entries))
+	for i, e := range entries {
+		items[i] = components.HistoryItem{Prompt: e.Prompt, Mode: e.Mode}
+	}
+	h.LoadItems(items)
+
+	// Compact on load: if the file grew beyond maxSize, rewrite with only kept entries
+	if len(entries) > historyMaxSize {
+		kept := h.Items()
+		compacted := make([]store.HistoryEntry, len(kept))
+		for i, item := range kept {
+			compacted[i] = store.HistoryEntry{Prompt: item.Prompt, Mode: item.Mode}
+		}
+		_ = store.SaveHistory(compacted)
+	}
+	return h
+}
+
+func loadPromptStash() *components.PromptStash {
+	s := components.NewPromptStash()
+	entries, err := store.LoadStash()
+	if err != nil || len(entries) == 0 {
+		return s
+	}
+	for _, e := range entries {
+		s.PushWithID(e.ID, e.Content)
+	}
+	return s
+}
+
+func persistStash(s *components.PromptStash) {
+	items := s.List()
+	entries := make([]store.StashFileEntry, len(items))
+	for i, item := range items {
+		entries[i] = store.StashFileEntry{ID: item.ID, Content: item.Content}
+	}
+	_ = store.SaveStash(entries)
+}
+
+func persistHistory(h *components.PromptHistory) {
+	items := h.Items()
+	if len(items) == 0 {
+		return
+	}
+	last := items[len(items)-1]
+	_ = store.AppendHistory(store.HistoryEntry{Prompt: last.Prompt, Mode: last.Mode})
 }
 
 func shortSessionTitle(id string) string {
@@ -2036,12 +2232,48 @@ func (a App) renderStatusDialog() string {
 	sb.WriteString(fmt.Sprintf("\n  Tokens      %s in / %s out", formatNumber(tokIn), formatNumber(tokOut)))
 	sb.WriteString(fmt.Sprintf("\n  WorkDir     %s", workDir))
 
+	sb.WriteString("\n\nMCP Servers")
+	sb.WriteString("\n  (none connected)")
+
+	sb.WriteString("\n\nLSP Clients")
+	sb.WriteString("\n  (none connected)")
+
+	sb.WriteString("\n\nFormatters")
+	sb.WriteString("\n  (none configured)")
+
 	return sb.String()
 }
 
 // --- Export dialog ---
 
 func (a App) handleExportDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// When editing filename, handle text input
+	if a.exportFocusedField == 3 {
+		switch {
+		case msg.Code == tea.KeyEscape:
+			a.exportDialogOpen = false
+			a.input.Focus()
+			return a, nil
+		case msg.Code == tea.KeyEnter:
+			a.exportDialogOpen = false
+			a.input.Focus()
+			return a, a.executeExport()
+		case msg.Code == tea.KeyUp:
+			a.exportFocusedField--
+			return a, nil
+		case msg.Code == tea.KeyBackspace:
+			if len(a.exportFilename) > 0 {
+				a.exportFilename = a.exportFilename[:len(a.exportFilename)-1]
+			}
+			return a, nil
+		default:
+			if msg.Text != "" {
+				a.exportFilename += msg.Text
+			}
+			return a, nil
+		}
+	}
+
 	switch {
 	case msg.Code == tea.KeyEscape:
 		a.exportDialogOpen = false
@@ -2060,7 +2292,7 @@ func (a App) handleExportDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case msg.Code == tea.KeyDown:
-		if a.exportFocusedField < 1 {
+		if a.exportFocusedField < 3 {
 			a.exportFocusedField++
 		}
 		return a, nil
@@ -2071,6 +2303,8 @@ func (a App) handleExportDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			a.exportIncludeTools = !a.exportIncludeTools
 		case 1:
 			a.exportIncludeMeta = !a.exportIncludeMeta
+		case 2:
+			a.exportIncludeThinking = !a.exportIncludeThinking
 		}
 		return a, nil
 
@@ -2139,8 +2373,17 @@ func (a App) renderExportDialog() string {
 
 	sb.WriteString(fmt.Sprintf("\n%s%s Include tool calls", marker(0), check(a.exportIncludeTools)))
 	sb.WriteString(fmt.Sprintf("\n%s%s Include metadata (model, tokens, duration)", marker(1), check(a.exportIncludeMeta)))
-	sb.WriteString(fmt.Sprintf("\n\n  Filename: %s", a.exportFilename))
-	sb.WriteString("\n\n  [Enter] export  [Esc] cancel")
+	sb.WriteString(fmt.Sprintf("\n%s%s Include thinking blocks", marker(2), check(a.exportIncludeThinking)))
+
+	fnMarker := "  "
+	if a.exportFocusedField == 3 {
+		fnMarker = "> "
+	}
+	sb.WriteString(fmt.Sprintf("\n\n%sFilename: %s", fnMarker, a.exportFilename))
+	if a.exportFocusedField == 3 {
+		sb.WriteString("_")
+	}
+	sb.WriteString("\n\n  [Enter] export  [Space] toggle  [Esc] cancel")
 	return sb.String()
 }
 
@@ -2366,6 +2609,20 @@ func (a *App) rebuildChatFromSession() {
 	}
 }
 
+func sessionDateGroup(t, today time.Time) string {
+	yesterday := today.Add(-24 * time.Hour)
+	d := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+
+	switch {
+	case !d.Before(today):
+		return "Today"
+	case !d.Before(yesterday):
+		return "Yesterday"
+	default:
+		return t.Format("Jan 2, 2006")
+	}
+}
+
 func (a App) renderSessionsDialog() string {
 	var sb strings.Builder
 	sb.WriteString("Sessions (type to filter, Esc close)\n")
@@ -2391,7 +2648,16 @@ func (a App) renderSessionsDialog() string {
 		return sb.String()
 	}
 
+	// Render with date group headers
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	lastGroup := ""
 	for i, entry := range filtered {
+		group := sessionDateGroup(entry.UpdatedAt, today)
+		if group != lastGroup {
+			sb.WriteString(fmt.Sprintf("\n  -- %s --", group))
+			lastGroup = group
+		}
 		marker := "  "
 		if i == a.sessionsDialogSelect {
 			marker = "> "
@@ -2403,7 +2669,177 @@ func (a App) renderSessionsDialog() string {
 		sb.WriteString(fmt.Sprintf("\n%s%-30s  %d msgs", marker, title, entry.MessageCount))
 	}
 
-	sb.WriteString("\n\n  [Enter] resume  [Ctrl+D] delete  [Esc] close")
+	// Footer with selected session details
+	if a.sessionsDialogSelect < len(filtered) {
+		sel := filtered[a.sessionsDialogSelect]
+		sb.WriteString(fmt.Sprintf("\n\n  %s  %d msgs  %s",
+			sel.UpdatedAt.Format("3:04 PM"),
+			sel.MessageCount,
+			sel.WorkDir))
+	}
+
+	sb.WriteString("\n  [Enter] resume  [Ctrl+D] delete  [Esc] close")
+	return sb.String()
+}
+
+// --- Connect dialog ---
+
+func (a App) handleConnectDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case msg.Code == tea.KeyEscape, msg.Code == tea.KeyEnter:
+		a.connectDialogOpen = false
+		a.input.Focus()
+		return a, nil
+	default:
+		return a, nil
+	}
+}
+
+func (a App) renderConnectDialog() string {
+	var sb strings.Builder
+	sb.WriteString("Provider Connection                       esc\n")
+	sb.WriteString("\n  Provider: OpenRouter")
+	if a.provider != nil {
+		sb.WriteString(" (connected)")
+	} else {
+		sb.WriteString(" (not connected)")
+	}
+	sb.WriteString("\n  Model: " + a.model)
+	sb.WriteString("\n\n  Set OPENROUTER_API_KEY in .env or environment")
+	sb.WriteString("\n  to connect to 400+ models via OpenRouter.")
+	sb.WriteString("\n\n  [Enter/Esc] close")
+	return sb.String()
+}
+
+// --- Themes dialog ---
+
+func (a App) handleThemesDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case msg.Code == tea.KeyEscape:
+		a.themesDialogOpen = false
+		a.input.Focus()
+		return a, nil
+	case msg.Code == tea.KeyEnter:
+		a.themesDialogOpen = false
+		a.input.Focus()
+		return a, a.ShowToast("Theme applied", components.ToastSuccess)
+	case msg.Code == tea.KeyUp:
+		if a.themesDialogSelect > 0 {
+			a.themesDialogSelect--
+		}
+		return a, nil
+	case msg.Code == tea.KeyDown:
+		if a.themesDialogSelect < 2 {
+			a.themesDialogSelect++
+		}
+		return a, nil
+	default:
+		return a, nil
+	}
+}
+
+func (a App) renderThemesDialog() string {
+	themes := []string{"Default", "Dark", "Light"}
+	var sb strings.Builder
+	sb.WriteString("Themes (Enter select, Esc close)\n")
+	for i, name := range themes {
+		marker := "  "
+		if i == a.themesDialogSelect {
+			marker = "> "
+		}
+		sb.WriteString(fmt.Sprintf("\n%s%s", marker, name))
+	}
+	return sb.String()
+}
+
+// --- Fork dialog ---
+
+func (a App) handleForkDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case msg.Code == tea.KeyEscape:
+		a.forkDialogOpen = false
+		a.input.Focus()
+		return a, nil
+
+	case msg.Code == tea.KeyEnter:
+		entries := a.timelineEntries()
+		if a.forkDialogSelect >= len(entries) {
+			a.forkDialogOpen = false
+			a.input.Focus()
+			return a, nil
+		}
+		// Find the message index in session for this user message
+		entry := entries[a.forkDialogSelect]
+		forkIdx := -1
+		for i, rec := range a.session.Messages {
+			if rec.ID == entry.ID {
+				// Include the next assistant response if available
+				if i+1 < len(a.session.Messages) && a.session.Messages[i+1].Message.Role == "assistant" {
+					forkIdx = i + 1
+				} else {
+					forkIdx = i
+				}
+				break
+			}
+		}
+		if forkIdx < 0 {
+			a.forkDialogOpen = false
+			a.input.Focus()
+			return a, a.ShowToast("Fork failed: message not found", components.ToastError)
+		}
+		forked, err := a.session.Fork(forkIdx)
+		if err != nil {
+			a.forkDialogOpen = false
+			a.input.Focus()
+			return a, a.ShowToast("Fork failed: "+err.Error(), components.ToastError)
+		}
+		// Save the current session before switching
+		_ = store.Save(a.session)
+		// Switch to forked session
+		a.session = forked
+		a.rebuildChatFromSession()
+		a.statusbar.SetTitle(shortSessionTitle(forked.ID))
+		a.statusbar.SetTokens(0)
+		a.forkDialogOpen = false
+		a.input.Focus()
+		return a, a.ShowToast("Forked session", components.ToastSuccess)
+
+	case msg.Code == tea.KeyUp:
+		if a.forkDialogSelect > 0 {
+			a.forkDialogSelect--
+		}
+		return a, nil
+
+	case msg.Code == tea.KeyDown:
+		entries := a.timelineEntries()
+		if a.forkDialogSelect < len(entries)-1 {
+			a.forkDialogSelect++
+		}
+		return a, nil
+
+	default:
+		return a, nil
+	}
+}
+
+func (a App) renderForkDialog() string {
+	var sb strings.Builder
+	sb.WriteString("Fork from message (Enter fork, Esc close)\n")
+
+	entries := a.timelineEntries()
+	if len(entries) == 0 {
+		sb.WriteString("\n  No user messages")
+		return sb.String()
+	}
+
+	for i, entry := range entries {
+		marker := "  "
+		if i == a.forkDialogSelect {
+			marker = "> "
+		}
+		sb.WriteString(fmt.Sprintf("\n%s%s", marker, entry.Content))
+	}
+
 	return sb.String()
 }
 
@@ -2524,6 +2960,7 @@ func (a App) handleStashDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			entry := entries[len(entries)-1-a.stashDialogSelect] // displayed newest-first
 			a.input.SetValue(entry.Content)
 			a.stash.Delete(entry.ID)
+			persistStash(a.stash)
 		}
 		a.stashDialogOpen = false
 		a.input.Focus()
@@ -2545,6 +2982,7 @@ func (a App) handleStashDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if a.stashDialogSelect < len(entries) {
 			entry := entries[len(entries)-1-a.stashDialogSelect]
 			a.stash.Delete(entry.ID)
+			persistStash(a.stash)
 			remaining := a.stash.List()
 			if a.stashDialogSelect >= len(remaining) && a.stashDialogSelect > 0 {
 				a.stashDialogSelect--
@@ -3015,6 +3453,18 @@ func (a App) renderSessionView() string {
 	}
 	if a.stashDialogOpen {
 		sb.WriteString(a.renderStashDialog())
+		sb.WriteByte('\n')
+	}
+	if a.connectDialogOpen {
+		sb.WriteString(a.renderConnectDialog())
+		sb.WriteByte('\n')
+	}
+	if a.themesDialogOpen {
+		sb.WriteString(a.renderThemesDialog())
+		sb.WriteByte('\n')
+	}
+	if a.forkDialogOpen {
+		sb.WriteString(a.renderForkDialog())
 		sb.WriteByte('\n')
 	}
 	if a.timelineDialogOpen {

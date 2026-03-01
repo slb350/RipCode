@@ -12,6 +12,7 @@ import (
 type Session struct {
 	ID           string
 	Title        string
+	ParentID     string
 	Messages     []MessageRecord
 	WorkDir      string
 	CreatedAt    time.Time
@@ -160,6 +161,55 @@ func (s *Session) Reset() {
 	now := time.Now()
 	s.CreatedAt = now
 	s.UpdatedAt = now
+}
+
+// Fork creates a new session containing messages up to and including the
+// given index. The new session gets a fresh ID, links back via ParentID,
+// and preserves the system prompt. Message records are deep-copied with
+// new IDs so the fork is fully independent.
+func (s *Session) Fork(upToIndex int) (*Session, error) {
+	if len(s.Messages) == 0 {
+		return nil, fmt.Errorf("cannot fork empty session")
+	}
+	if upToIndex < 0 || upToIndex >= len(s.Messages) {
+		return nil, fmt.Errorf("fork index %d out of range [0, %d)", upToIndex, len(s.Messages))
+	}
+
+	now := time.Now()
+	forked := &Session{
+		ID:        generateID(),
+		ParentID:  s.ID,
+		WorkDir:   s.WorkDir,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	if s.systemPrompt != "" {
+		forked.SetSystemPrompt(s.systemPrompt)
+	}
+
+	src := s.Messages[:upToIndex+1]
+	forked.Messages = make([]MessageRecord, len(src))
+	for i, rec := range src {
+		forked.Messages[i] = MessageRecord{
+			ID:        generateMessageID(),
+			Message:   rec.Message,
+			CreatedAt: rec.CreatedAt,
+		}
+		// Deep-copy tool calls slice
+		if len(rec.Message.ToolCalls) > 0 {
+			tc := make([]provider.ToolCall, len(rec.Message.ToolCalls))
+			copy(tc, rec.Message.ToolCalls)
+			forked.Messages[i].Message.ToolCalls = tc
+		}
+		// Deep-copy meta
+		if rec.Meta != nil {
+			meta := *rec.Meta
+			forked.Messages[i].Meta = &meta
+		}
+	}
+
+	return forked, nil
 }
 
 // AddTokens accumulates token usage.

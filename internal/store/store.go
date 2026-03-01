@@ -19,3 +19,8 @@ func Dir() string {
 func SessionsDir() string {
 	return filepath.Join(Dir(), "sessions")
 }
+
+// StateDir returns the state subdirectory for persistent UI state.
+func StateDir() string {
+	return filepath.Join(Dir(), "state")
+}

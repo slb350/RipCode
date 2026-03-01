@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/stephenbrandon/ripcode/internal/agent"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // --- Chat tests ---
@@ -875,6 +876,63 @@ func TestPromptHistory_ModifyRecalled_DiscardOnNavigate(t *testing.T) {
 	p, ok := h.Previous()
 	assert.True(t, ok)
 	assert.Equal(t, "first", p, "modification should be discarded")
+}
+
+func TestPromptHistory_PushWithMode_TracksMode(t *testing.T) {
+	h := NewPromptHistory(10)
+	h.PushWithMode("hello", "normal")
+	h.PushWithMode("!ls", "shell")
+	items := h.Items()
+	require.Len(t, items, 2)
+	assert.Equal(t, "normal", items[0].Mode)
+	assert.Equal(t, "shell", items[1].Mode)
+}
+
+func TestPromptHistory_PushWithMode_NavigatesLikeRegularPush(t *testing.T) {
+	h := NewPromptHistory(10)
+	h.PushWithMode("alpha", "normal")
+	h.PushWithMode("beta", "shell")
+	p, ok := h.Previous()
+	assert.True(t, ok)
+	assert.Equal(t, "beta", p)
+	p, ok = h.Previous()
+	assert.True(t, ok)
+	assert.Equal(t, "alpha", p)
+}
+
+func TestPromptHistory_Push_DefaultsToNormalMode(t *testing.T) {
+	h := NewPromptHistory(10)
+	h.Push("test")
+	items := h.Items()
+	require.Len(t, items, 1)
+	assert.Equal(t, "normal", items[0].Mode)
+}
+
+func TestPromptHistory_LoadItems_RestoresState(t *testing.T) {
+	h := NewPromptHistory(10)
+	h.LoadItems([]HistoryItem{
+		{Prompt: "one", Mode: "normal"},
+		{Prompt: "two", Mode: "shell"},
+	})
+	p, ok := h.Previous()
+	assert.True(t, ok)
+	assert.Equal(t, "two", p)
+	p, ok = h.Previous()
+	assert.True(t, ok)
+	assert.Equal(t, "one", p)
+}
+
+func TestPromptHistory_LoadItems_RespectsMaxSize(t *testing.T) {
+	h := NewPromptHistory(2)
+	h.LoadItems([]HistoryItem{
+		{Prompt: "a", Mode: "normal"},
+		{Prompt: "b", Mode: "normal"},
+		{Prompt: "c", Mode: "normal"},
+	})
+	items := h.Items()
+	assert.Len(t, items, 2)
+	assert.Equal(t, "b", items[0].Prompt)
+	assert.Equal(t, "c", items[1].Prompt)
 }
 
 // --- Toast tests ---

@@ -420,3 +420,155 @@ func TestSession_RevertClearsRedoOnNewMessage(t *testing.T) {
 	err := s.Unrevert()
 	assert.Error(t, err, "should not be able to redo after new message")
 }
+
+func TestFork_CopiesMessagesUpToIndex(t *testing.T) {
+	s := New("/tmp/test")
+	s.Title = "original"
+	s.AddUser("q1")
+	s.AddAssistant("a1", nil, nil)
+	s.AddUser("q2")
+	s.AddAssistant("a2", nil, nil)
+
+	forked, err := s.Fork(1) // include messages 0..1 (q1 + a1)
+	require.NoError(t, err)
+	assert.Len(t, forked.Messages, 2)
+	assert.Equal(t, "q1", forked.Messages[0].Message.Content)
+	assert.Equal(t, "a1", forked.Messages[1].Message.Content)
+}
+
+func TestFork_GetsNewID(t *testing.T) {
+	s := New("/tmp/test")
+	s.AddUser("q1")
+	s.AddAssistant("a1", nil, nil)
+
+	forked, err := s.Fork(1)
+	require.NoError(t, err)
+	assert.NotEqual(t, s.ID, forked.ID)
+}
+
+func TestFork_PreservesWorkDir(t *testing.T) {
+	s := New("/my/project")
+	s.AddUser("q1")
+	s.AddAssistant("a1", nil, nil)
+
+	forked, err := s.Fork(1)
+	require.NoError(t, err)
+	assert.Equal(t, "/my/project", forked.WorkDir)
+}
+
+func TestFork_SetsParentID(t *testing.T) {
+	s := New("/tmp")
+	s.AddUser("q1")
+	s.AddAssistant("a1", nil, nil)
+
+	forked, err := s.Fork(1)
+	require.NoError(t, err)
+	assert.Equal(t, s.ID, forked.ParentID)
+}
+
+func TestFork_GeneratesNewMessageIDs(t *testing.T) {
+	s := New("/tmp")
+	s.AddUser("q1")
+	s.AddAssistant("a1", nil, nil)
+
+	forked, err := s.Fork(1)
+	require.NoError(t, err)
+	assert.NotEqual(t, s.Messages[0].ID, forked.Messages[0].ID)
+	assert.NotEqual(t, s.Messages[1].ID, forked.Messages[1].ID)
+}
+
+func TestFork_PreservesSystemPrompt(t *testing.T) {
+	s := New("/tmp")
+	s.SetSystemPrompt("you are helpful")
+	s.AddUser("q1")
+
+	forked, err := s.Fork(0)
+	require.NoError(t, err)
+	history := forked.History()
+	require.Len(t, history, 2) // system + user
+	assert.Equal(t, "system", history[0].Role)
+	assert.Equal(t, "you are helpful", history[0].Content)
+}
+
+func TestFork_InvalidIndex_TooLarge(t *testing.T) {
+	s := New("/tmp")
+	s.AddUser("q1")
+
+	_, err := s.Fork(5)
+	assert.Error(t, err)
+}
+
+func TestFork_InvalidIndex_Negative(t *testing.T) {
+	s := New("/tmp")
+	s.AddUser("q1")
+
+	_, err := s.Fork(-1)
+	assert.Error(t, err)
+}
+
+func TestFork_EmptySession(t *testing.T) {
+	s := New("/tmp")
+	_, err := s.Fork(0)
+	assert.Error(t, err)
+}
+
+func TestFork_HasFreshTimestamps(t *testing.T) {
+	s := New("/tmp")
+	s.AddUser("q1")
+	s.CreatedAt = time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	forked, err := s.Fork(0)
+	require.NoError(t, err)
+	assert.True(t, forked.CreatedAt.After(s.CreatedAt))
+}
+
+func TestFork_HasEmptyRedoStack(t *testing.T) {
+	s := New("/tmp")
+	s.AddUser("q1")
+	s.AddAssistant("a1", nil, nil)
+	s.AddUser("q2")
+	s.AddAssistant("a2", nil, nil)
+	_, _ = s.Revert()
+	assert.True(t, s.CanRedo())
+
+	forked, err := s.Fork(1)
+	require.NoError(t, err)
+	assert.False(t, forked.CanRedo())
+}
+
+func TestFork_PreservesTokens(t *testing.T) {
+	s := New("/tmp")
+	s.AddUser("q1")
+	s.AddAssistant("a1", nil, &AssistantMeta{InputTokens: 10, OutputTokens: 20})
+
+	forked, err := s.Fork(1)
+	require.NoError(t, err)
+	// Forked session starts with zero tokens — it's a new session
+	assert.Equal(t, 0, forked.Tokens.Input)
+	assert.Equal(t, 0, forked.Tokens.Output)
+}
+
+func TestFork_PreservesMessageMeta(t *testing.T) {
+	s := New("/tmp")
+	s.AddUser("q1")
+	meta := &AssistantMeta{Model: "gpt-4", Agent: "build"}
+	s.AddAssistant("a1", nil, meta)
+
+	forked, err := s.Fork(1)
+	require.NoError(t, err)
+	require.NotNil(t, forked.Messages[1].Meta)
+	assert.Equal(t, "gpt-4", forked.Messages[1].Meta.Model)
+	assert.Equal(t, "build", forked.Messages[1].Meta.Agent)
+}
+
+func TestFork_DoesNotMutateOriginal(t *testing.T) {
+	s := New("/tmp")
+	s.AddUser("q1")
+	s.AddAssistant("a1", nil, nil)
+	s.AddUser("q2")
+	s.AddAssistant("a2", nil, nil)
+
+	_, err := s.Fork(1)
+	require.NoError(t, err)
+	assert.Len(t, s.Messages, 4, "original session should be unchanged")
+}

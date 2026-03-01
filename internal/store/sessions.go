@@ -28,6 +28,7 @@ type sessionFile struct {
 	Version   int            `json:"version"`
 	ID        string         `json:"id"`
 	Title     string         `json:"title"`
+	ParentID  string         `json:"parentId,omitempty"`
 	WorkDir   string         `json:"workDir"`
 	CreatedAt time.Time      `json:"createdAt"`
 	UpdatedAt time.Time      `json:"updatedAt"`
@@ -76,6 +77,7 @@ func Save(s *session.Session) error {
 		Version:   1,
 		ID:        s.ID,
 		Title:     s.Title,
+		ParentID:  s.ParentID,
 		WorkDir:   s.WorkDir,
 		CreatedAt: s.CreatedAt,
 		UpdatedAt: s.UpdatedAt,
@@ -138,6 +140,7 @@ func Load(id string) (*session.Session, error) {
 	s := &session.Session{
 		ID:        f.ID,
 		Title:     f.Title,
+		ParentID:  f.ParentID,
 		WorkDir:   f.WorkDir,
 		CreatedAt: f.CreatedAt,
 		UpdatedAt: f.UpdatedAt,

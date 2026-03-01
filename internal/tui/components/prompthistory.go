@@ -1,9 +1,15 @@
 package components
 
+// HistoryItem is a prompt with its mode for persistence.
+type HistoryItem struct {
+	Prompt string
+	Mode   string // "normal" or "shell"
+}
+
 // PromptHistory stores previously submitted prompts for recall with Up/Down.
 type PromptHistory struct {
-	prompts  []string
-	position int // index into prompts; len(prompts) = at draft
+	items    []HistoryItem
+	position int // index into items; len(items) = at draft
 	draft    string
 	maxSize  int
 }
@@ -18,42 +24,48 @@ func NewPromptHistory(maxSize int) *PromptHistory {
 	}
 }
 
-// Push adds a prompt to history and resets navigation position.
+// Push adds a prompt to history with "normal" mode and resets navigation.
 // Consecutive duplicate prompts are deduplicated.
 func (h *PromptHistory) Push(prompt string) {
-	if len(h.prompts) > 0 && h.prompts[len(h.prompts)-1] == prompt {
+	h.PushWithMode(prompt, "normal")
+}
+
+// PushWithMode adds a prompt with the given mode and resets navigation.
+// Consecutive duplicate prompts are deduplicated.
+func (h *PromptHistory) PushWithMode(prompt, mode string) {
+	if len(h.items) > 0 && h.items[len(h.items)-1].Prompt == prompt {
 		h.Reset()
 		return
 	}
-	h.prompts = append(h.prompts, prompt)
-	if len(h.prompts) > h.maxSize {
-		h.prompts = h.prompts[len(h.prompts)-h.maxSize:]
+	h.items = append(h.items, HistoryItem{Prompt: prompt, Mode: mode})
+	if len(h.items) > h.maxSize {
+		h.items = h.items[len(h.items)-h.maxSize:]
 	}
 	h.Reset()
 }
 
 // Previous navigates to the older prompt.
 func (h *PromptHistory) Previous() (string, bool) {
-	if len(h.prompts) == 0 {
+	if len(h.items) == 0 {
 		return "", false
 	}
 	if h.position <= 0 {
 		return "", false
 	}
 	h.position--
-	return h.prompts[h.position], true
+	return h.items[h.position].Prompt, true
 }
 
 // Next navigates to the newer prompt or draft.
 func (h *PromptHistory) Next() (string, bool) {
-	if h.position >= len(h.prompts) {
+	if h.position >= len(h.items) {
 		return "", false
 	}
 	h.position++
-	if h.position >= len(h.prompts) {
+	if h.position >= len(h.items) {
 		return h.draft, true
 	}
-	return h.prompts[h.position], true
+	return h.items[h.position].Prompt, true
 }
 
 // SaveDraft stores the current input text before history navigation.
@@ -63,7 +75,7 @@ func (h *PromptHistory) SaveDraft(text string) {
 
 // Reset moves position back to the draft (newest).
 func (h *PromptHistory) Reset() {
-	h.position = len(h.prompts)
+	h.position = len(h.items)
 	h.draft = ""
 }
 
@@ -74,5 +86,22 @@ func (h *PromptHistory) AtOldest() bool {
 
 // AtNewest reports whether we're at the draft position.
 func (h *PromptHistory) AtNewest() bool {
-	return h.position >= len(h.prompts)
+	return h.position >= len(h.items)
+}
+
+// Items returns a copy of all history items for persistence.
+func (h *PromptHistory) Items() []HistoryItem {
+	out := make([]HistoryItem, len(h.items))
+	copy(out, h.items)
+	return out
+}
+
+// LoadItems replaces the history with the given items, respecting maxSize.
+func (h *PromptHistory) LoadItems(items []HistoryItem) {
+	if len(items) > h.maxSize {
+		items = items[len(items)-h.maxSize:]
+	}
+	h.items = make([]HistoryItem, len(items))
+	copy(h.items, items)
+	h.Reset()
 }

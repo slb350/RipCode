@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -489,7 +490,8 @@ func TestApp_ShellMode_Submit_AddsToHistory(t *testing.T) {
 
 // --- Command Registry Integration tests ---
 
-func TestApp_SlashCompact_ShowsToast(t *testing.T) {
+func TestApp_SlashCompact_EmptySession_ShowsWarning(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
 	app := NewApp()
 	app.SetProvider(&modelListProvider{})
 	app.SetRegistry(tool.NewRegistry())
@@ -504,7 +506,7 @@ func TestApp_SlashCompact_ShowsToast(t *testing.T) {
 	a = model.(App)
 	assert.NotNil(t, cmd, "/compact should return toast dismiss cmd")
 	assert.NotNil(t, a.toasts.Current())
-	assert.Contains(t, a.toasts.Current().Message, "Not yet implemented")
+	assert.Contains(t, a.toasts.Current().Message, "Nothing to compact")
 }
 
 func TestApp_SlashDetails_TogglesShowDetails(t *testing.T) {
@@ -1338,6 +1340,7 @@ func TestApp_SidebarOverlay_MouseClickOutside_Closes(t *testing.T) {
 
 func makeSessionApp(t *testing.T) App {
 	t.Helper()
+	t.Setenv("RIPCODE_DIR", t.TempDir())
 	app := NewApp()
 	app.SetProvider(&modelListProvider{})
 	app.SetRegistry(tool.NewRegistry())
@@ -1543,6 +1546,30 @@ func TestApp_StatusDialog_ClosesOtherDialogs(t *testing.T) {
 	assert.False(t, a.commandOpen)
 }
 
+func TestApp_StatusDialog_ShowsMCPSection(t *testing.T) {
+	a := makeSessionApp(t)
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/status"})
+	a = model.(App)
+	rendered := a.renderStatusDialog()
+	assert.Contains(t, rendered, "\n\nMCP Servers\n")
+}
+
+func TestApp_StatusDialog_ShowsLSPSection(t *testing.T) {
+	a := makeSessionApp(t)
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/status"})
+	a = model.(App)
+	rendered := a.renderStatusDialog()
+	assert.Contains(t, rendered, "\n\nLSP Clients\n")
+}
+
+func TestApp_StatusDialog_ShowsFormattersSection(t *testing.T) {
+	a := makeSessionApp(t)
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/status"})
+	a = model.(App)
+	rendered := a.renderStatusDialog()
+	assert.Contains(t, rendered, "\n\nFormatters\n")
+}
+
 // --- Copy + Export tests ---
 
 func TestApp_CopyCommand_NoAssistant_ShowsWarning(t *testing.T) {
@@ -1565,6 +1592,92 @@ func TestApp_CopyCommand_ShowsSuccessToast(t *testing.T) {
 	// May succeed or fail depending on clipboard availability in test env
 	assert.NotNil(t, cmd)
 	assert.NotNil(t, a.toasts.Current())
+}
+
+// --- Compact command tests ---
+
+func TestApp_CompactCommand_ShowsToast(t *testing.T) {
+	a := makeSessionAppWithHistory(t)
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/compact"})
+	a = model.(App)
+	toast := a.toasts.Current()
+	assert.NotNil(t, toast)
+	assert.Contains(t, toast.Message, "Compacted")
+}
+
+func TestApp_CompactCommand_ReducesMessages(t *testing.T) {
+	a := makeSessionAppWithHistory(t)
+	assert.Len(t, a.session.Messages, 4)
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/compact"})
+	a = model.(App)
+	// After compact, session should have fewer messages (just the summary)
+	assert.Less(t, len(a.session.Messages), 4)
+}
+
+// --- Connect command tests ---
+
+func TestApp_ConnectCommand_OpensDialog(t *testing.T) {
+	a := makeSessionApp(t)
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/connect"})
+	a = model.(App)
+	assert.True(t, a.connectDialogOpen)
+}
+
+func TestApp_ConnectDialog_EscCloses(t *testing.T) {
+	a := makeSessionApp(t)
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/connect"})
+	a = model.(App)
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	a = model.(App)
+	assert.False(t, a.connectDialogOpen)
+}
+
+// --- Editor command tests ---
+
+func TestApp_EditorCommand_NoEditorVar_ShowsWarning(t *testing.T) {
+	a := makeSessionApp(t)
+	t.Setenv("EDITOR", "")
+	t.Setenv("VISUAL", "")
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/editor"})
+	a = model.(App)
+	toast := a.toasts.Current()
+	assert.NotNil(t, toast)
+	assert.Contains(t, toast.Message, "EDITOR")
+}
+
+// --- Skills command tests ---
+
+func TestApp_SkillsCommand_ShowsToolList(t *testing.T) {
+	a := makeSessionApp(t)
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/skills"})
+	a = model.(App)
+	// Should add entries to chat listing tools
+	found := false
+	for _, e := range a.chat.Entries() {
+		if e.Role == "system" && strings.Contains(e.Content, "Available tools") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "should show available tools")
+}
+
+// --- Themes command tests ---
+
+func TestApp_ThemesCommand_OpensDialog(t *testing.T) {
+	a := makeSessionApp(t)
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/themes"})
+	a = model.(App)
+	assert.True(t, a.themesDialogOpen)
+}
+
+func TestApp_ThemesDialog_EscCloses(t *testing.T) {
+	a := makeSessionApp(t)
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/themes"})
+	a = model.(App)
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	a = model.(App)
+	assert.False(t, a.themesDialogOpen)
 }
 
 func TestApp_ExportDialog_OpensWithSlashExport(t *testing.T) {
@@ -1666,6 +1779,56 @@ func TestApp_ExportDialog_EmptyChat_ShowsWarning(t *testing.T) {
 	a = model.(App)
 	// With only the /export user entry, dialog still opens since there's 1 entry
 	assert.True(t, a.exportDialogOpen)
+}
+
+func TestApp_ExportDialog_HasThinkingToggle(t *testing.T) {
+	app := makeSessionApp(t)
+	model, _ := app.Update(components.InputSubmitMsg{Value: "/export"})
+	a := model.(App)
+	rendered := a.renderExportDialog()
+	assert.Contains(t, rendered, "thinking")
+}
+
+func TestApp_ExportDialog_ThinkingToggle_SpaceToggles(t *testing.T) {
+	app := makeSessionApp(t)
+	model, _ := app.Update(components.InputSubmitMsg{Value: "/export"})
+	a := model.(App)
+	// Navigate to thinking field (field 2)
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	a = model.(App)
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	a = model.(App)
+	assert.Equal(t, 2, a.exportFocusedField)
+	assert.False(t, a.exportIncludeThinking)
+	model, _ = a.Update(tea.KeyPressMsg{Text: " "})
+	a = model.(App)
+	assert.True(t, a.exportIncludeThinking)
+}
+
+func TestApp_ExportDialog_FilenameEditing(t *testing.T) {
+	app := makeSessionApp(t)
+	model, _ := app.Update(components.InputSubmitMsg{Value: "/export"})
+	a := model.(App)
+	// Navigate to filename field (field 3)
+	for i := 0; i < 3; i++ {
+		model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+		a = model.(App)
+	}
+	assert.Equal(t, 3, a.exportFocusedField)
+	// Type characters to replace filename
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	a = model.(App)
+	// Filename should have been shortened
+	assert.True(t, len(a.exportFilename) < len("session-export.md"))
+}
+
+func TestApp_ExportDialog_RendersFilenameInEditMode(t *testing.T) {
+	app := makeSessionApp(t)
+	model, _ := app.Update(components.InputSubmitMsg{Value: "/export"})
+	a := model.(App)
+	rendered := a.renderExportDialog()
+	assert.Contains(t, rendered, "Filename")
+	assert.Contains(t, rendered, "session-export.md")
 }
 
 // --- Rename dialog tests ---
@@ -1911,10 +2074,71 @@ func TestApp_SessionsDialog_BackspaceDeletesQuery(t *testing.T) {
 	assert.Equal(t, "a", a.sessionsDialogQuery)
 }
 
+func TestApp_SessionsDialog_RenderShowsDateGroups(t *testing.T) {
+	app := makeSessionApp(t)
+	model, _ := app.Update(components.InputSubmitMsg{Value: "/sessions"})
+	a := model.(App)
+
+	now := time.Now()
+	yesterday := now.Add(-24 * time.Hour)
+	older := now.Add(-72 * time.Hour)
+
+	model, _ = a.Update(SessionsLoadedMsg{Sessions: []store.SessionSummary{
+		{ID: "s1", Title: "today session", UpdatedAt: now, MessageCount: 5},
+		{ID: "s2", Title: "yesterday session", UpdatedAt: yesterday, MessageCount: 3},
+		{ID: "s3", Title: "older session", UpdatedAt: older, MessageCount: 1},
+	}})
+	a = model.(App)
+
+	rendered := a.renderSessionsDialog()
+	assert.Contains(t, rendered, "Today")
+	assert.Contains(t, rendered, "Yesterday")
+	// Older date should show as formatted date
+	assert.Contains(t, rendered, older.Format("Jan 2"))
+}
+
+func TestApp_SessionsDialog_RenderShowsTimeFooter(t *testing.T) {
+	app := makeSessionApp(t)
+	model, _ := app.Update(components.InputSubmitMsg{Value: "/sessions"})
+	a := model.(App)
+
+	now := time.Now()
+	model, _ = a.Update(SessionsLoadedMsg{Sessions: []store.SessionSummary{
+		{ID: "s1", Title: "test", UpdatedAt: now, CreatedAt: now, MessageCount: 5, WorkDir: "/tmp"},
+	}})
+	a = model.(App)
+
+	rendered := a.renderSessionsDialog()
+	assert.Contains(t, rendered, "5 msgs")
+	assert.Contains(t, rendered, "/tmp")
+}
+
+func TestSessionDateGroup_Today(t *testing.T) {
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	assert.Equal(t, "Today", sessionDateGroup(now, today))
+}
+
+func TestSessionDateGroup_Yesterday(t *testing.T) {
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	yesterday := now.Add(-24 * time.Hour)
+	assert.Equal(t, "Yesterday", sessionDateGroup(yesterday, today))
+}
+
+func TestSessionDateGroup_OlderDate(t *testing.T) {
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	older := now.Add(-72 * time.Hour)
+	result := sessionDateGroup(older, today)
+	assert.Contains(t, result, older.Format("Jan 2"))
+}
+
 // --- Undo/Redo tests ---
 
 func makeSessionAppWithHistory(t *testing.T) App {
 	t.Helper()
+	t.Setenv("RIPCODE_DIR", t.TempDir())
 	app := NewApp()
 	app.SetProvider(&modelListProvider{})
 	app.SetRegistry(tool.NewRegistry())
@@ -2017,6 +2241,147 @@ func TestApp_TimelineDialog_ArrowNavigates(t *testing.T) {
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	a = model.(App)
 	assert.Equal(t, 1, a.timelineDialogSelect)
+}
+
+// --- Message navigation keybind tests ---
+
+func TestApp_HomeKey_ScrollsToTop(t *testing.T) {
+	a := makeSessionApp(t)
+	a.chat.ScrollToBottom()
+	model, _ := a.Update(tea.KeyPressMsg{Code: tea.KeyHome})
+	a = model.(App)
+	assert.Equal(t, 0, a.chat.ScrollPos())
+}
+
+func TestApp_EndKey_ScrollsToBottom(t *testing.T) {
+	a := makeSessionApp(t)
+	a.chat.ScrollToTop()
+	model, _ := a.Update(tea.KeyPressMsg{Code: tea.KeyEnd})
+	a = model.(App)
+	assert.Greater(t, a.chat.ScrollPos(), 0)
+}
+
+func TestApp_NextUserMessage_Keybind(t *testing.T) {
+	a := makeSessionAppWithHistory(t)
+	a.chat.ScrollToTop()
+	prevPos := a.chat.ScrollPos()
+	// Ctrl+Alt+N for next user message
+	model, _ := a.Update(tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl | tea.ModAlt})
+	a = model.(App)
+	assert.GreaterOrEqual(t, a.chat.ScrollPos(), prevPos)
+}
+
+func TestApp_PrevUserMessage_Keybind(t *testing.T) {
+	a := makeSessionAppWithHistory(t)
+	a.chat.ScrollToBottom()
+	prevPos := a.chat.ScrollPos()
+	// Ctrl+Alt+P for prev user message
+	model, _ := a.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl | tea.ModAlt})
+	a = model.(App)
+	assert.LessOrEqual(t, a.chat.ScrollPos(), prevPos)
+}
+
+// --- Undo/redo improvements ---
+
+func TestApp_UndoCommand_BlockedWhileStreaming(t *testing.T) {
+	a := makeSessionAppWithHistory(t)
+	a.streaming = true
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/undo"})
+	a = model.(App)
+	assert.Len(t, a.session.Messages, 4, "messages should not be reverted while streaming")
+	toast := a.toasts.Current()
+	assert.NotNil(t, toast)
+	assert.Contains(t, toast.Message, "busy")
+}
+
+func TestApp_UndoCommand_AddsRevertMarkerToChat(t *testing.T) {
+	a := makeSessionAppWithHistory(t)
+	entriesBefore := len(a.chat.Entries())
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/undo"})
+	a = model.(App)
+	// After undo, chat is rebuilt with a revert marker
+	found := false
+	for _, e := range a.chat.Entries() {
+		if e.Role == "system" && strings.Contains(e.Content, "reverted") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "should have revert marker in chat")
+	_ = entriesBefore // used for reference
+}
+
+// --- Fork dialog tests ---
+
+func TestApp_ForkDialog_OpensWithSlashFork(t *testing.T) {
+	a := makeSessionAppWithHistory(t)
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/fork"})
+	a = model.(App)
+	assert.True(t, a.forkDialogOpen)
+}
+
+func TestApp_ForkDialog_EscCloses(t *testing.T) {
+	a := makeSessionAppWithHistory(t)
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/fork"})
+	a = model.(App)
+	assert.True(t, a.forkDialogOpen)
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	a = model.(App)
+	assert.False(t, a.forkDialogOpen)
+}
+
+func TestApp_ForkDialog_ArrowNavigates(t *testing.T) {
+	a := makeSessionAppWithHistory(t)
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/fork"})
+	a = model.(App)
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	a = model.(App)
+	assert.Equal(t, 1, a.forkDialogSelect)
+}
+
+func TestApp_ForkDialog_ShowsUserMessages(t *testing.T) {
+	a := makeSessionAppWithHistory(t)
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/fork"})
+	a = model.(App)
+	assert.True(t, a.forkDialogOpen)
+	// Should have entries for user messages (uses timelineEntries)
+	assert.NotEmpty(t, a.timelineEntries())
+}
+
+func TestApp_ForkDialog_EmptySession_ShowsWarning(t *testing.T) {
+	a := makeSessionApp(t)
+	a.session.Messages = nil // empty
+	a.chat.Clear()
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/fork"})
+	a = model.(App)
+	assert.False(t, a.forkDialogOpen)
+	toast := a.toasts.Current()
+	assert.NotNil(t, toast)
+	assert.Contains(t, toast.Message, "Nothing to fork")
+}
+
+func TestApp_ForkDialog_EnterCreatesForkedSession(t *testing.T) {
+	a := makeSessionAppWithHistory(t)
+	origID := a.session.ID
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/fork"})
+	a = model.(App)
+	// Select first user message and press Enter
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+	assert.False(t, a.forkDialogOpen)
+	assert.NotEqual(t, origID, a.session.ID)
+	assert.Equal(t, origID, a.session.ParentID)
+	// Forked at first user message — should include user + assistant = 2 messages
+	assert.Len(t, a.session.Messages, 2)
+}
+
+func TestApp_ForkDialog_ClosesOtherDialogs(t *testing.T) {
+	a := makeSessionAppWithHistory(t)
+	a.helpDialogOpen = true
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/fork"})
+	a = model.(App)
+	assert.True(t, a.forkDialogOpen)
+	assert.False(t, a.helpDialogOpen)
 }
 
 // --- Prompt stash tests ---
