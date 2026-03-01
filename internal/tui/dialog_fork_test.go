@@ -5,8 +5,14 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/stephenbrandon/ripcode/internal/agent"
+	"github.com/stephenbrandon/ripcode/internal/provider"
+	"github.com/stephenbrandon/ripcode/internal/session"
+	"github.com/stephenbrandon/ripcode/internal/store"
+	"github.com/stephenbrandon/ripcode/internal/tool"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestApp_ForkDialog_OpensWithSlashFork(t *testing.T) {
@@ -78,4 +84,46 @@ func TestApp_ForkDialog_ClosesOtherDialogs(t *testing.T) {
 	a = model.(App)
 	assert.True(t, a.forkDialog.open)
 	assert.False(t, a.helpDialog.open)
+}
+
+func TestApp_ForkDialog_EnterPersistsForkedSession(t *testing.T) {
+	a := makeSessionAppWithHistory(t)
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/fork"})
+	a = model.(App)
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+
+	_, err := store.Load(a.session.ID)
+	require.NoError(t, err, "forked session should be saved immediately")
+}
+
+func TestApp_ForkDialog_IncludesFullToolExchangeInFork(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	sess := session.New(t.TempDir())
+	call := provider.ToolCall{ID: "call-1", Name: "read", Args: `{"file_path":"main.go"}`}
+	sess.AddUser("inspect file")
+	sess.AddAssistant("", []provider.ToolCall{call}, nil)
+	sess.AddToolResult(call.ID, "contents")
+	sess.AddAssistant("done", nil, nil)
+	sess.AddUser("next question")
+	sess.AddAssistant("next answer", nil, nil)
+	app.SetSession(sess)
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.rebuildChatFromSession()
+
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/fork"})
+	a = model.(App)
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+
+	recs := a.session.Records()
+	require.Len(t, recs, 4, "fork should include user turn, tool result, and final assistant")
+	assert.Equal(t, provider.RoleTool, recs[2].Message.Role)
+	assert.Equal(t, provider.RoleAssistant, recs[3].Message.Role)
 }

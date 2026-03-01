@@ -66,5 +66,20 @@ func persistHistory(h *components.PromptHistory) error {
 		return nil
 	}
 	last := items[len(items)-1]
-	return store.AppendHistory(store.HistoryEntry{Prompt: last.Prompt, Mode: last.Mode})
+	entry := store.HistoryEntry{Prompt: last.Prompt, Mode: last.Mode}
+
+	// Avoid appending duplicate consecutive entries when history push was
+	// deduplicated in-memory.
+	existing, err := store.LoadHistory()
+	if err != nil {
+		return err
+	}
+	if len(existing) > 0 {
+		prev := existing[len(existing)-1]
+		if prev.Prompt == entry.Prompt && prev.Mode == entry.Mode {
+			return nil
+		}
+	}
+
+	return store.AppendHistory(entry)
 }

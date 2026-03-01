@@ -6,9 +6,17 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/stephenbrandon/ripcode/internal/provider"
 	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 )
+
+// closeForkWithError closes the fork dialog and returns an error toast.
+func (a App) closeForkWithError(msg string) (tea.Model, tea.Cmd) {
+	a.forkDialog.open = false
+	a.input.Focus()
+	return a, a.ShowToast(msg, components.ToastError)
+}
 
 func (a App) handleForkDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
@@ -30,31 +38,33 @@ func (a App) handleForkDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		recs := a.session.Records()
 		for i, rec := range recs {
 			if rec.ID == entry.ID {
-				// Include the next assistant response if available
-				if i+1 < len(recs) && recs[i+1].Message.Role == "assistant" {
-					forkIdx = i + 1
-				} else {
-					forkIdx = i
+				// Include the full turn: selected user message and all
+				// following non-user messages, stopping at the next user.
+				forkIdx = i
+				for j := i + 1; j < len(recs); j++ {
+					if recs[j].Message.Role == provider.RoleUser {
+						break
+					}
+					forkIdx = j
 				}
 				break
 			}
 		}
 		if forkIdx < 0 {
-			a.forkDialog.open = false
-			a.input.Focus()
-			return a, a.ShowToast("Fork failed: message not found", components.ToastError)
+			return a.closeForkWithError("Fork failed: message not found")
 		}
 		forked, err := a.session.Fork(forkIdx)
 		if err != nil {
-			a.forkDialog.open = false
-			a.input.Focus()
-			return a, a.ShowToast("Fork failed: "+err.Error(), components.ToastError)
+			return a.closeForkWithError("Fork failed: " + err.Error())
 		}
 		// Save the current session before switching
 		if err := store.Save(a.session); err != nil {
-			a.forkDialog.open = false
-			a.input.Focus()
-			return a, a.ShowToast("Fork failed: could not save session", components.ToastError)
+			return a.closeForkWithError("Fork failed: could not save session")
+		}
+		// Save the forked session immediately so it survives restart even if
+		// no further prompts are submitted.
+		if err := store.Save(forked); err != nil {
+			return a.closeForkWithError("Fork failed: could not save fork")
 		}
 		// Switch to forked session
 		a.session = forked

@@ -6,6 +6,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/stephenbrandon/ripcode/internal/provider"
+	"github.com/stephenbrandon/ripcode/internal/tui/components"
 )
 
 type timelineEntry struct {
@@ -20,7 +23,7 @@ func (a App) timelineEntries() []timelineEntry {
 	}
 	var entries []timelineEntry
 	for _, rec := range a.session.Records() {
-		if rec.Message.Role == "user" {
+		if rec.Message.Role == provider.RoleUser {
 			content := rec.Message.Content
 			if len(content) > 60 {
 				content = content[:57] + "..."
@@ -74,7 +77,7 @@ func (a *App) scrollToUserMessage(idx int) {
 	userCount := 0
 	linePos := 0
 	for _, entry := range a.chat.Entries() {
-		if entry.Role == "user" {
+		if entry.Role == components.RoleUser {
 			if userCount == idx {
 				a.chat.SetScrollPos(linePos)
 				return

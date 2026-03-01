@@ -9,6 +9,7 @@ import (
 
 	"github.com/atotto/clipboard"
 
+	"github.com/stephenbrandon/ripcode/internal/provider"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 )
 
@@ -127,7 +128,7 @@ func (a *App) initRegistry() {
 			summary.WriteString("Session compacted. Previous conversation covered:\n")
 			userCount := 0
 			for _, rec := range a.session.Records() {
-				if rec.Message.Role == "user" {
+				if rec.Message.Role == provider.RoleUser {
 					userCount++
 					content := rec.Message.Content
 					if len(content) > 80 {

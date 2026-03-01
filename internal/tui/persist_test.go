@@ -184,6 +184,22 @@ func TestPersistHistory_RoundTrips(t *testing.T) {
 	assert.Equal(t, "test prompt", entries[len(entries)-1].Prompt)
 }
 
+func TestPersistHistory_DedupedPrompt_DoesNotAppendDuplicate(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	h, err := loadPromptHistory()
+	require.NoError(t, err)
+
+	h.PushWithMode("same prompt", "normal")
+	require.NoError(t, persistHistory(h))
+	h.PushWithMode("same prompt", "normal")
+	require.NoError(t, persistHistory(h))
+
+	entries, err := store.LoadHistory()
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "same prompt", entries[0].Prompt)
+}
+
 func TestPersistStash_WriteFailure_ReturnsError(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("RIPCODE_DIR", dir)
