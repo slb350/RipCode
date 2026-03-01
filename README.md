@@ -69,12 +69,19 @@ internal/
   agent/                  Agent modes (build/plan) and agentic loop
   client/                 OpenRouter SSE streaming client
   config/                 Configuration loading (env + .env)
-  provider/               Provider interface and types
+  provider/               Provider interface, types, thinking variants
   session/                Session lifecycle, message records, undo/redo
-  store/                  JSON file persistence for sessions
+  store/                  JSON persistence (sessions, model prefs, MCP/LSP, UI)
   tool/                   Tool interface, registry, 8 implementations
   tui/                    Bubble Tea v2 terminal UI
-    components/           Chat, input, status bar, prompt stash
+    app.go                Top-level model, Update, View, state machine
+    commands.go           Command registry and slash command handlers
+    dialog_*.go           14 dialog modules (model, sessions, help, export, ...)
+    keys.go               Key routing and leader key dispatch
+    sidebar.go            Sidebar rendering and section toggling
+    submit.go             Input submission and agent dispatch
+    ...                   events, helpers, inline, models, palette, persist
+    components/           Chat, input, status bar, home, prompt stash, toast
     styles/               Lip Gloss v2 theme
 tests/                    Integration tests
 ```
@@ -181,7 +188,7 @@ bin/ripcode
 ## Development
 
 ```bash
-go test ./... -v -race    # 455+ tests with race detection
+go test ./... -v -race    # 670+ tests with race detection
 go vet ./...              # Static analysis
 ```
 
