@@ -144,6 +144,38 @@ func TestUpdateInlineSuggestions_CursorBoundary(t *testing.T) {
 	})
 }
 
+func TestUpdateInlineSuggestions_CursorMidWord(t *testing.T) {
+	app := NewApp()
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+
+	// Set input to "@main" but place cursor in the middle (after "@m")
+	app.input.SetValue("@main")
+	app.input.SetCursorOffset(2) // cursor after "@m"
+	cmd := app.updateInlineSuggestions()
+	// Should trigger inline with partial query "m" (only chars between @ and cursor)
+	assert.NotNil(t, cmd, "@ with cursor mid-word should trigger file cache load")
+	assert.True(t, app.inline.open)
+	assert.Equal(t, "@", app.inline.mode)
+	assert.Equal(t, "m", app.inline.query, "query should only include chars between @ and cursor")
+}
+
+func TestUpdateInlineSuggestions_CursorAfterMention(t *testing.T) {
+	app := NewApp()
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+
+	// Set input to "@main.go " with cursor at end — space after mention
+	app.input.SetValue("@main.go ")
+	// Cursor at end (after space) — should NOT trigger inline since
+	// there's whitespace between @ and cursor
+	cmd := app.updateInlineSuggestions()
+	assert.Nil(t, cmd)
+	assert.False(t, app.inline.open, "space after @mention should close inline suggestions")
+}
+
 func TestApp_InlineFileAutocomplete_MultibytePrefixReplacement(t *testing.T) {
 	workDir := t.TempDir()
 	err := os.WriteFile(filepath.Join(workDir, "main.go"), []byte("package main"), 0o644)

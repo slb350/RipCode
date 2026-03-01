@@ -13,6 +13,7 @@ import (
 	"github.com/stephenbrandon/ripcode/internal/tool"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestApp_ExportDialog_OpensWithSlashExport(t *testing.T) {
@@ -114,6 +115,44 @@ func TestApp_ExportDialog_EmptyChat_ShowsWarning(t *testing.T) {
 	a = model.(App)
 	// With only the /export user entry, dialog still opens since there's 1 entry
 	assert.True(t, a.exportDialog.open)
+}
+
+func TestApp_ExportDialog_EmptyChat_ProducesMinimalOutput(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	// Create an app with only a single user message
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	sess := session.New(t.TempDir())
+	sess.AddUser("hello")
+	sess.AddAssistant("world", nil, nil)
+	app.SetSession(sess)
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.rebuildChatFromSession()
+
+	// Open export dialog
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/export"})
+	a = model.(App)
+	assert.True(t, a.exportDialog.open)
+
+	// Set a filename in the workdir
+	a.exportDialog.filename = "export.md"
+
+	// Press Enter to export (navigate to filename field first)
+	a.exportDialog.focusedField = 3 // filename field
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+	assert.False(t, a.exportDialog.open)
+
+	// Verify the exported file exists and contains minimal content
+	data, err := os.ReadFile(filepath.Join(sess.WorkDir, "export.md"))
+	require.NoError(t, err)
+	content := string(data)
+	assert.Contains(t, content, "hello")
+	assert.Contains(t, content, "world")
 }
 
 func TestApp_ExportDialog_HasThinkingToggle(t *testing.T) {

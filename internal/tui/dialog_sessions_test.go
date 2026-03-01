@@ -212,6 +212,52 @@ func TestApp_ResumeSession_ReappliesSystemPrompt(t *testing.T) {
 	assert.NotEmpty(t, history[0].Content)
 }
 
+func TestApp_SessionsDialog_DeleteConfirm_Enter_DeletesSession(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RIPCODE_DIR", dir)
+
+	// Create and save a session to disk
+	sess := session.New(t.TempDir())
+	sess.AddUser("hello")
+	sess.AddAssistant("world", nil, nil)
+	require.NoError(t, store.Save(sess))
+
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	// Open sessions dialog
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/sessions"})
+	a = model.(App)
+
+	// Load the saved session
+	model, _ = a.Update(SessionsLoadedMsg{Sessions: []store.SessionSummary{
+		{ID: sess.ID, Title: "test session"},
+	}})
+	a = model.(App)
+	require.Len(t, a.sessionsDialog.entries, 1)
+
+	// Enter delete confirm mode
+	model, _ = a.Update(tea.KeyPressMsg{Mod: tea.ModCtrl, Code: 'd'})
+	a = model.(App)
+	assert.True(t, a.sessionsDialog.confirm)
+
+	// Confirm deletion with Enter
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+	assert.False(t, a.sessionsDialog.confirm)
+	assert.Empty(t, a.sessionsDialog.entries, "session should be removed from entries")
+
+	// Verify the session file was deleted from disk
+	_, err := store.Load(sess.ID)
+	assert.Error(t, err, "session file should be deleted from disk")
+}
+
 func TestSessionDateGroup_Today(t *testing.T) {
 	now := time.Now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())

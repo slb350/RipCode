@@ -572,3 +572,50 @@ func TestOpenRouter_ListModels_APIError(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "503")
 }
+
+func TestOpenRouter_ConcurrentSetModelAndChat(t *testing.T) {
+	body := sseResponse(
+		chatChunk("ok", ""),
+		chatChunkWithUsage("stop", 1, 1),
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.baseURL = srv.URL
+
+	const goroutines = 10
+	done := make(chan struct{})
+
+	// 10 goroutines calling SetModel concurrently
+	for i := 0; i < goroutines; i++ {
+		go func(n int) {
+			defer func() { done <- struct{}{} }()
+			c.SetModel(fmt.Sprintf("model-%d", n))
+		}(i)
+	}
+
+	// 10 goroutines calling Chat concurrently
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			ch, err := c.Chat(context.Background(), []provider.Message{
+				{Role: "user", Content: "hi"},
+			}, nil)
+			if err != nil {
+				return
+			}
+			for range ch {
+			}
+		}()
+	}
+
+	// Wait for all goroutines
+	for i := 0; i < goroutines*2; i++ {
+		<-done
+	}
+}

@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -109,4 +110,38 @@ func TestTodoTool_Items_ReturnsCopy(t *testing.T) {
 
 	fresh := td.Items()
 	assert.Equal(t, "Task A", fresh[0].Subject)
+}
+
+func TestTodoTool_ConcurrentReadWrite(t *testing.T) {
+	td := NewTodoTool()
+	ctx := newTestCtx(t)
+
+	const goroutines = 10
+	done := make(chan struct{})
+
+	// 10 goroutines writing
+	for i := 0; i < goroutines; i++ {
+		go func(n int) {
+			defer func() { done <- struct{}{} }()
+			td.Execute(ctx, fmt.Sprintf(`{"action":"write","items":[{"subject":"Task %d","status":"pending"}]}`, n))
+		}(i)
+	}
+
+	// 10 goroutines reading
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			result := td.Execute(ctx, `{"action":"read"}`)
+			assert.NoError(t, result.Error)
+		}()
+	}
+
+	// Wait for all
+	for i := 0; i < goroutines*2; i++ {
+		<-done
+	}
+
+	// Verify final state is consistent
+	items := td.Items()
+	assert.NotEmpty(t, items)
 }
