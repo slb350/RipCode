@@ -75,7 +75,7 @@ func (a App) inlineEntries() []inlineEntry {
 	}
 
 	query := strings.ToLower(strings.TrimSpace(a.inline.query))
-	if a.inline.mode == "/" {
+	if a.inline.mode == inlineModeCommand {
 		var commands []*Command
 		if query == "" {
 			commands = a.cmdRegistry.All()
@@ -94,7 +94,7 @@ func (a App) inlineEntries() []inlineEntry {
 		return out
 	}
 
-	if a.inline.mode == "@" {
+	if a.inline.mode == inlineModeFile {
 		out := make([]inlineEntry, 0, 10)
 		for _, path := range a.fileCache {
 			p := strings.ToLower(path)
@@ -138,7 +138,7 @@ func (a *App) updateInlineSuggestions() tea.Cmd {
 	prefix := string(runes[:cursor])
 	if strings.HasPrefix(prefix, "/") && !containsWhitespace(prefix) {
 		a.inline.open = true
-		a.inline.mode = "/"
+		a.inline.mode = inlineModeCommand
 		a.inline.query = strings.TrimPrefix(prefix, "/")
 		a.inline.start = 0
 		a.inline.end = cursor
@@ -160,7 +160,7 @@ func (a *App) updateInlineSuggestions() tea.Cmd {
 		between := string(runes[atIdx+1 : cursor])
 		if beforeOK && !containsWhitespace(between) {
 			a.inline.open = true
-			a.inline.mode = "@"
+			a.inline.mode = inlineModeFile
 			a.inline.query = between
 			a.inline.start = atIdx
 			a.inline.end = cursor
@@ -213,7 +213,7 @@ func (a App) handleInlineKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 
 		choice := entries[a.inline.selected]
-		if a.inline.mode == "/" && choice.Execute {
+		if a.inline.mode == inlineModeCommand && choice.Execute {
 			a.input.Reset()
 			a = a.closeInlineSuggestions()
 			return a.handleSubmit(choice.Insert)

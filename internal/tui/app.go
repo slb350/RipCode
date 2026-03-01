@@ -99,7 +99,8 @@ type App struct {
 	stash *components.PromptStash
 
 	// Modified files tracking
-	modifiedFiles []string
+	modifiedFiles    []string
+	modifiedFilesSet map[string]bool
 
 	// Startup warnings (e.g. corrupted config files)
 	startupWarnings      []string
@@ -111,19 +112,19 @@ func NewApp() App {
 	var warnings []string
 	prefs, err := store.LoadModelPrefs()
 	if err != nil {
-		warnings = append(warnings, "model preferences corrupted, using defaults")
+		warnings = append(warnings, fmt.Sprintf("model preferences: %v, using defaults", err))
 	}
 	mcpCfg, err := store.LoadMCPConfig()
 	if err != nil {
-		warnings = append(warnings, "MCP config corrupted, using defaults")
+		warnings = append(warnings, fmt.Sprintf("MCP config: %v, using defaults", err))
 	}
 	lspCfg, err := store.LoadLSPConfig()
 	if err != nil {
-		warnings = append(warnings, "LSP config corrupted, using defaults")
+		warnings = append(warnings, fmt.Sprintf("LSP config: %v, using defaults", err))
 	}
 	uiPrefs, err := store.LoadUIPrefs()
 	if err != nil {
-		warnings = append(warnings, "UI preferences corrupted, using defaults")
+		warnings = append(warnings, fmt.Sprintf("UI preferences: %v, using defaults", err))
 	}
 
 	footer := components.NewSessionFooter()
@@ -136,11 +137,11 @@ func NewApp() App {
 
 	history, err := loadPromptHistory()
 	if err != nil {
-		warnings = append(warnings, "prompt history corrupted, using defaults")
+		warnings = append(warnings, fmt.Sprintf("prompt history: %v, using defaults", err))
 	}
 	stash, err := loadPromptStash()
 	if err != nil {
-		warnings = append(warnings, "prompt stash corrupted, using defaults")
+		warnings = append(warnings, fmt.Sprintf("prompt stash: %v, using defaults", err))
 	}
 
 	a := App{
@@ -281,11 +282,13 @@ func (a App) showGettingStarted() bool {
 
 // trackModifiedFile adds a file path to the modified files list, deduplicating.
 func (a *App) trackModifiedFile(path string) {
-	for _, f := range a.modifiedFiles {
-		if f == path {
-			return
-		}
+	if a.modifiedFilesSet[path] {
+		return
 	}
+	if a.modifiedFilesSet == nil {
+		a.modifiedFilesSet = make(map[string]bool)
+	}
+	a.modifiedFilesSet[path] = true
 	a.modifiedFiles = append(a.modifiedFiles, path)
 }
 
@@ -350,7 +353,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.setStreaming(false)
 		a.input.Focus()
 		if msg.Error != "" {
-			a.chat.AddEntry(components.ChatEntry{Role: "error", Content: msg.Error})
+			a.chat.AddEntry(components.ChatEntry{Role: components.RoleError, Content: msg.Error})
 			toastCmd := a.ShowToast("Command failed", components.ToastError)
 			return a, toastCmd
 		}
@@ -359,7 +362,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			output = output[:2000] + "\n... (truncated)"
 		}
 		if output != "" {
-			a.chat.AddEntry(components.ChatEntry{Role: "system", Content: output})
+			a.chat.AddEntry(components.ChatEntry{Role: components.RoleSystem, Content: output})
 		}
 		return a, nil
 

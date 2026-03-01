@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/stephenbrandon/ripcode/internal/provider"
@@ -22,6 +23,20 @@ type AssistantMeta struct {
 	OutputTokens int
 	FinishReason string
 	Duration     time.Duration
+}
+
+// Valid checks that the record has required fields and a valid message.
+func (r MessageRecord) Valid() error {
+	if r.ID == "" {
+		return fmt.Errorf("message record missing ID")
+	}
+	if r.CreatedAt.IsZero() {
+		return fmt.Errorf("message record %s missing CreatedAt", r.ID)
+	}
+	if err := r.Message.Valid(); err != nil {
+		return fmt.Errorf("message record %s: %w", r.ID, err)
+	}
+	return nil
 }
 
 func generateMessageID() string {

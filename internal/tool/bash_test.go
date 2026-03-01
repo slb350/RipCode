@@ -2,9 +2,12 @@ package tool
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -49,11 +52,39 @@ func TestBash_WorkDir(t *testing.T) {
 func TestBash_CustomWorkDir(t *testing.T) {
 	b := NewBashTool()
 	ctx := newTestCtx(t)
-	dir := t.TempDir()
 
-	result := b.Execute(ctx, `{"command":"pwd","workdir":"`+dir+`"}`)
+	// Subdirectory within workdir.
+	sub := filepath.Join(ctx.WorkDir, "subdir")
+	require.NoError(t, os.MkdirAll(sub, 0o755))
+
+	result := b.Execute(ctx, `{"command":"pwd","workdir":"`+sub+`"}`)
 	require.NoError(t, result.Error)
-	assert.Contains(t, result.Output, dir)
+	assert.Contains(t, result.Output, sub)
+}
+
+func TestBash_WorkDirTraversalBlocked(t *testing.T) {
+	b := NewBashTool()
+	ctx := newTestCtx(t)
+
+	// Absolute path outside workdir.
+	result := b.Execute(ctx, `{"command":"pwd","workdir":"/etc"}`)
+	require.Error(t, result.Error)
+	assert.Contains(t, result.Error.Error(), "workdir")
+
+	// Relative traversal outside workdir.
+	result = b.Execute(ctx, `{"command":"pwd","workdir":"../../etc"}`)
+	require.Error(t, result.Error)
+	assert.Contains(t, result.Error.Error(), "workdir")
+}
+
+func TestBash_WorkDirSubdirAllowed(t *testing.T) {
+	b := NewBashTool()
+	ctx := newTestCtx(t)
+
+	// Subdirectory within workdir should be allowed.
+	result := b.Execute(ctx, `{"command":"pwd","workdir":"`+ctx.WorkDir+`"}`)
+	require.NoError(t, result.Error)
+	assert.Contains(t, result.Output, ctx.WorkDir)
 }
 
 func TestBash_CommandFailure(t *testing.T) {
@@ -198,6 +229,32 @@ func TestBash_ContextCancellation(t *testing.T) {
 
 	result := b.Execute(ctx, `{"command":"sleep 10"}`)
 	assert.Error(t, result.Error)
+}
+
+func TestBash_MidExecutionCancellation(t *testing.T) {
+	b := NewBashTool()
+	abortCtx, cancel := context.WithCancel(context.Background())
+	ctx := Context{
+		SessionID: "test",
+		WorkDir:   t.TempDir(),
+		Abort:     abortCtx,
+	}
+
+	done := make(chan Result, 1)
+	go func() {
+		done <- b.Execute(ctx, `{"command":"sleep 30"}`)
+	}()
+
+	// Cancel mid-execution.
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case result := <-done:
+		assert.Error(t, result.Error)
+	case <-time.After(5 * time.Second):
+		t.Fatal("command did not terminate after cancellation")
+	}
 }
 
 func TestBash_Parameters(t *testing.T) {

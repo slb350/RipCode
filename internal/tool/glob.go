@@ -66,7 +66,7 @@ func (g *GlobTool) Execute(ctx Context, argsJSON string) Result {
 	skips := newSkipTracker()
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			skips.add(err)
+			skips.addPath(path, err)
 			return nil
 		}
 

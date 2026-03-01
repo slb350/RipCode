@@ -81,7 +81,7 @@ func (g *GrepTool) Execute(ctx Context, argsJSON string) Result {
 
 	walkErr := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			skips.add(err)
+			skips.addPath(path, err)
 			return nil
 		}
 

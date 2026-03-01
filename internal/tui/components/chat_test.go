@@ -11,7 +11,7 @@ func TestChat_AddEntry(t *testing.T) {
 	c := NewChat()
 	c.SetSize(80, 20)
 
-	c.AddEntry(ChatEntry{Role: "user", Content: "hello"})
+	c.AddEntry(ChatEntry{Role: RoleUser, Content: "hello"})
 	view := c.View()
 	assert.Contains(t, view, "hello")
 }
@@ -20,7 +20,7 @@ func TestChat_UserMessage_HasAccentBorder(t *testing.T) {
 	c := NewChat()
 	c.SetSize(80, 20)
 
-	c.AddEntry(ChatEntry{Role: "user", Content: "Fix the bug"})
+	c.AddEntry(ChatEntry{Role: RoleUser, Content: "Fix the bug"})
 	view := c.View()
 	assert.Contains(t, view, "┃", "user message should have left accent border")
 	assert.Contains(t, view, "Fix the bug")
@@ -30,7 +30,7 @@ func TestChat_AssistantMessage_HasIndent(t *testing.T) {
 	c := NewChat()
 	c.SetSize(80, 20)
 
-	c.AddEntry(ChatEntry{Role: "assistant", Content: "Here is my analysis"})
+	c.AddEntry(ChatEntry{Role: RoleAssistant, Content: "Here is my analysis"})
 	view := c.View()
 	assert.Contains(t, view, "   Here is my analysis", "assistant message should have 3-space indent")
 }
@@ -39,7 +39,7 @@ func TestChat_ToolCall_ShowsIcon(t *testing.T) {
 	c := NewChat()
 	c.SetSize(80, 20)
 
-	c.AddEntry(ChatEntry{Role: "tool", Content: "ls -la", ToolName: "bash", ToolStatus: "success"})
+	c.AddEntry(ChatEntry{Role: RoleTool, Content: "ls -la", ToolName: "bash", ToolStatus: StatusSuccess})
 	view := c.View()
 	assert.Contains(t, view, "$", "bash tool should show $ icon")
 	assert.Contains(t, view, "✓", "success tool should show ✓")
@@ -49,7 +49,7 @@ func TestChat_ToolCall_ReadIcon(t *testing.T) {
 	c := NewChat()
 	c.SetSize(80, 20)
 
-	c.AddEntry(ChatEntry{Role: "tool", Content: "main.go", ToolName: "read", ToolStatus: "success"})
+	c.AddEntry(ChatEntry{Role: RoleTool, Content: "main.go", ToolName: "read", ToolStatus: StatusSuccess})
 	view := c.View()
 	assert.Contains(t, view, "→", "read tool should show → icon")
 }
@@ -58,7 +58,7 @@ func TestChat_ToolCall_WriteIcon(t *testing.T) {
 	c := NewChat()
 	c.SetSize(80, 20)
 
-	c.AddEntry(ChatEntry{Role: "tool", Content: "main.go", ToolName: "write", ToolStatus: "success"})
+	c.AddEntry(ChatEntry{Role: RoleTool, Content: "main.go", ToolName: "write", ToolStatus: StatusSuccess})
 	view := c.View()
 	assert.Contains(t, view, "←", "write tool should show ← icon")
 }
@@ -67,7 +67,7 @@ func TestChat_ToolCall_GlobIcon(t *testing.T) {
 	c := NewChat()
 	c.SetSize(80, 20)
 
-	c.AddEntry(ChatEntry{Role: "tool", Content: "*.go", ToolName: "glob", ToolStatus: "success"})
+	c.AddEntry(ChatEntry{Role: RoleTool, Content: "*.go", ToolName: "glob", ToolStatus: StatusSuccess})
 	view := c.View()
 	assert.Contains(t, view, "⌕", "glob tool should show ⌕ icon")
 }
@@ -76,7 +76,7 @@ func TestChat_ToolCall_PendingStatus(t *testing.T) {
 	c := NewChat()
 	c.SetSize(80, 20)
 
-	c.AddEntry(ChatEntry{Role: "tool", Content: "ls", ToolName: "bash", ToolStatus: "pending"})
+	c.AddEntry(ChatEntry{Role: RoleTool, Content: "ls", ToolName: "bash", ToolStatus: StatusPending})
 	view := c.View()
 	assert.Contains(t, view, "~", "pending tool should show ~")
 }
@@ -85,7 +85,7 @@ func TestChat_ToolCall_ErrorStatus(t *testing.T) {
 	c := NewChat()
 	c.SetSize(80, 20)
 
-	c.AddEntry(ChatEntry{Role: "tool", Content: "failed", ToolName: "write", ToolStatus: "error"})
+	c.AddEntry(ChatEntry{Role: RoleTool, Content: "failed", ToolName: "write", ToolStatus: StatusError})
 	view := c.View()
 	assert.Contains(t, view, "✗", "error tool should show ✗")
 }
@@ -95,7 +95,7 @@ func TestChat_CompletionBar(t *testing.T) {
 	c.SetSize(80, 20)
 
 	c.AddEntry(ChatEntry{
-		Role: "complete",
+		Role: RoleComplete,
 		Meta: &CompleteMeta{Mode: "build", Model: "glm-5", Duration: 4700 * time.Millisecond},
 	})
 	view := c.View()
@@ -109,8 +109,8 @@ func TestChat_UpdateLastTool(t *testing.T) {
 	c := NewChat()
 	c.SetSize(80, 20)
 
-	c.AddEntry(ChatEntry{Role: "tool", Content: "ls", ToolName: "bash", ToolStatus: "pending", ToolID: "t1"})
-	c.UpdateLastTool("t1", ChatEntry{Role: "tool", Content: "file.go", ToolName: "bash", ToolStatus: "success", ToolID: "t1"})
+	c.AddEntry(ChatEntry{Role: RoleTool, Content: "ls", ToolName: "bash", ToolStatus: StatusPending, ToolID: "t1"})
+	c.UpdateLastTool("t1", ChatEntry{Role: RoleTool, Content: "file.go", ToolName: "bash", ToolStatus: StatusSuccess, ToolID: "t1"})
 
 	view := c.View()
 	assert.Contains(t, view, "✓")
@@ -135,7 +135,7 @@ func TestChat_SystemRole(t *testing.T) {
 	c := NewChat()
 	c.SetSize(80, 20)
 
-	c.AddEntry(ChatEntry{Role: "system", Content: "Welcome to ripcode."})
+	c.AddEntry(ChatEntry{Role: RoleSystem, Content: "Welcome to ripcode."})
 	view := c.View()
 	assert.Contains(t, view, "Welcome to ripcode.")
 	assert.Contains(t, view, "~")
@@ -145,7 +145,7 @@ func TestChat_Clear(t *testing.T) {
 	c := NewChat()
 	c.SetSize(80, 20)
 
-	c.AddEntry(ChatEntry{Role: "user", Content: "hello"})
+	c.AddEntry(ChatEntry{Role: RoleUser, Content: "hello"})
 	c.Clear()
 
 	view := c.View()
@@ -154,25 +154,25 @@ func TestChat_Clear(t *testing.T) {
 
 func TestChat_Entries_ReturnsAllEntries(t *testing.T) {
 	c := NewChat()
-	c.AddEntry(ChatEntry{Role: "user", Content: "hello"})
-	c.AddEntry(ChatEntry{Role: "assistant", Content: "world"})
+	c.AddEntry(ChatEntry{Role: RoleUser, Content: "hello"})
+	c.AddEntry(ChatEntry{Role: RoleAssistant, Content: "world"})
 
 	entries := c.Entries()
 	assert.Len(t, entries, 2)
-	assert.Equal(t, "user", entries[0].Role)
-	assert.Equal(t, "assistant", entries[1].Role)
+	assert.Equal(t, RoleUser, entries[0].Role)
+	assert.Equal(t, RoleAssistant, entries[1].Role)
 }
 
 func TestChat_Entries_EmptyWhenCleared(t *testing.T) {
 	c := NewChat()
-	c.AddEntry(ChatEntry{Role: "user", Content: "hello"})
+	c.AddEntry(ChatEntry{Role: RoleUser, Content: "hello"})
 	c.Clear()
 	assert.Empty(t, c.Entries())
 }
 
 func TestChat_Entries_ReturnsCopy(t *testing.T) {
 	c := NewChat()
-	c.AddEntry(ChatEntry{Role: "user", Content: "original"})
+	c.AddEntry(ChatEntry{Role: RoleUser, Content: "original"})
 	entries := c.Entries()
 	entries[0].Content = "modified"
 	assert.Equal(t, "original", c.Entries()[0].Content)
@@ -185,7 +185,7 @@ func TestChat_PageUp_MovesScrollByHeight(t *testing.T) {
 	c.SetSize(80, 10)
 	// Add enough entries to have scrollable content
 	for i := 0; i < 20; i++ {
-		c.AddEntry(ChatEntry{Role: "user", Content: "msg"})
+		c.AddEntry(ChatEntry{Role: RoleUser, Content: "msg"})
 	}
 	c.scrollPos = 20
 	c.PageUp()
@@ -244,7 +244,7 @@ func TestChat_ScrollToBottom_MovesToEnd(t *testing.T) {
 	c := NewChat()
 	c.SetSize(80, 10)
 	for i := 0; i < 20; i++ {
-		c.AddEntry(ChatEntry{Role: "user", Content: "msg"})
+		c.AddEntry(ChatEntry{Role: RoleUser, Content: "msg"})
 	}
 	c.scrollPos = 0
 	c.ScrollToBottom()
@@ -262,7 +262,7 @@ func TestChat_PageUp_ClampsAtZero(t *testing.T) {
 func TestChat_PageDown_ClampsAtMax(t *testing.T) {
 	c := NewChat()
 	c.SetSize(80, 10)
-	c.AddEntry(ChatEntry{Role: "user", Content: "short"})
+	c.AddEntry(ChatEntry{Role: RoleUser, Content: "short"})
 	c.scrollPos = 0
 	c.PageDown()
 	// View() will clamp scrollPos, but the method itself doesn't
@@ -273,9 +273,9 @@ func TestChat_PageDown_ClampsAtMax(t *testing.T) {
 func TestChat_NextUserMessage_JumpsToNextUser(t *testing.T) {
 	c := NewChat()
 	c.SetSize(80, 10)
-	c.AddEntry(ChatEntry{Role: "user", Content: "first"})
-	c.AddEntry(ChatEntry{Role: "assistant", Content: "reply"})
-	c.AddEntry(ChatEntry{Role: "user", Content: "second"})
+	c.AddEntry(ChatEntry{Role: RoleUser, Content: "first"})
+	c.AddEntry(ChatEntry{Role: RoleAssistant, Content: "reply"})
+	c.AddEntry(ChatEntry{Role: RoleUser, Content: "second"})
 	c.scrollPos = 0
 	c.NextUserMessage()
 	assert.True(t, c.scrollPos > 0, "should jump past first user message")
@@ -284,9 +284,9 @@ func TestChat_NextUserMessage_JumpsToNextUser(t *testing.T) {
 func TestChat_PrevUserMessage_JumpsToPrevUser(t *testing.T) {
 	c := NewChat()
 	c.SetSize(80, 10)
-	c.AddEntry(ChatEntry{Role: "user", Content: "first"})
-	c.AddEntry(ChatEntry{Role: "assistant", Content: "reply"})
-	c.AddEntry(ChatEntry{Role: "user", Content: "second"})
+	c.AddEntry(ChatEntry{Role: RoleUser, Content: "first"})
+	c.AddEntry(ChatEntry{Role: RoleAssistant, Content: "reply"})
+	c.AddEntry(ChatEntry{Role: RoleUser, Content: "second"})
 	c.scrollPos = 10
 	c.PrevUserMessage()
 	assert.True(t, c.scrollPos < 10, "should jump back to previous user message")

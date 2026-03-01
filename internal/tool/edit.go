@@ -51,6 +51,10 @@ func (e *EditTool) Execute(ctx Context, argsJSON string) Result {
 		return Result{Error: fmt.Errorf("parse args: %w", err)}
 	}
 
+	if args.OldString == "" {
+		return Result{Error: fmt.Errorf("old_string is required and cannot be empty")}
+	}
+
 	validated, err := ValidatePath(args.FilePath, ctx.WorkDir, true)
 	if err != nil {
 		return Result{Error: err}
@@ -154,12 +158,14 @@ func mapNormPos(orig, norm string, normPos int) int {
 	oi, ni := 0, 0
 	for ni < normPos && oi < len(orig) {
 		if orig[oi] == '\t' {
-			// Tab expands to 4 spaces in normalized
 			ni += 4
 		} else {
 			ni++
 		}
 		oi++
+	}
+	if oi > len(orig) {
+		oi = len(orig)
 	}
 	return oi
 }

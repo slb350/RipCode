@@ -44,13 +44,14 @@ func (a *App) initRegistry() {
 			a.chat.Clear()
 			a.toolpanel.Clear()
 			a.modifiedFiles = nil
+			a.modifiedFilesSet = nil
 			if a.session != nil {
 				a.session.Reset()
 				a.statusbar.SetTitle(shortSessionTitle(a.session.ID))
 				a.statusbar.SetTokens(0)
 			}
 			a.chat.AddEntry(components.ChatEntry{
-				Role:    "system",
+				Role:    components.RoleSystem,
 				Content: "Conversation cleared.",
 			})
 			return nil
@@ -92,7 +93,7 @@ func (a *App) initRegistry() {
 				state = "shown"
 			}
 			a.chat.AddEntry(components.ChatEntry{
-				Role:    "system",
+				Role:    components.RoleSystem,
 				Content: fmt.Sprintf("Sidebar %s.", state),
 			})
 			return nil
@@ -176,7 +177,7 @@ func (a *App) initRegistry() {
 			entries := a.chat.Entries()
 			var last string
 			for i := len(entries) - 1; i >= 0; i-- {
-				if entries[i].Role == "assistant" {
+				if entries[i].Role == components.RoleAssistant {
 					last = entries[i].Content
 					break
 				}
@@ -303,7 +304,7 @@ func (a *App) initRegistry() {
 				sb.WriteString("  (none registered)")
 			}
 			a.chat.AddEntry(components.ChatEntry{
-				Role:    "system",
+				Role:    components.RoleSystem,
 				Content: sb.String(),
 			})
 			return nil
@@ -391,7 +392,7 @@ func (a *App) initRegistry() {
 			}
 			a.rebuildChatFromSession()
 			a.chat.AddEntry(components.ChatEntry{
-				Role:    "system",
+				Role:    components.RoleSystem,
 				Content: "--- reverted ---",
 			})
 			a.input.SetValue(prompt)

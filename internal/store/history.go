@@ -40,8 +40,7 @@ func LoadHistory() ([]HistoryEntry, error) {
 		}
 		var entry HistoryEntry
 		if err := json.Unmarshal(line, &entry); err != nil {
-			// Intentional skip: malformed lines are silently dropped to allow
-			// line-level recovery. The rest of the file is still usable.
+			LogError("history: malformed entry", err)
 			continue
 		}
 		entries = append(entries, entry)
@@ -69,12 +68,17 @@ func SaveHistory(entries []HistoryEntry) error {
 	for _, entry := range entries {
 		data, err := json.Marshal(entry)
 		if err != nil {
-			// Intentional skip: a single unmarshalable entry should not
-			// prevent writing the rest of the history file.
+			LogError("history: marshal entry", err)
 			continue
 		}
-		w.Write(data)
-		w.WriteByte('\n')
+		if _, err := w.Write(data); err != nil {
+			LogError("history: write entry", err)
+			continue
+		}
+		if err := w.WriteByte('\n'); err != nil {
+			LogError("history: write newline", err)
+			continue
+		}
 	}
 	return w.Flush()
 }

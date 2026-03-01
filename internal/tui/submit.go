@@ -46,13 +46,13 @@ func (a App) handleSubmit(input string) (tea.Model, tea.Cmd) {
 
 	if a.provider == nil || a.registry == nil || a.session == nil {
 		a.chat.AddEntry(components.ChatEntry{
-			Role:    "error",
+			Role:    components.RoleError,
 			Content: "Not configured — missing provider, registry, or session",
 		})
 		return a, nil
 	}
 
-	a.chat.AddEntry(components.ChatEntry{Role: "user", Content: input})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: input})
 	a.setStreaming(true)
 	a.responseStart = time.Now()
 	a.input.Blur()
@@ -80,7 +80,7 @@ func (a App) handleShellSubmit(input string) (tea.Model, tea.Cmd) {
 		return a, toastCmd
 	}
 
-	a.chat.AddEntry(components.ChatEntry{Role: "user", Content: "! " + cmd})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: "! " + cmd})
 
 	// Execute async via tea.Cmd with cancellable context
 	shellCmd := cmd
@@ -137,24 +137,24 @@ func (a App) handleSlashCommand(input string) (App, tea.Cmd, bool) {
 	// Registry lookup
 	cmd := a.cmdRegistry.Get(name)
 	if cmd == nil {
-		a.chat.AddEntry(components.ChatEntry{Role: "user", Content: input})
+		a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: input})
 		a.chat.AddEntry(components.ChatEntry{
-			Role:    "error",
+			Role:    components.RoleError,
 			Content: `Unknown command. Try "/help".`,
 		})
 		return a, nil, true
 	}
 
-	a.chat.AddEntry(components.ChatEntry{Role: "user", Content: input})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: input})
 	teaCmd := cmd.Handler(&a)
 	return a, teaCmd, true
 }
 
 func (a App) handleAgentCommand(input string, args []string) App {
-	a.chat.AddEntry(components.ChatEntry{Role: "user", Content: input})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: input})
 	if len(args) != 1 {
 		a.chat.AddEntry(components.ChatEntry{
-			Role:    "error",
+			Role:    components.RoleError,
 			Content: fmt.Sprintf("Usage: /agent %s|%s", agent.NameBuild, agent.NamePlan),
 		})
 		return a
@@ -164,18 +164,18 @@ func (a App) handleAgentCommand(input string, args []string) App {
 	case agent.NameBuild:
 		a.SetAgent(agent.BuildAgent())
 		a.chat.AddEntry(components.ChatEntry{
-			Role:    "system",
+			Role:    components.RoleSystem,
 			Content: fmt.Sprintf(`Agent switched to "%s".`, agent.NameBuild),
 		})
 	case agent.NamePlan:
 		a.SetAgent(agent.PlanAgent())
 		a.chat.AddEntry(components.ChatEntry{
-			Role:    "system",
+			Role:    components.RoleSystem,
 			Content: fmt.Sprintf(`Agent switched to "%s".`, agent.NamePlan),
 		})
 	default:
 		a.chat.AddEntry(components.ChatEntry{
-			Role:    "error",
+			Role:    components.RoleError,
 			Content: fmt.Sprintf(`Unknown agent. Use "%s" or "%s".`, agent.NameBuild, agent.NamePlan),
 		})
 	}
@@ -183,14 +183,14 @@ func (a App) handleAgentCommand(input string, args []string) App {
 }
 
 func (a App) handleModelCommand(input string, args []string) App {
-	a.chat.AddEntry(components.ChatEntry{Role: "user", Content: input})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: input})
 	if len(args) == 0 {
 		a.chat.AddEntry(components.ChatEntry{
-			Role:    "system",
+			Role:    components.RoleSystem,
 			Content: fmt.Sprintf(`Current model: %s`, a.model),
 		})
 		a.chat.AddEntry(components.ChatEntry{
-			Role:    "system",
+			Role:    components.RoleSystem,
 			Content: `Usage: /model <provider/model-id>`,
 		})
 		return a

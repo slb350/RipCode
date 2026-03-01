@@ -101,11 +101,17 @@ func (b *BashTool) Execute(ctx Context, argsJSON string) Result {
 	cmdCtx, cancel := context.WithTimeout(ctx.Abort, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(cmdCtx, "sh", "-c", args.Command)
-	cmd.Dir = args.WorkDir
-	if cmd.Dir == "" {
-		cmd.Dir = ctx.WorkDir
+	workdir := ctx.WorkDir
+	if args.WorkDir != "" {
+		validated, err := ValidatePath(args.WorkDir, ctx.WorkDir, true)
+		if err != nil {
+			return Result{Error: fmt.Errorf("invalid workdir: %w", err)}
+		}
+		workdir = validated
 	}
+
+	cmd := exec.CommandContext(cmdCtx, "sh", "-c", args.Command)
+	cmd.Dir = workdir
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

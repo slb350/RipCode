@@ -38,7 +38,7 @@ func LoadStash() ([]StashFileEntry, error) {
 	return entries, nil
 }
 
-// SaveStash writes all stash entries to disk as JSON.
+// SaveStash writes all stash entries to disk as JSON (atomic write).
 func SaveStash(entries []StashFileEntry) error {
 	dir := StateDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -49,5 +49,5 @@ func SaveStash(entries []StashFileEntry) error {
 	if err != nil {
 		return fmt.Errorf("marshal stash: %w", err)
 	}
-	return os.WriteFile(stashPath(), data, 0o644)
+	return atomicWrite(stashPath(), data, 0o644)
 }

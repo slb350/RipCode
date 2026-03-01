@@ -13,7 +13,9 @@ type TodoItem struct {
 	Status  string `json:"status"` // "pending", "in_progress", "completed"
 }
 
-// TodoTool provides session-scoped task tracking.
+// TodoTool provides instance-scoped task tracking: each App creates one
+// TodoTool, so items exist only for the lifetime of that session (in-memory,
+// not persisted).
 type TodoTool struct {
 	mu    sync.Mutex
 	items []TodoItem

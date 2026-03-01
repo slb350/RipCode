@@ -65,8 +65,8 @@ func TestApp_ExportDialog_ArrowNavigatesOptions(t *testing.T) {
 func TestApp_ExportDialog_EnterExports(t *testing.T) {
 	a := makeSessionApp(t)
 	a.chat.Clear()
-	a.chat.AddEntry(components.ChatEntry{Role: "user", Content: "hello"})
-	a.chat.AddEntry(components.ChatEntry{Role: "assistant", Content: "world"})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: "hello"})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleAssistant, Content: "world"})
 	model, _ := a.Update(components.InputSubmitMsg{Value: "/export"})
 	a = model.(App)
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -79,8 +79,8 @@ func TestApp_ExportDialog_EnterExports(t *testing.T) {
 func TestApp_ExportDialog_WritesFile(t *testing.T) {
 	a := makeSessionApp(t)
 	a.chat.Clear()
-	a.chat.AddEntry(components.ChatEntry{Role: "user", Content: "hello"})
-	a.chat.AddEntry(components.ChatEntry{Role: "assistant", Content: "world"})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: "hello"})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleAssistant, Content: "world"})
 	model, _ := a.Update(components.InputSubmitMsg{Value: "/export"})
 	a = model.(App)
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})

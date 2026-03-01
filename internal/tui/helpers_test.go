@@ -55,7 +55,7 @@ func makeSessionApp(t *testing.T) App {
 	a := model.(App)
 	// Add enough entries for scrolling
 	for i := 0; i < 30; i++ {
-		a.chat.AddEntry(components.ChatEntry{Role: "user", Content: "message"})
+		a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: "message"})
 	}
 	return a
 }

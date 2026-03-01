@@ -285,6 +285,21 @@ func TestList_CorruptedReturnsMultipleFilenames(t *testing.T) {
 	assert.Contains(t, corrupted, "bad2.json")
 }
 
+func TestList_CorruptedFile_Logged(t *testing.T) {
+	testDir(t)
+	dir := SessionsDir()
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bad.json"), []byte("{invalid"), 0o644))
+
+	_, corrupted, err := List()
+	require.NoError(t, err)
+	assert.Contains(t, corrupted, "bad.json")
+
+	logData, err := os.ReadFile(filepath.Join(StateDir(), "errors.log"))
+	require.NoError(t, err)
+	assert.Contains(t, string(logData), "sessions: corrupted file: bad.json")
+}
+
 func TestSave_WritesMessageCountToJSON(t *testing.T) {
 	testDir(t)
 	sess := makeTestSession(t) // 2 messages (user + assistant)
@@ -352,6 +367,70 @@ func TestSaveLoad_PreservesToolCalls(t *testing.T) {
 	assert.Equal(t, "bash", loaded.Records()[1].Message.ToolCalls[0].Name)
 	assert.Equal(t, provider.RoleTool, loaded.Records()[2].Message.Role)
 	assert.Equal(t, "call_1", loaded.Records()[2].Message.ToolCallID)
+}
+
+func TestAtomicWrite_Success(t *testing.T) {
+	dir := testDir(t)
+	path := filepath.Join(dir, "test.json")
+	require.NoError(t, atomicWrite(path, []byte(`{"ok":true}`), 0o644))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, `{"ok":true}`, string(data))
+
+	// Temp file should be cleaned up.
+	_, err = os.Stat(path + ".tmp")
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestAtomicWrite_PreservesOriginalOnFailure(t *testing.T) {
+	dir := testDir(t)
+	path := filepath.Join(dir, "data.json")
+	require.NoError(t, os.WriteFile(path, []byte("original"), 0o644))
+
+	// Make the directory read-only so temp file write fails.
+	require.NoError(t, os.Chmod(dir, 0o555))
+	t.Cleanup(func() { os.Chmod(dir, 0o755) })
+
+	err := atomicWrite(path, []byte("replacement"), 0o644)
+	assert.Error(t, err)
+
+	// Restore permissions to verify original is intact.
+	os.Chmod(dir, 0o755)
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "original", string(data))
+}
+
+func TestLoad_PathTraversalBlocked(t *testing.T) {
+	testDir(t)
+	for _, id := range []string{"../../../etc/passwd", "", "foo/bar", "a/../b"} {
+		_, err := Load(id)
+		assert.Error(t, err, "Load(%q) should error", id)
+		if id != "" {
+			assert.Contains(t, err.Error(), "invalid session ID", "Load(%q)", id)
+		}
+	}
+}
+
+func TestDelete_PathTraversalBlocked(t *testing.T) {
+	testDir(t)
+	for _, id := range []string{"../../../etc/passwd", "", "foo/bar"} {
+		err := Delete(id)
+		assert.Error(t, err, "Delete(%q) should error", id)
+		if id != "" {
+			assert.Contains(t, err.Error(), "invalid session ID", "Delete(%q)", id)
+		}
+	}
+}
+
+func TestSave_PathTraversalBlocked(t *testing.T) {
+	testDir(t)
+	s := session.New("/tmp")
+	s.ID = "../../../etc/evil"
+	err := Save(s)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid session ID")
 }
 
 func TestSaveLoad_PreservesTimestamps(t *testing.T) {

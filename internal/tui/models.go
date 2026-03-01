@@ -22,9 +22,15 @@ type commandPaletteState struct {
 	selected int
 }
 
+// Inline suggestion mode constants.
+const (
+	inlineModeCommand = "/"
+	inlineModeFile    = "@"
+)
+
 type inlineState struct {
 	open     bool
-	mode     string // "/" or "@"
+	mode     string // inlineModeCommand or inlineModeFile
 	query    string
 	selected int
 	start    int
@@ -126,7 +132,7 @@ func (a *App) applyVariant(variant string) {
 func (a *App) switchModel(modelID string) bool {
 	if a.provider == nil {
 		a.chat.AddEntry(components.ChatEntry{
-			Role:    "error",
+			Role:    components.RoleError,
 			Content: "Not configured — missing provider",
 		})
 		return false
@@ -135,7 +141,7 @@ func (a *App) switchModel(modelID string) bool {
 	setter, ok := a.provider.(provider.ModelSetter)
 	if !ok {
 		a.chat.AddEntry(components.ChatEntry{
-			Role:    "error",
+			Role:    components.RoleError,
 			Content: fmt.Sprintf(`Provider "%s" does not support runtime model switching.`, a.provider.Name()),
 		})
 		return false
@@ -161,7 +167,7 @@ func (a *App) switchModel(modelID string) bool {
 		a.applyVariant(a.modelPrefs.GetVariant(modelID))
 	}
 	a.chat.AddEntry(components.ChatEntry{
-		Role:    "system",
+		Role:    components.RoleSystem,
 		Content: fmt.Sprintf(`Model switched to "%s".`, modelID),
 	})
 	return true
@@ -170,7 +176,7 @@ func (a *App) switchModel(modelID string) bool {
 func (a App) handleModelsCommand(input string) (tea.Model, tea.Cmd) {
 	if a.provider == nil {
 		a.chat.AddEntry(components.ChatEntry{
-			Role:    "error",
+			Role:    components.RoleError,
 			Content: "Not configured — missing provider",
 		})
 		return a, nil
@@ -195,7 +201,7 @@ func (a App) handleModelsLoaded(msg ModelsLoadedMsg) (tea.Model, tea.Cmd) {
 
 	if msg.Err != nil {
 		a.chat.AddEntry(components.ChatEntry{
-			Role:    "error",
+			Role:    components.RoleError,
 			Content: msg.Err.Error(),
 		})
 		a.input.Focus()
@@ -217,7 +223,7 @@ func (a App) displayModels(models []provider.ModelInfo, query string) App {
 			msg = fmt.Sprintf("No models found for %q.", query)
 		}
 		a.chat.AddEntry(components.ChatEntry{
-			Role:    "system",
+			Role:    components.RoleSystem,
 			Content: msg,
 		})
 		return a
@@ -243,7 +249,7 @@ func (a App) displayModels(models []provider.ModelInfo, query string) App {
 	}
 
 	a.chat.AddEntry(components.ChatEntry{
-		Role:    "system",
+		Role:    components.RoleSystem,
 		Content: strings.Join(lines, "\n"),
 	})
 	return a

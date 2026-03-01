@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -158,4 +159,66 @@ func TestRoleConstants_MatchExpectedValues(t *testing.T) {
 	// Verify Role is a defined type — constants work in Message fields
 	msg := Message{Role: RoleUser, Content: "hello"}
 	assert.Equal(t, RoleUser, msg.Role)
+}
+
+func TestMessage_Valid_UserMessage(t *testing.T) {
+	m := Message{Role: RoleUser, Content: "hello"}
+	assert.NoError(t, m.Valid())
+}
+
+func TestMessage_Valid_AssistantWithToolCalls(t *testing.T) {
+	m := Message{
+		Role:      RoleAssistant,
+		Content:   "calling tool",
+		ToolCalls: []ToolCall{{ID: "1", Name: "bash", Args: "{}"}},
+	}
+	assert.NoError(t, m.Valid())
+}
+
+func TestMessage_Valid_ToolResult(t *testing.T) {
+	m := Message{Role: RoleTool, Content: "output", ToolCallID: "1"}
+	assert.NoError(t, m.Valid())
+}
+
+func TestMessage_Valid_InvalidRole(t *testing.T) {
+	m := Message{Role: "admin", Content: "hello"}
+	assert.Error(t, m.Valid())
+}
+
+func TestMessage_Valid_ToolCallsOnNonAssistant(t *testing.T) {
+	m := Message{
+		Role:      RoleUser,
+		ToolCalls: []ToolCall{{ID: "1", Name: "bash", Args: "{}"}},
+	}
+	assert.Error(t, m.Valid())
+}
+
+func TestMessage_Valid_ToolCallIDOnNonTool(t *testing.T) {
+	m := Message{Role: RoleAssistant, Content: "hi", ToolCallID: "1"}
+	assert.Error(t, m.Valid())
+}
+
+func TestMessage_Valid_ToolMissingCallID(t *testing.T) {
+	m := Message{Role: RoleTool, Content: "output"}
+	assert.Error(t, m.Valid())
+}
+
+func TestStreamEvent_Constructors(t *testing.T) {
+	e1 := NewContentDelta("hello")
+	assert.Equal(t, EventContentDelta, e1.Type)
+	assert.Equal(t, "hello", e1.Content)
+
+	tc := &ToolCall{ID: "1", Name: "bash", Args: "{}"}
+	e2 := NewToolCallEvent(tc)
+	assert.Equal(t, EventToolCall, e2.Type)
+	assert.Equal(t, tc, e2.ToolCall)
+
+	meta := &Metadata{InputTokens: 10}
+	e3 := NewFinishEvent(meta)
+	assert.Equal(t, EventFinish, e3.Type)
+	assert.Equal(t, meta, e3.Meta)
+
+	e4 := NewErrorEvent(fmt.Errorf("fail"))
+	assert.Equal(t, EventError, e4.Type)
+	assert.Equal(t, "fail", e4.Error.Error())
 }

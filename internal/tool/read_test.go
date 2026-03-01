@@ -131,3 +131,15 @@ func TestRead_PathTraversalBlocked(t *testing.T) {
 	result := r.Execute(ctx, `{"file_path":"../../../etc/passwd"}`)
 	assert.Error(t, result.Error)
 }
+
+func TestRead_SymlinkOutsideBlocked(t *testing.T) {
+	r := NewReadTool()
+	ctx := newTestCtx(t)
+
+	link := filepath.Join(ctx.WorkDir, "outside_link")
+	require.NoError(t, os.Symlink("/etc/hosts", link))
+
+	result := r.Execute(ctx, `{"file_path":"`+link+`"}`)
+	assert.Error(t, result.Error)
+	assert.Contains(t, result.Error.Error(), "outside")
+}

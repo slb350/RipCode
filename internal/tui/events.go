@@ -21,11 +21,11 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 	case agent.EventToolStart:
 		if event.Tool != nil {
 			a.chat.AddEntry(components.ChatEntry{
-				Role:       "tool",
+				Role:       components.RoleTool,
 				Content:    toolSummary(event.Tool),
 				ToolID:     event.Tool.ID,
 				ToolName:   event.Tool.Name,
-				ToolStatus: "pending",
+				ToolStatus: components.StatusPending,
 			})
 			a.toolpanel.AddEvent(agent.ToolEvent{
 				ID:   event.Tool.ID,
@@ -37,16 +37,16 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 
 	case agent.EventToolEnd:
 		if event.Tool != nil {
-			status := "success"
+			status := components.StatusSuccess
 			if event.Tool.Error != "" {
-				status = "error"
+				status = components.StatusError
 			}
 			content := event.Tool.Output
-			if status == "error" {
+			if status == components.StatusError {
 				content = event.Tool.Error
 			}
 			a.chat.UpdateLastTool(event.Tool.ID, components.ChatEntry{
-				Role:       "tool",
+				Role:       components.RoleTool,
 				Content:    content,
 				ToolID:     event.Tool.ID,
 				ToolName:   event.Tool.Name,
@@ -62,7 +62,9 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 				var parsed struct {
 					FilePath string `json:"file_path"`
 				}
-				if json.Unmarshal([]byte(event.Tool.Args), &parsed) == nil && parsed.FilePath != "" {
+				if err := json.Unmarshal([]byte(event.Tool.Args), &parsed); err != nil {
+					store.LogError("events: parse tool args for "+event.Tool.Name, err)
+				} else if parsed.FilePath != "" {
 					a.trackModifiedFile(parsed.FilePath)
 				}
 			}
@@ -84,7 +86,7 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 			modeName = agent.NameBuild
 		}
 		a.chat.AddEntry(components.ChatEntry{
-			Role: "complete",
+			Role: components.RoleComplete,
 			Meta: &components.CompleteMeta{
 				Mode:     modeName,
 				Model:    a.model,
@@ -100,7 +102,7 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 		a.input.Focus()
 		if event.Error != nil {
 			a.chat.AddEntry(components.ChatEntry{
-				Role:    "error",
+				Role:    components.RoleError,
 				Content: event.Error.Error(),
 			})
 		}

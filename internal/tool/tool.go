@@ -20,9 +20,12 @@ var skipDirs = map[string]bool{
 	".venv":        true,
 }
 
+const maxTrackedPaths = 10
+
 // skipTracker collects skip counts categorized by error reason.
 type skipTracker struct {
 	reasons map[string]int
+	paths   []string
 }
 
 func newSkipTracker() *skipTracker {
@@ -32,6 +35,13 @@ func newSkipTracker() *skipTracker {
 func (s *skipTracker) add(err error) {
 	reason := classifyError(err)
 	s.reasons[reason]++
+}
+
+func (s *skipTracker) addPath(path string, err error) {
+	s.add(err)
+	if len(s.paths) < maxTrackedPaths {
+		s.paths = append(s.paths, path)
+	}
 }
 
 func (s *skipTracker) count() int {
@@ -72,7 +82,15 @@ func (s *skipTracker) note(noun string) string {
 		parts[i] = fmt.Sprintf("%d %s", e.count, e.reason)
 	}
 
-	return fmt.Sprintf("\n(%d %s skipped: %s)", total, noun, strings.Join(parts, ", "))
+	msg := fmt.Sprintf("\n(%d %s skipped: %s)", total, noun, strings.Join(parts, ", "))
+	if len(s.paths) > 0 {
+		msg += " [" + strings.Join(s.paths, ", ")
+		if total > len(s.paths) {
+			msg += fmt.Sprintf(", ... and %d more", total-len(s.paths))
+		}
+		msg += "]"
+	}
+	return msg
 }
 
 // classifyError maps an error to a human-readable reason category.

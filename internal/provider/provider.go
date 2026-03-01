@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"strings"
 )
 
@@ -33,6 +34,24 @@ type Message struct {
 	ToolCallID string     // present on tool result messages
 }
 
+// Valid checks that the message has a valid role and that role-specific
+// fields are used correctly.
+func (m Message) Valid() error {
+	if !m.Role.Valid() {
+		return fmt.Errorf("invalid role: %q", m.Role)
+	}
+	if len(m.ToolCalls) > 0 && m.Role != RoleAssistant {
+		return fmt.Errorf("ToolCalls only valid on assistant messages, got role %q", m.Role)
+	}
+	if m.ToolCallID != "" && m.Role != RoleTool {
+		return fmt.Errorf("ToolCallID only valid on tool messages, got role %q", m.Role)
+	}
+	if m.Role == RoleTool && m.ToolCallID == "" {
+		return fmt.Errorf("tool message requires ToolCallID")
+	}
+	return nil
+}
+
 // ToolCall represents an LLM request to invoke a tool.
 type ToolCall struct {
 	ID   string
@@ -57,6 +76,26 @@ type StreamEvent struct {
 	ToolCall *ToolCall // tool invocation (EventToolCall)
 	Meta     *Metadata // finish info (EventFinish)
 	Error    error     // error details (EventError)
+}
+
+// NewContentDelta creates a content delta event.
+func NewContentDelta(content string) StreamEvent {
+	return StreamEvent{Type: EventContentDelta, Content: content}
+}
+
+// NewToolCallEvent creates a tool call event.
+func NewToolCallEvent(tc *ToolCall) StreamEvent {
+	return StreamEvent{Type: EventToolCall, ToolCall: tc}
+}
+
+// NewFinishEvent creates a finish event with metadata.
+func NewFinishEvent(meta *Metadata) StreamEvent {
+	return StreamEvent{Type: EventFinish, Meta: meta}
+}
+
+// NewErrorEvent creates an error event.
+func NewErrorEvent(err error) StreamEvent {
+	return StreamEvent{Type: EventError, Error: err}
 }
 
 // Metadata carries usage and completion information.

@@ -2,6 +2,7 @@ package store
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -105,4 +106,19 @@ func TestLoadHistory_MalformedLines_SkippedGracefully(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, loaded, 1, "should skip malformed line and return valid entries")
 	assert.Equal(t, "good", loaded[0].Prompt)
+}
+
+func TestLoadHistory_MalformedLines_Logged(t *testing.T) {
+	testDir(t)
+	require.NoError(t, AppendHistory(HistoryEntry{Prompt: "good", Mode: "normal"}))
+	f, err := os.OpenFile(historyPath(), os.O_APPEND|os.O_WRONLY, 0o644)
+	require.NoError(t, err)
+	_, _ = f.WriteString("{bad}\n")
+	f.Close()
+
+	_, _ = LoadHistory()
+
+	logData, err := os.ReadFile(filepath.Join(StateDir(), "errors.log"))
+	require.NoError(t, err)
+	assert.Contains(t, string(logData), "history: malformed entry")
 }

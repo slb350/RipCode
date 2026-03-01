@@ -396,7 +396,7 @@ func TestApp_CopyCommand_NoAssistant_ShowsWarning(t *testing.T) {
 func TestApp_CopyCommand_ShowsSuccessToast(t *testing.T) {
 	a := makeSessionApp(t)
 	a.chat.Clear()
-	a.chat.AddEntry(components.ChatEntry{Role: "assistant", Content: "Hello world"})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleAssistant, Content: "Hello world"})
 	model, cmd := a.Update(components.InputSubmitMsg{Value: "/copy"})
 	a = model.(App)
 	// May succeed or fail depending on clipboard availability in test env
@@ -444,7 +444,7 @@ func TestApp_SkillsCommand_ShowsToolList(t *testing.T) {
 	// Should add entries to chat listing tools
 	found := false
 	for _, e := range a.chat.Entries() {
-		if e.Role == "system" && strings.Contains(e.Content, "Available tools") {
+		if e.Role == components.RoleSystem && strings.Contains(e.Content, "Available tools") {
 			found = true
 			break
 		}
@@ -561,7 +561,7 @@ func TestApp_UndoCommand_AddsRevertMarkerToChat(t *testing.T) {
 	// After undo, chat is rebuilt with a revert marker
 	found := false
 	for _, e := range a.chat.Entries() {
-		if e.Role == "system" && strings.Contains(e.Content, "reverted") {
+		if e.Role == components.RoleSystem && strings.Contains(e.Content, "reverted") {
 			found = true
 			break
 		}

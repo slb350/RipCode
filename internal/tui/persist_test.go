@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -100,7 +101,7 @@ func TestApp_StartupWarnings_ShowsToastOnReady(t *testing.T) {
 	assert.True(t, a.startupWarningsShown, "flag should be set after first WindowSizeMsg")
 	assert.NotNil(t, cmd, "should return toast dismiss cmd")
 	assert.NotNil(t, a.toasts.Current(), "toast should be visible")
-	assert.Contains(t, a.toasts.Current().Message, "corrupted")
+	assert.Contains(t, a.toasts.Current().Message, "model preferences")
 }
 
 func TestApp_StartupWarnings_NotReShownOnResize(t *testing.T) {
@@ -255,7 +256,7 @@ func TestNewApp_CorruptedStashShowsWarning(t *testing.T) {
 	app := NewApp()
 	found := false
 	for _, w := range app.startupWarnings {
-		if w == "prompt stash corrupted, using defaults" {
+		if strings.Contains(w, "prompt stash") && strings.Contains(w, "using defaults") {
 			found = true
 		}
 	}

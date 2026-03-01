@@ -10,6 +10,23 @@ import (
 	"github.com/stephenbrandon/ripcode/internal/tui/styles"
 )
 
+// Chat entry role constants.
+const (
+	RoleUser      = "user"
+	RoleAssistant = "assistant"
+	RoleTool      = "tool"
+	RoleError     = "error"
+	RoleSystem    = "system"
+	RoleComplete  = "complete"
+)
+
+// Tool status constants.
+const (
+	StatusPending = "pending"
+	StatusSuccess = "success"
+	StatusError   = "error"
+)
+
 // CompleteMeta holds metadata for a completion info bar entry.
 type CompleteMeta struct {
 	Mode     string
@@ -19,12 +36,12 @@ type CompleteMeta struct {
 
 // ChatEntry represents a single rendered entry in the chat.
 type ChatEntry struct {
-	Role       string // "user", "assistant", "tool", "error", "system", "complete"
+	Role       string // RoleUser, RoleAssistant, RoleTool, RoleError, RoleSystem, RoleComplete
 	Content    string
 	ToolID     string        // tool call ID for matching updates
 	ToolName   string        // tool name (bash, read, write, etc.)
-	ToolStatus string        // "pending", "success", "error"
-	Meta       *CompleteMeta // for "complete" role entries
+	ToolStatus string        // StatusPending, StatusSuccess, StatusError
+	Meta       *CompleteMeta // for RoleComplete entries
 }
 
 // Chat is a scrollable viewport displaying conversation messages.
@@ -85,7 +102,7 @@ func (c *Chat) StreamContent(delta string) {
 func (c *Chat) CommitStream() {
 	if c.streaming != "" {
 		c.entries = append(c.entries, ChatEntry{
-			Role:    "assistant",
+			Role:    RoleAssistant,
 			Content: c.streaming,
 		})
 		c.streaming = ""
@@ -128,7 +145,7 @@ func (c *Chat) NextUserMessage() {
 	linePos := 0
 	for _, entry := range c.entries {
 		entryLines := 2 // entry + blank (approximate)
-		if entry.Role == "user" && linePos > c.scrollPos {
+		if entry.Role == RoleUser && linePos > c.scrollPos {
 			c.scrollPos = linePos
 			return
 		}
@@ -142,7 +159,7 @@ func (c *Chat) PrevUserMessage() {
 	linePos := 0
 	lastUser := -1
 	for _, entry := range c.entries {
-		if entry.Role == "user" && linePos < c.scrollPos {
+		if entry.Role == RoleUser && linePos < c.scrollPos {
 			lastUser = linePos
 		}
 		linePos += 2 // entry + blank (approximate)
@@ -227,17 +244,17 @@ func (c Chat) renderEntry(entry ChatEntry) []string {
 	}
 
 	switch entry.Role {
-	case "user":
+	case RoleUser:
 		return c.renderUserEntry(entry, t)
-	case "assistant":
+	case RoleAssistant:
 		return c.renderAssistantEntry(entry, t)
-	case "tool":
+	case RoleTool:
 		return c.renderToolEntry(entry, t)
-	case "error":
+	case RoleError:
 		return c.renderErrorEntry(entry, t)
-	case "system":
+	case RoleSystem:
 		return c.renderSystemEntry(entry, t)
-	case "complete":
+	case RoleComplete:
 		return c.renderCompleteEntry(entry, t)
 	default:
 		return []string{entry.Content}
@@ -302,9 +319,9 @@ func toolIcon(name string) string {
 // statusIcon returns the status indicator.
 func statusIcon(status string) string {
 	switch status {
-	case "success":
+	case StatusSuccess:
 		return "✓"
-	case "error":
+	case StatusError:
 		return "✗"
 	default:
 		return "~"
@@ -318,9 +335,9 @@ func (c Chat) renderToolEntry(entry ChatEntry, t *styles.Theme) []string {
 
 	var statusStyle lipgloss.Style
 	switch entry.ToolStatus {
-	case "success":
+	case StatusSuccess:
 		statusStyle = t.SuccessStyle
-	case "error":
+	case StatusError:
 		statusStyle = t.ErrorStyle
 	default:
 		statusStyle = t.TextMutedStyle

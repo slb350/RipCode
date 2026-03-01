@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -110,6 +111,12 @@ func (c *OpenRouter) ListModels(ctx context.Context) ([]provider.ModelInfo, erro
 		if m.Pricing != nil {
 			prompt, errP := strconv.ParseFloat(m.Pricing.Prompt, 64)
 			completion, errC := strconv.ParseFloat(m.Pricing.Completion, 64)
+			if errP != nil {
+				fmt.Fprintf(os.Stderr, "[ripcode] pricing prompt %s: %v\n", m.ID, errP)
+			}
+			if errC != nil {
+				fmt.Fprintf(os.Stderr, "[ripcode] pricing completion %s: %v\n", m.ID, errC)
+			}
 			if errP == nil && errC == nil {
 				info.Pricing = &provider.ModelPricing{
 					PromptPerMillion:     prompt,
@@ -269,10 +276,7 @@ func (c *OpenRouter) streamResponse(ctx context.Context, resp *http.Response, ch
 
 		var chunk apiChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			send(provider.StreamEvent{
-				Type:  provider.EventError,
-				Error: fmt.Errorf("parse SSE chunk: %w", err),
-			})
+			send(provider.NewErrorEvent(fmt.Errorf("parse SSE chunk: %w", err)))
 			return
 		}
 
@@ -289,10 +293,7 @@ func (c *OpenRouter) streamResponse(ctx context.Context, resp *http.Response, ch
 
 		// Content delta
 		if choice.Delta.Content != "" {
-			if !send(provider.StreamEvent{
-				Type:    provider.EventContentDelta,
-				Content: choice.Delta.Content,
-			}) {
+			if !send(provider.NewContentDelta(choice.Delta.Content)) {
 				return
 			}
 		}
@@ -322,33 +323,25 @@ func (c *OpenRouter) streamResponse(ctx context.Context, resp *http.Response, ch
 	// Check for scanner errors (e.g. network disconnect mid-stream).
 	// Discard partial tool calls — they shouldn't be executed from a truncated stream.
 	if err := scanner.Err(); err != nil {
-		send(provider.StreamEvent{
-			Type:  provider.EventError,
-			Error: fmt.Errorf("stream read error: %w", err),
-		})
+		send(provider.NewErrorEvent(fmt.Errorf("stream read error: %w", err)))
 		return
 	}
 
-	// Emit accumulated tool calls
+	// Emit accumulated tool calls. SSE delivers tool call fields incrementally
+	// (index, name chunk, args chunk across multiple events). We accumulate
+	// fragments by index key during streaming and emit complete calls here.
 	for i := 0; i < len(toolCalls); i++ {
 		acc := toolCalls[i]
-		if !send(provider.StreamEvent{
-			Type: provider.EventToolCall,
-			ToolCall: &provider.ToolCall{
-				ID:   acc.id,
-				Name: acc.name,
-				Args: acc.args.String(),
-			},
-		}) {
+		if !send(provider.NewToolCallEvent(&provider.ToolCall{
+			ID:   acc.id,
+			Name: acc.name,
+			Args: acc.args.String(),
+		})) {
 			return
 		}
 	}
 
-	// Emit finish
-	send(provider.StreamEvent{
-		Type: provider.EventFinish,
-		Meta: &meta,
-	})
+	send(provider.NewFinishEvent(&meta))
 }
 
 // --- API types ---

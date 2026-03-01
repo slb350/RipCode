@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -12,6 +13,18 @@ import (
 	"github.com/stephenbrandon/ripcode/internal/provider"
 	"github.com/stephenbrandon/ripcode/internal/session"
 )
+
+var validSessionID = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+func validateSessionID(id string) error {
+	if id == "" {
+		return fmt.Errorf("empty session ID")
+	}
+	if !validSessionID.MatchString(id) {
+		return fmt.Errorf("invalid session ID: %q", id)
+	}
+	return nil
+}
 
 // SessionSummary holds minimal session info for listing.
 type SessionSummary struct {
@@ -81,6 +94,9 @@ type assistantMetaFile struct {
 
 // Save writes a session to disk as JSON.
 func Save(s *session.Session) error {
+	if err := validateSessionID(s.ID); err != nil {
+		return fmt.Errorf("save session: %w", err)
+	}
 	dir := SessionsDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create sessions dir: %w", err)
@@ -136,11 +152,14 @@ func Save(s *session.Session) error {
 	}
 
 	path := filepath.Join(dir, s.ID+".json")
-	return os.WriteFile(path, data, 0o644)
+	return atomicWrite(path, data, 0o644)
 }
 
 // Load reads a session from disk by ID.
 func Load(id string) (*session.Session, error) {
+	if err := validateSessionID(id); err != nil {
+		return nil, err
+	}
 	path := filepath.Join(SessionsDir(), id+".json")
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -192,6 +211,10 @@ func Load(id string) (*session.Session, error) {
 				Duration:     mf.Meta.Duration,
 			}
 		}
+		if err := rec.Valid(); err != nil {
+			LogError("sessions: invalid record in "+id, err)
+			continue
+		}
 		s.LoadRecord(rec)
 	}
 
@@ -220,12 +243,14 @@ func List() ([]SessionSummary, []string, error) {
 		id := strings.TrimSuffix(entry.Name(), ".json")
 		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
 		if err != nil {
+			LogError("sessions: corrupted file: "+entry.Name(), err)
 			corrupted = append(corrupted, entry.Name())
 			continue
 		}
 
 		var hdr sessionSummaryFile
 		if err := json.Unmarshal(data, &hdr); err != nil {
+			LogError("sessions: corrupted file: "+entry.Name(), err)
 			corrupted = append(corrupted, entry.Name())
 			continue
 		}
@@ -259,6 +284,9 @@ func List() ([]SessionSummary, []string, error) {
 
 // Delete removes a saved session by ID.
 func Delete(id string) error {
+	if err := validateSessionID(id); err != nil {
+		return err
+	}
 	path := filepath.Join(SessionsDir(), id+".json")
 	if err := os.Remove(path); err != nil {
 		if os.IsNotExist(err) {

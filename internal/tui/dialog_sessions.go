@@ -170,20 +170,20 @@ func (a *App) rebuildChatFromSession() {
 		switch rec.Message.Role {
 		case provider.RoleUser:
 			a.chat.AddEntry(components.ChatEntry{
-				Role:    "user",
+				Role:    components.RoleUser,
 				Content: rec.Message.Content,
 			})
 		case provider.RoleAssistant:
 			a.chat.AddEntry(components.ChatEntry{
-				Role:    "assistant",
+				Role:    components.RoleAssistant,
 				Content: rec.Message.Content,
 			})
 		case provider.RoleTool:
 			a.chat.AddEntry(components.ChatEntry{
-				Role:       "tool",
+				Role:       components.RoleTool,
 				Content:    rec.Message.Content,
 				ToolID:     rec.Message.ToolCallID,
-				ToolStatus: "success",
+				ToolStatus: components.StatusSuccess,
 			})
 		}
 	}

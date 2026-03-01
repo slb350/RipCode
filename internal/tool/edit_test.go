@@ -39,6 +39,17 @@ func TestEdit_NonUniqueMatch(t *testing.T) {
 	assert.Contains(t, result.Error.Error(), "2 matches")
 }
 
+func TestEdit_EmptyOldString(t *testing.T) {
+	e := NewEditTool()
+	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "test.go")
+	require.NoError(t, os.WriteFile(path, []byte("content"), 0644))
+
+	result := e.Execute(ctx, `{"file_path":"`+path+`","old_string":"","new_string":"replacement"}`)
+	assert.Error(t, result.Error)
+	assert.Contains(t, result.Error.Error(), "old_string")
+}
+
 func TestEdit_NoMatch(t *testing.T) {
 	e := NewEditTool()
 	ctx := newTestCtx(t)
@@ -142,4 +153,22 @@ func TestEdit_SymlinkEditBlocked(t *testing.T) {
 
 	result := e.Execute(ctx, `{"file_path":"`+link+`","old_string":"secret","new_string":"public"}`)
 	assert.Error(t, result.Error)
+}
+
+func TestEdit_MapNormPos_TabBoundary(t *testing.T) {
+	orig := "\thello"
+	norm := normalizeWhitespace(orig)
+	assert.Equal(t, "    hello", norm)
+
+	// Position mid-tab: normPos=2 is inside the 4-space expansion.
+	pos := mapNormPos(orig, norm, 2)
+	assert.LessOrEqual(t, pos, len(orig))
+
+	// Position at end of normalized string.
+	pos = mapNormPos(orig, norm, len(norm))
+	assert.Equal(t, len(orig), pos)
+
+	// Position 0.
+	pos = mapNormPos(orig, norm, 0)
+	assert.Equal(t, 0, pos)
 }

@@ -64,7 +64,8 @@ func (s *Session) AddUser(content string) *MessageRecord {
 	}
 	s.messages = append(s.messages, rec)
 	s.UpdatedAt = time.Now()
-	return &s.messages[len(s.messages)-1]
+	result := s.messages[len(s.messages)-1]
+	return &result
 }
 
 // AddAssistant appends an assistant message with optional tool calls and metadata.
@@ -83,7 +84,8 @@ func (s *Session) AddAssistant(content string, toolCalls []provider.ToolCall, me
 	}
 	s.messages = append(s.messages, rec)
 	s.UpdatedAt = time.Now()
-	return &s.messages[len(s.messages)-1]
+	result := s.messages[len(s.messages)-1]
+	return &result
 }
 
 // AddToolResult appends a tool result message.
@@ -101,7 +103,8 @@ func (s *Session) AddToolResult(callID, content string) *MessageRecord {
 	}
 	s.messages = append(s.messages, rec)
 	s.UpdatedAt = time.Now()
-	return &s.messages[len(s.messages)-1]
+	result := s.messages[len(s.messages)-1]
+	return &result
 }
 
 // History returns a copy of the full message history for sending to a
@@ -145,7 +148,8 @@ func (s *Session) RecordByID(id string) *MessageRecord {
 	defer s.mu.RUnlock()
 	for i := range s.messages {
 		if s.messages[i].ID == id {
-			return &s.messages[i]
+			rec := s.messages[i]
+			return &rec
 		}
 	}
 	return nil

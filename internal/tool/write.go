@@ -2,9 +2,11 @@ package tool
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 // WriteTool writes content to a file.
@@ -55,21 +57,27 @@ func (w *WriteTool) Execute(ctx Context, argsJSON string) Result {
 		return Result{Error: err}
 	}
 
-	// Check if target is a symlink before overwriting
-	if info, err := os.Lstat(validated); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
-			return Result{Error: fmt.Errorf("refusing to write through symlink: %s", validated)}
-		}
-	}
-
 	// Create parent directories
 	dir := filepath.Dir(validated)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return Result{Error: fmt.Errorf("create directories: %w", err)}
 	}
 
-	if err := os.WriteFile(validated, []byte(args.Content), 0644); err != nil {
+	// O_NOFOLLOW rejects symlinks atomically, eliminating the TOCTOU race
+	// that existed with the previous Lstat-then-WriteFile approach.
+	f, err := os.OpenFile(validated, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0644)
+	if err != nil {
+		if errors.Is(err, syscall.ELOOP) {
+			return Result{Error: fmt.Errorf("refusing to write through symlink: %s", validated)}
+		}
+		return Result{Error: fmt.Errorf("open file: %w", err)}
+	}
+	if _, err := f.Write([]byte(args.Content)); err != nil {
+		f.Close()
 		return Result{Error: fmt.Errorf("write file: %w", err)}
+	}
+	if err := f.Close(); err != nil {
+		return Result{Error: fmt.Errorf("close file: %w", err)}
 	}
 
 	return Result{

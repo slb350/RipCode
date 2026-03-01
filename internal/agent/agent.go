@@ -53,6 +53,8 @@ func PlanAgent() Agent {
 		Name:         NamePlan,
 		Mode:         ModePlan,
 		SystemPrompt: planSystemPrompt,
+		// NOTE: these must match tool IDs registered in tool.NewRegistry().
+		// No compile-time check exists — update if tools are added/renamed.
 		AllowedTools: []string{"read", "glob", "grep", "ls", "todo"},
 	}
 }

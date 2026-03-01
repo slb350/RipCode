@@ -275,6 +275,48 @@ func TestSession_MessageCount_ByRole(t *testing.T) {
 	assert.Equal(t, 0, s.MessageCount("system"))
 }
 
+func TestSession_RecordByID_ReturnsCopy(t *testing.T) {
+	s := New("/tmp")
+	rec := s.AddUser("original")
+	id := rec.ID
+
+	found := s.RecordByID(id)
+	require.NotNil(t, found)
+	found.Message.Content = "modified"
+
+	// Internal record should be unchanged.
+	again := s.RecordByID(id)
+	assert.Equal(t, "original", again.Message.Content)
+}
+
+func TestSession_AddUser_ReturnsCopy(t *testing.T) {
+	s := New("/tmp")
+	rec := s.AddUser("original")
+	rec.Message.Content = "modified"
+
+	// Internal record should be unchanged.
+	recs := s.Records()
+	assert.Equal(t, "original", recs[0].Message.Content)
+}
+
+func TestSession_AddAssistant_ReturnsCopy(t *testing.T) {
+	s := New("/tmp")
+	rec := s.AddAssistant("original", nil, nil)
+	rec.Message.Content = "modified"
+
+	recs := s.Records()
+	assert.Equal(t, "original", recs[0].Message.Content)
+}
+
+func TestSession_AddToolResult_ReturnsCopy(t *testing.T) {
+	s := New("/tmp")
+	rec := s.AddToolResult("call1", "original")
+	rec.Message.Content = "modified"
+
+	recs := s.Records()
+	assert.Equal(t, "original", recs[0].Message.Content)
+}
+
 func TestSession_Records_ReturnsCopy(t *testing.T) {
 	s := New("/tmp")
 	s.AddUser("original")
@@ -631,4 +673,38 @@ func TestFork_DoesNotMutateOriginal(t *testing.T) {
 	_, err := s.Fork(1)
 	require.NoError(t, err)
 	assert.Len(t, s.messages, 4, "original session should be unchanged")
+}
+
+func TestMessageRecord_Valid_ValidUser(t *testing.T) {
+	rec := MessageRecord{
+		ID:        "msg-001",
+		Message:   provider.Message{Role: provider.RoleUser, Content: "hello"},
+		CreatedAt: time.Now(),
+	}
+	assert.NoError(t, rec.Valid())
+}
+
+func TestMessageRecord_Valid_MissingID(t *testing.T) {
+	rec := MessageRecord{
+		Message:   provider.Message{Role: provider.RoleUser, Content: "hello"},
+		CreatedAt: time.Now(),
+	}
+	assert.Error(t, rec.Valid())
+}
+
+func TestMessageRecord_Valid_MissingCreatedAt(t *testing.T) {
+	rec := MessageRecord{
+		ID:      "msg-001",
+		Message: provider.Message{Role: provider.RoleUser, Content: "hello"},
+	}
+	assert.Error(t, rec.Valid())
+}
+
+func TestMessageRecord_Valid_InvalidRole(t *testing.T) {
+	rec := MessageRecord{
+		ID:        "msg-001",
+		Message:   provider.Message{Role: "invalid", Content: "hello"},
+		CreatedAt: time.Now(),
+	}
+	assert.Error(t, rec.Valid())
 }

@@ -147,6 +147,28 @@ func TestSkipTracker_NilError(t *testing.T) {
 	assert.Contains(t, note, "error")
 }
 
+func TestSkipTracker_WithPaths(t *testing.T) {
+	st := newSkipTracker()
+	st.addPath("/foo/bar", os.ErrPermission)
+	st.addPath("/baz/qux", os.ErrPermission)
+	note := st.note("paths")
+	assert.Contains(t, note, "2 paths skipped")
+	assert.Contains(t, note, "/foo/bar")
+	assert.Contains(t, note, "/baz/qux")
+}
+
+func TestSkipTracker_PathsCapped(t *testing.T) {
+	st := newSkipTracker()
+	for i := range 15 {
+		st.addPath(fmt.Sprintf("/path/%d", i), os.ErrPermission)
+	}
+	assert.Equal(t, 15, st.count())
+	assert.Len(t, st.paths, maxTrackedPaths)
+	note := st.note("paths")
+	assert.Contains(t, note, "15 paths skipped")
+	assert.Contains(t, note, "and 5 more")
+}
+
 func TestClassifyError_Permission(t *testing.T) {
 	assert.Equal(t, "permission denied", classifyError(os.ErrPermission))
 	assert.Equal(t, "permission denied", classifyError(fmt.Errorf("wrapped: %w", os.ErrPermission)))

@@ -52,6 +52,20 @@ func loadState[T any](filename, desc string) (*T, error) {
 	return &v, nil
 }
 
+// atomicWrite writes data to path atomically via write-to-temp-then-rename.
+// On POSIX, os.Rename is atomic, so the target is either intact or fully replaced.
+func atomicWrite(path string, data []byte, perm os.FileMode) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, perm); err != nil {
+		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("rename temp file: %w", err)
+	}
+	return nil
+}
+
 // saveState marshals v as indented JSON and writes it to the state directory.
 func saveState(filename string, v any) error {
 	dir := StateDir()
@@ -62,5 +76,5 @@ func saveState(filename string, v any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, filename), data, 0o644)
+	return atomicWrite(filepath.Join(dir, filename), data, 0o644)
 }
