@@ -15,7 +15,7 @@ func TestApp_StashListDialog_OpensWithSlashStashList(t *testing.T) {
 	app.stash.Push("two")
 	model, _ := app.Update(components.InputSubmitMsg{Value: "/stash-list"})
 	a := model.(App)
-	assert.True(t, a.stashDialogOpen)
+	assert.True(t, a.stashDialog.open)
 }
 
 func TestApp_StashListDialog_EscCloses(t *testing.T) {
@@ -25,7 +25,7 @@ func TestApp_StashListDialog_EscCloses(t *testing.T) {
 	a := model.(App)
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	a = model.(App)
-	assert.False(t, a.stashDialogOpen)
+	assert.False(t, a.stashDialog.open)
 }
 
 func TestApp_StashListDialog_EnterRestores(t *testing.T) {
@@ -37,7 +37,7 @@ func TestApp_StashListDialog_EnterRestores(t *testing.T) {
 	// Select first entry (default select=0, which is newest = "second draft")
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	a = model.(App)
-	assert.False(t, a.stashDialogOpen)
+	assert.False(t, a.stashDialog.open)
 	// Should restore the selected entry to input
 	assert.Contains(t, a.input.Value(), "draft")
 }

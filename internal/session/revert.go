@@ -15,8 +15,8 @@ type revertPoint struct {
 func (s *Session) Revert() (string, error) {
 	// Find the last user message
 	lastUser := -1
-	for i := len(s.Messages) - 1; i >= 0; i-- {
-		if s.Messages[i].Message.Role == "user" {
+	for i := len(s.messages) - 1; i >= 0; i-- {
+		if s.messages[i].Message.Role == "user" {
 			lastUser = i
 			break
 		}
@@ -26,10 +26,10 @@ func (s *Session) Revert() (string, error) {
 	}
 
 	// Snapshot removed messages
-	removed := make([]MessageRecord, len(s.Messages)-lastUser)
-	copy(removed, s.Messages[lastUser:])
+	removed := make([]MessageRecord, len(s.messages)-lastUser)
+	copy(removed, s.messages[lastUser:])
 
-	prompt := s.Messages[lastUser].Message.Content
+	prompt := s.messages[lastUser].Message.Content
 
 	// Push to redo stack
 	s.redoStack = append(s.redoStack, revertPoint{
@@ -38,7 +38,7 @@ func (s *Session) Revert() (string, error) {
 	})
 
 	// Truncate
-	s.Messages = s.Messages[:lastUser]
+	s.messages = s.messages[:lastUser]
 
 	return prompt, nil
 }
@@ -52,13 +52,13 @@ func (s *Session) Unrevert() error {
 	last := s.redoStack[len(s.redoStack)-1]
 	s.redoStack = s.redoStack[:len(s.redoStack)-1]
 
-	s.Messages = append(s.Messages, last.messages...)
+	s.messages = append(s.messages, last.messages...)
 	return nil
 }
 
 // CanUndo returns true if there are user messages that can be reverted.
 func (s *Session) CanUndo() bool {
-	for _, rec := range s.Messages {
+	for _, rec := range s.messages {
 		if rec.Message.Role == "user" {
 			return true
 		}

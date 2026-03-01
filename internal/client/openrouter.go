@@ -160,7 +160,7 @@ func (c *OpenRouter) buildRequest(msgs []provider.Message, tools []provider.Tool
 	apiMsgs := make([]apiMessage, 0, len(msgs))
 	for _, m := range msgs {
 		am := apiMessage{
-			Role:    m.Role,
+			Role:    string(m.Role),
 			Content: m.Content,
 		}
 		if m.ToolCallID != "" {

@@ -60,7 +60,7 @@ func TestMessage_Construction(t *testing.T) {
 		},
 	}
 
-	assert.Equal(t, "assistant", msg.Role)
+	assert.Equal(t, RoleAssistant, msg.Role)
 	assert.Len(t, msg.ToolCalls, 1)
 	assert.Equal(t, "bash", msg.ToolCalls[0].Name)
 }
@@ -72,7 +72,7 @@ func TestMessage_ToolResult(t *testing.T) {
 		ToolCallID: "call_1",
 	}
 
-	assert.Equal(t, "tool", msg.Role)
+	assert.Equal(t, RoleTool, msg.Role)
 	assert.Equal(t, "call_1", msg.ToolCallID)
 }
 
@@ -137,12 +137,12 @@ func TestModelInfo_IsFree_NonZeroCost(t *testing.T) {
 }
 
 func TestRoleConstants_MatchExpectedValues(t *testing.T) {
-	assert.Equal(t, "system", RoleSystem)
-	assert.Equal(t, "user", RoleUser)
-	assert.Equal(t, "assistant", RoleAssistant)
-	assert.Equal(t, "tool", RoleTool)
+	assert.Equal(t, Role("system"), RoleSystem)
+	assert.Equal(t, Role("user"), RoleUser)
+	assert.Equal(t, Role("assistant"), RoleAssistant)
+	assert.Equal(t, Role("tool"), RoleTool)
 
-	// Verify type alias — Role constants are interchangeable with plain strings
+	// Verify Role is a defined type — constants work in Message fields
 	msg := Message{Role: RoleUser, Content: "hello"}
-	assert.Equal(t, "user", msg.Role)
+	assert.Equal(t, RoleUser, msg.Role)
 }

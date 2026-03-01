@@ -85,9 +85,9 @@ func (a App) toggleSidebar() App {
 
 	a.sidebarHidden = false
 	a.sidebarOverlay = true
-	a.commandOpen = false
-	a.inlineOpen = false
-	a.modelDialogOpen = false
+	a.commandPalette.open = false
+	a.inline.open = false
+	a.modelDialog.open = false
 	a.input.Blur()
 	return a
 }
@@ -190,7 +190,7 @@ func (a App) renderSidebar() string {
 	}
 	msgCount := 0
 	if a.session != nil {
-		msgCount = len(a.session.Messages)
+		msgCount = a.session.Len()
 	}
 	var contextContent []string
 	contextContent = append(contextContent, muted.Render(fmt.Sprintf("%s tokens", components.FormatTokens(tokens))))
@@ -377,63 +377,63 @@ func (a App) renderSessionView() string {
 	}
 	sb.WriteString(a.chat.View())
 	sb.WriteByte('\n')
-	if a.helpDialogOpen {
+	if a.helpDialog.open {
 		sb.WriteString(a.renderHelpDialog())
 		sb.WriteByte('\n')
 	}
-	if a.statusDialogOpen {
+	if a.statusDialog.open {
 		sb.WriteString(a.renderStatusDialog())
 		sb.WriteByte('\n')
 	}
-	if a.stashDialogOpen {
+	if a.stashDialog.open {
 		sb.WriteString(a.renderStashDialog())
 		sb.WriteByte('\n')
 	}
-	if a.agentDialogOpen {
+	if a.agentDialog.open {
 		sb.WriteString(a.renderAgentDialog())
 		sb.WriteByte('\n')
 	}
-	if a.connectDialogOpen {
+	if a.connectDialog.open {
 		sb.WriteString(a.renderConnectDialog())
 		sb.WriteByte('\n')
 	}
-	if a.mcpDialogOpen {
+	if a.mcpDialog.open {
 		sb.WriteString(a.renderMCPDialog())
 		sb.WriteByte('\n')
 	}
-	if a.themesDialogOpen {
+	if a.themesDialog.open {
 		sb.WriteString(a.renderThemesDialog())
 		sb.WriteByte('\n')
 	}
-	if a.forkDialogOpen {
+	if a.forkDialog.open {
 		sb.WriteString(a.renderForkDialog())
 		sb.WriteByte('\n')
 	}
-	if a.timelineDialogOpen {
+	if a.timelineDialog.open {
 		sb.WriteString(a.renderTimelineDialog())
 		sb.WriteByte('\n')
 	}
-	if a.sessionsDialogOpen {
+	if a.sessionsDialog.open {
 		sb.WriteString(a.renderSessionsDialog())
 		sb.WriteByte('\n')
 	}
-	if a.renameDialogOpen {
+	if a.renameDialog.open {
 		sb.WriteString(a.renderRenameDialog())
 		sb.WriteByte('\n')
 	}
-	if a.exportDialogOpen {
+	if a.exportDialog.open {
 		sb.WriteString(a.renderExportDialog())
 		sb.WriteByte('\n')
 	}
-	if a.modelDialogOpen {
+	if a.modelDialog.open {
 		sb.WriteString(a.renderModelDialog())
 		sb.WriteByte('\n')
 	}
-	if a.commandOpen {
+	if a.commandPalette.open {
 		sb.WriteString(a.renderCommandPalette())
 		sb.WriteByte('\n')
 	}
-	if a.inlineOpen {
+	if a.inline.open {
 		sb.WriteString(a.renderInlineSuggestions())
 		sb.WriteByte('\n')
 	}

@@ -179,7 +179,7 @@ func TestApp_SessionResetPreservesWorkDir(t *testing.T) {
 	sess.Reset()
 
 	assert.Equal(t, workDir, sess.WorkDir, "Reset should preserve WorkDir")
-	assert.Empty(t, sess.Messages, "Reset should clear messages")
+	assert.Empty(t, sess.Records(), "Reset should clear messages")
 	assert.Equal(t, 0, sess.Tokens.Input, "Reset should clear tokens")
 	assert.NotEqual(t, oldID, sess.ID, "Reset should generate new ID")
 }

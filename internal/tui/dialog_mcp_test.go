@@ -22,7 +22,7 @@ func TestApp_MCPDialog_OpensWithCommand(t *testing.T) {
 	require.NotNil(t, cmd)
 	cmd.Handler(&a)
 
-	assert.True(t, a.mcpDialogOpen)
+	assert.True(t, a.mcpDialog.open)
 }
 
 func TestApp_MCPDialog_ShowsServers(t *testing.T) {
@@ -33,7 +33,7 @@ func TestApp_MCPDialog_ShowsServers(t *testing.T) {
 			{Name: "api-srv", URL: "http://localhost", Enabled: false},
 		},
 	}
-	a.mcpDialogOpen = true
+	a.mcpDialog.open = true
 
 	view := a.renderMCPDialog()
 	assert.Contains(t, view, "github-mcp")
@@ -47,8 +47,8 @@ func TestApp_MCPDialog_SpaceToggle(t *testing.T) {
 			{Name: "srv1", Command: "cmd1", Enabled: true},
 		},
 	}
-	a.mcpDialogOpen = true
-	a.mcpDialogSelect = 0
+	a.mcpDialog.open = true
+	a.mcpDialog.selected = 0
 
 	model, _ := a.Update(tea.KeyPressMsg{Code: ' '})
 	a = model.(App)
@@ -64,24 +64,24 @@ func TestApp_MCPDialog_Navigate(t *testing.T) {
 			{Name: "srv2", Command: "cmd2", Enabled: false},
 		},
 	}
-	a.mcpDialogOpen = true
-	a.mcpDialogSelect = 0
+	a.mcpDialog.open = true
+	a.mcpDialog.selected = 0
 
 	model, _ := a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	a = model.(App)
 
-	assert.Equal(t, 1, a.mcpDialogSelect)
+	assert.Equal(t, 1, a.mcpDialog.selected)
 }
 
 func TestApp_MCPDialog_EscapeCloses(t *testing.T) {
 	a := makeSidebarApp(t)
 	a.mcpConfig = &store.MCPConfig{}
-	a.mcpDialogOpen = true
+	a.mcpDialog.open = true
 
 	model, _ := a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	a = model.(App)
 
-	assert.False(t, a.mcpDialogOpen)
+	assert.False(t, a.mcpDialog.open)
 }
 
 func TestApp_MCPDialog_ToastOnToggle(t *testing.T) {
@@ -91,8 +91,8 @@ func TestApp_MCPDialog_ToastOnToggle(t *testing.T) {
 			{Name: "srv1", Command: "cmd1", Enabled: true},
 		},
 	}
-	a.mcpDialogOpen = true
-	a.mcpDialogSelect = 0
+	a.mcpDialog.open = true
+	a.mcpDialog.selected = 0
 
 	model, _ := a.Update(tea.KeyPressMsg{Code: ' '})
 	a = model.(App)

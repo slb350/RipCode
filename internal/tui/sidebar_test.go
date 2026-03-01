@@ -302,8 +302,8 @@ func TestApp_GettingStarted_DismissPersists(t *testing.T) {
 func TestApp_GettingStarted_HiddenWhenHasSessions(t *testing.T) {
 	a := makeSidebarApp(t)
 	a.uiPrefs = &store.UIPrefs{GettingStartedDismissed: false}
-	a.sessionsDialogLoaded = true
-	a.sessionsDialogEntries = []store.SessionSummary{
+	a.sessionsDialog.loaded = true
+	a.sessionsDialog.entries = []store.SessionSummary{
 		{ID: "test", Title: "test"},
 	}
 	sidebar := a.renderSidebar()

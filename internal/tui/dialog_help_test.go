@@ -13,7 +13,7 @@ func TestApp_HelpDialog_OpensWithSlashHelp(t *testing.T) {
 	a := makeSessionApp(t)
 	model, _ := a.Update(components.InputSubmitMsg{Value: "/help"})
 	a = model.(App)
-	assert.True(t, a.helpDialogOpen)
+	assert.True(t, a.helpDialog.open)
 }
 
 func TestApp_HelpDialog_ShowsCommands(t *testing.T) {
@@ -55,23 +55,23 @@ func TestApp_HelpDialog_EscapeCloses(t *testing.T) {
 	a := makeSessionApp(t)
 	model, _ := a.Update(components.InputSubmitMsg{Value: "/help"})
 	a = model.(App)
-	assert.True(t, a.helpDialogOpen)
+	assert.True(t, a.helpDialog.open)
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	a = model.(App)
-	assert.False(t, a.helpDialogOpen)
+	assert.False(t, a.helpDialog.open)
 }
 
 func TestApp_HelpDialog_TabSwitchesSections(t *testing.T) {
 	a := makeSessionApp(t)
 	model, _ := a.Update(components.InputSubmitMsg{Value: "/help"})
 	a = model.(App)
-	assert.Equal(t, 0, a.helpDialogTab)
+	assert.Equal(t, 0, a.helpDialog.tab)
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	a = model.(App)
-	assert.Equal(t, 1, a.helpDialogTab)
+	assert.Equal(t, 1, a.helpDialog.tab)
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	a = model.(App)
-	assert.Equal(t, 0, a.helpDialogTab)
+	assert.Equal(t, 0, a.helpDialog.tab)
 }
 
 func TestApp_HelpDialog_EnterDoesNotCrash(t *testing.T) {
@@ -80,14 +80,14 @@ func TestApp_HelpDialog_EnterDoesNotCrash(t *testing.T) {
 	a = model.(App)
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	a = model.(App)
-	assert.False(t, a.helpDialogOpen)
+	assert.False(t, a.helpDialog.open)
 }
 
 func TestApp_HelpDialog_ClosesOtherDialogs(t *testing.T) {
 	a := makeSessionApp(t)
-	a.commandOpen = true
+	a.commandPalette.open = true
 	model, _ := a.Update(components.InputSubmitMsg{Value: "/help"})
 	a = model.(App)
-	assert.True(t, a.helpDialogOpen)
-	assert.False(t, a.commandOpen)
+	assert.True(t, a.helpDialog.open)
+	assert.False(t, a.commandPalette.open)
 }

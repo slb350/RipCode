@@ -219,7 +219,7 @@ func TestApp_CtrlK_KillsToEndOfLine_WhenInputFocused(t *testing.T) {
 	a = model.(App)
 
 	assert.Equal(t, "hello", a.input.Value(), "Ctrl+K should kill to end of line")
-	assert.False(t, a.commandOpen, "Ctrl+K should not open command palette when input has text")
+	assert.False(t, a.commandPalette.open, "Ctrl+K should not open command palette when input has text")
 }
 
 func TestApp_CtrlK_OpensPalette_WhenInputEmpty(t *testing.T) {
@@ -237,7 +237,7 @@ func TestApp_CtrlK_OpensPalette_WhenInputEmpty(t *testing.T) {
 	model, _ = a.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
 	a = model.(App)
 
-	assert.True(t, a.commandOpen, "Ctrl+K should open palette when input is empty")
+	assert.True(t, a.commandPalette.open, "Ctrl+K should open palette when input is empty")
 }
 
 func TestApp_CommandPalette_OpensWithCtrlK(t *testing.T) {
@@ -254,7 +254,7 @@ func TestApp_CommandPalette_OpensWithCtrlK(t *testing.T) {
 	model, _ = a.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
 	a = model.(App)
 
-	assert.True(t, a.commandOpen)
+	assert.True(t, a.commandPalette.open)
 	assert.Contains(t, a.View().Content, "Commands (Ctrl+P/Ctrl+K")
 }
 
@@ -272,7 +272,7 @@ func TestApp_CommandPalette_OpensWithCtrlP(t *testing.T) {
 	model, _ = a.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
 	a = model.(App)
 
-	assert.True(t, a.commandOpen)
+	assert.True(t, a.commandPalette.open)
 	assert.Contains(t, a.View().Content, "Commands (Ctrl+P/Ctrl+K")
 }
 
@@ -391,7 +391,7 @@ func TestApp_LeaderPending_UnrecognizedKey_Cancels(t *testing.T) {
 
 func TestApp_LeaderPending_NotInDialog(t *testing.T) {
 	a := makeSessionApp(t)
-	a.helpDialogOpen = true
+	a.helpDialog.open = true
 	model, _ := a.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
 	a = model.(App)
 	assert.False(t, a.leaderPending, "leader key should be ignored when dialog is open")
@@ -429,5 +429,5 @@ func TestApp_LeaderA_OpensAgentDialog(t *testing.T) {
 	a = model.(App)
 	model, _ = a.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	a = model.(App)
-	assert.True(t, a.agentDialogOpen)
+	assert.True(t, a.agentDialog.open)
 }

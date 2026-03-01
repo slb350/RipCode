@@ -297,17 +297,17 @@ func TestLoop_SessionUpdated(t *testing.T) {
 	require.NotEmpty(t, events)
 
 	// Session should have user + assistant messages
-	assert.Len(t, sess.Messages, 2)
-	assert.Equal(t, "user", sess.Messages[0].Message.Role)
-	assert.Equal(t, "test input", sess.Messages[0].Message.Content)
-	assert.Equal(t, "assistant", sess.Messages[1].Message.Role)
-	assert.Equal(t, "response", sess.Messages[1].Message.Content)
+	assert.Len(t, sess.Records(), 2)
+	assert.Equal(t, provider.RoleUser, sess.Records()[0].Message.Role)
+	assert.Equal(t, "test input", sess.Records()[0].Message.Content)
+	assert.Equal(t, provider.RoleAssistant, sess.Records()[1].Message.Role)
+	assert.Equal(t, "response", sess.Records()[1].Message.Content)
 
 	// Assistant should have metadata
-	require.NotNil(t, sess.Messages[1].Meta)
-	assert.Equal(t, 10, sess.Messages[1].Meta.InputTokens)
-	assert.Equal(t, 5, sess.Messages[1].Meta.OutputTokens)
-	assert.Equal(t, "stop", sess.Messages[1].Meta.FinishReason)
+	require.NotNil(t, sess.Records()[1].Meta)
+	assert.Equal(t, 10, sess.Records()[1].Meta.InputTokens)
+	assert.Equal(t, 5, sess.Records()[1].Meta.OutputTokens)
+	assert.Equal(t, "stop", sess.Records()[1].Meta.FinishReason)
 
 	// Tokens should be tracked
 	assert.Equal(t, 10, sess.Tokens.Input)

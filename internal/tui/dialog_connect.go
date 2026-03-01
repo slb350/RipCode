@@ -13,13 +13,13 @@ import (
 func (a App) handleConnectDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Code == tea.KeyEscape:
-		a.connectDialogOpen = false
-		a.connectDialogInput = ""
+		a.connectDialog.open = false
+		a.connectDialog.input = ""
 		a.input.Focus()
 		return a, nil
 
 	case msg.Code == tea.KeyEnter:
-		key := strings.TrimSpace(a.connectDialogInput)
+		key := strings.TrimSpace(a.connectDialog.input)
 		if key == "" {
 			return a, a.ShowToast("API key cannot be empty", components.ToastError)
 		}
@@ -34,18 +34,18 @@ func (a App) handleConnectDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if err := config.SaveAPIKey(workDir, key); err != nil {
 			return a, a.ShowToast("Save failed: "+err.Error(), components.ToastError)
 		}
-		a.connectDialogOpen = false
-		a.connectDialogInput = ""
+		a.connectDialog.open = false
+		a.connectDialog.input = ""
 		a.input.Focus()
 		return a, a.ShowToast("API key saved", components.ToastSuccess)
 
 	case msg.Code == tea.KeyBackspace:
-		a.connectDialogInput = backspaceRune(a.connectDialogInput)
+		a.connectDialog.input = backspaceRune(a.connectDialog.input)
 		return a, nil
 
 	default:
 		if msg.Text != "" {
-			a.connectDialogInput += msg.Text
+			a.connectDialog.input += msg.Text
 		}
 		return a, nil
 	}
@@ -62,10 +62,10 @@ func (a App) renderConnectDialog() string {
 	}
 	sb.WriteString("\n  Model: " + a.model)
 	sb.WriteString("\n\n  API Key: ")
-	if a.connectDialogInput == "" {
+	if a.connectDialog.input == "" {
 		sb.WriteString("(type key here)")
 	} else {
-		sb.WriteString(strings.Repeat("*", len(a.connectDialogInput)))
+		sb.WriteString(strings.Repeat("*", len(a.connectDialog.input)))
 	}
 	sb.WriteString("\n\n  Enter an OpenRouter API key to save to .env")
 	return sb.String()

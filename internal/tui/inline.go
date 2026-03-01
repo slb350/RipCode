@@ -60,22 +60,22 @@ func loadFileCacheCmd(root string) tea.Cmd {
 }
 
 func (a App) closeInlineSuggestions() App {
-	a.inlineOpen = false
-	a.inlineMode = ""
-	a.inlineQuery = ""
-	a.inlineSelect = 0
-	a.inlineStart = 0
-	a.inlineEnd = 0
+	a.inline.open = false
+	a.inline.mode = ""
+	a.inline.query = ""
+	a.inline.selected = 0
+	a.inline.start = 0
+	a.inline.end = 0
 	return a
 }
 
 func (a App) inlineEntries() []inlineEntry {
-	if !a.inlineOpen {
+	if !a.inline.open {
 		return nil
 	}
 
-	query := strings.ToLower(strings.TrimSpace(a.inlineQuery))
-	if a.inlineMode == "/" {
+	query := strings.ToLower(strings.TrimSpace(a.inline.query))
+	if a.inline.mode == "/" {
 		var commands []*Command
 		if query == "" {
 			commands = a.cmdRegistry.All()
@@ -94,7 +94,7 @@ func (a App) inlineEntries() []inlineEntry {
 		return out
 	}
 
-	if a.inlineMode == "@" {
+	if a.inline.mode == "@" {
 		out := make([]inlineEntry, 0, 10)
 		for _, path := range a.fileCache {
 			p := strings.ToLower(path)
@@ -116,7 +116,7 @@ func (a App) inlineEntries() []inlineEntry {
 }
 
 func (a *App) updateInlineSuggestions() tea.Cmd {
-	if a.state != StateSession || a.streaming || a.commandOpen || a.modelDialogOpen {
+	if a.state != StateSession || a.streaming || a.commandPalette.open || a.modelDialog.open {
 		*a = a.closeInlineSuggestions()
 		return nil
 	}
@@ -137,12 +137,12 @@ func (a *App) updateInlineSuggestions() tea.Cmd {
 
 	prefix := string(runes[:cursor])
 	if strings.HasPrefix(prefix, "/") && !containsWhitespace(prefix) {
-		a.inlineOpen = true
-		a.inlineMode = "/"
-		a.inlineQuery = strings.TrimPrefix(prefix, "/")
-		a.inlineStart = 0
-		a.inlineEnd = cursor
-		a.inlineSelect = 0
+		a.inline.open = true
+		a.inline.mode = "/"
+		a.inline.query = strings.TrimPrefix(prefix, "/")
+		a.inline.start = 0
+		a.inline.end = cursor
+		a.inline.selected = 0
 		return nil
 	}
 
@@ -159,12 +159,12 @@ func (a *App) updateInlineSuggestions() tea.Cmd {
 		beforeOK := atIdx == 0 || unicode.IsSpace(runes[atIdx-1])
 		between := string(runes[atIdx+1 : cursor])
 		if beforeOK && !containsWhitespace(between) {
-			a.inlineOpen = true
-			a.inlineMode = "@"
-			a.inlineQuery = between
-			a.inlineStart = atIdx
-			a.inlineEnd = cursor
-			a.inlineSelect = 0
+			a.inline.open = true
+			a.inline.mode = "@"
+			a.inline.query = between
+			a.inline.start = atIdx
+			a.inline.end = cursor
+			a.inline.selected = 0
 			return a.requestFileCache()
 		}
 	}
@@ -183,9 +183,9 @@ func (a App) handleInlineKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if len(entries) == 0 {
 			return a, nil
 		}
-		a.inlineSelect--
-		if a.inlineSelect < 0 {
-			a.inlineSelect = len(entries) - 1
+		a.inline.selected--
+		if a.inline.selected < 0 {
+			a.inline.selected = len(entries) - 1
 		}
 		return a, nil
 
@@ -194,9 +194,9 @@ func (a App) handleInlineKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if len(entries) == 0 {
 			return a, nil
 		}
-		a.inlineSelect++
-		if a.inlineSelect >= len(entries) {
-			a.inlineSelect = 0
+		a.inline.selected++
+		if a.inline.selected >= len(entries) {
+			a.inline.selected = 0
 		}
 		return a, nil
 
@@ -205,21 +205,21 @@ func (a App) handleInlineKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if len(entries) == 0 {
 			return a.closeInlineSuggestions(), nil
 		}
-		if a.inlineSelect < 0 {
-			a.inlineSelect = 0
+		if a.inline.selected < 0 {
+			a.inline.selected = 0
 		}
-		if a.inlineSelect >= len(entries) {
-			a.inlineSelect = len(entries) - 1
+		if a.inline.selected >= len(entries) {
+			a.inline.selected = len(entries) - 1
 		}
 
-		choice := entries[a.inlineSelect]
-		if a.inlineMode == "/" && choice.Execute {
+		choice := entries[a.inline.selected]
+		if a.inline.mode == "/" && choice.Execute {
 			a.input.Reset()
 			a = a.closeInlineSuggestions()
 			return a.handleSubmit(choice.Insert)
 		}
 
-		a.input.ReplaceRange(a.inlineStart, a.inlineEnd, choice.Insert)
+		a.input.ReplaceRange(a.inline.start, a.inline.end, choice.Insert)
 		a = a.closeInlineSuggestions()
 		cacheCmd := a.updateInlineSuggestions()
 		return a, cacheCmd
@@ -233,15 +233,15 @@ func (a App) handleInlineKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (a App) renderInlineSuggestions() string {
 	entries := a.inlineEntries()
-	query := strings.TrimSpace(a.inlineQuery)
+	query := strings.TrimSpace(a.inline.query)
 	if query == "" {
 		query = "all"
 	}
-	header := "Autocomplete " + a.inlineMode + " (Enter select, Esc close) - filter: " + query
+	header := "Autocomplete " + a.inline.mode + " (Enter select, Esc close) - filter: " + query
 
 	items := make([]pickerItem, len(entries))
 	for i, e := range entries {
 		items[i] = pickerItem{Label: e.Display, Description: e.Description}
 	}
-	return renderPickerList(header, items, a.inlineSelect, 8)
+	return renderPickerList(header, items, a.inline.selected, 8)
 }

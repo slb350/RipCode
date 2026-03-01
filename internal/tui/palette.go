@@ -11,7 +11,7 @@ import (
 // When filtering, this is the flat filtered list. When unfiltered, this is
 // suggested commands first, then remaining commands grouped by category order.
 func (a App) paletteEntries() []*Command {
-	q := strings.TrimSpace(a.commandQuery)
+	q := strings.TrimSpace(a.commandPalette.query)
 	if q != "" {
 		return a.cmdRegistry.Filter(q)
 	}
@@ -39,31 +39,31 @@ func (a App) paletteEntries() []*Command {
 func (a App) handleCommandPaletteKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Code == tea.KeyEscape:
-		a.commandOpen = false
-		a.commandQuery = ""
-		a.commandSelect = 0
+		a.commandPalette.open = false
+		a.commandPalette.query = ""
+		a.commandPalette.selected = 0
 		a.input.Focus()
 		return a, nil
 
 	case msg.Code == tea.KeyEnter:
 		entries := a.paletteEntries()
 		if len(entries) == 0 {
-			a.commandOpen = false
-			a.commandQuery = ""
-			a.commandSelect = 0
+			a.commandPalette.open = false
+			a.commandPalette.query = ""
+			a.commandPalette.selected = 0
 			a.input.Focus()
 			return a, nil
 		}
-		if a.commandSelect >= len(entries) {
-			a.commandSelect = len(entries) - 1
+		if a.commandPalette.selected >= len(entries) {
+			a.commandPalette.selected = len(entries) - 1
 		}
-		if a.commandSelect < 0 {
-			a.commandSelect = 0
+		if a.commandPalette.selected < 0 {
+			a.commandPalette.selected = 0
 		}
-		entry := entries[a.commandSelect]
-		a.commandOpen = false
-		a.commandQuery = ""
-		a.commandSelect = 0
+		entry := entries[a.commandPalette.selected]
+		a.commandPalette.open = false
+		a.commandPalette.query = ""
+		a.commandPalette.selected = 0
 		a.input.Focus()
 		if entry.Execute {
 			return a.handleSubmit("/" + entry.Name)
@@ -77,9 +77,9 @@ func (a App) handleCommandPaletteKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if len(entries) == 0 {
 			return a, nil
 		}
-		a.commandSelect--
-		if a.commandSelect < 0 {
-			a.commandSelect = len(entries) - 1
+		a.commandPalette.selected--
+		if a.commandPalette.selected < 0 {
+			a.commandPalette.selected = len(entries) - 1
 		}
 		return a, nil
 
@@ -88,21 +88,21 @@ func (a App) handleCommandPaletteKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if len(entries) == 0 {
 			return a, nil
 		}
-		a.commandSelect++
-		if a.commandSelect >= len(entries) {
-			a.commandSelect = 0
+		a.commandPalette.selected++
+		if a.commandPalette.selected >= len(entries) {
+			a.commandPalette.selected = 0
 		}
 		return a, nil
 
 	case msg.Code == tea.KeyBackspace:
-		a.commandQuery = backspaceRune(a.commandQuery)
-		a.commandSelect = 0
+		a.commandPalette.query = backspaceRune(a.commandPalette.query)
+		a.commandPalette.selected = 0
 		return a, nil
 
 	default:
 		if msg.Text != "" {
-			a.commandQuery += msg.Text
-			a.commandSelect = 0
+			a.commandPalette.query += msg.Text
+			a.commandPalette.selected = 0
 		}
 		return a, nil
 	}
@@ -110,7 +110,7 @@ func (a App) handleCommandPaletteKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (a App) renderCommandPalette() string {
 	entries := a.paletteEntries()
-	query := strings.TrimSpace(a.commandQuery)
+	query := strings.TrimSpace(a.commandPalette.query)
 
 	var sb strings.Builder
 	sb.WriteString("Commands (Ctrl+P/Ctrl+K, Esc close)")
@@ -155,7 +155,7 @@ func (a App) renderCommandPalette() string {
 // writePaletteEntry writes a single palette row with selection marker and optional keybind.
 func (a App) writePaletteEntry(sb *strings.Builder, e *Command, idx int) {
 	prefix := "  "
-	if idx == a.commandSelect {
+	if idx == a.commandPalette.selected {
 		prefix = "> "
 	}
 	sb.WriteString("\n")

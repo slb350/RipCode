@@ -11,7 +11,7 @@ import (
 
 func (a App) filteredAgents() []agent.AgentInfo {
 	all := agent.AllAgents()
-	q := strings.ToLower(strings.TrimSpace(a.agentDialogQuery))
+	q := strings.ToLower(strings.TrimSpace(a.agentDialog.query))
 	if q == "" {
 		return all
 	}
@@ -27,24 +27,24 @@ func (a App) filteredAgents() []agent.AgentInfo {
 func (a App) handleAgentDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Code == tea.KeyEscape:
-		a.agentDialogOpen = false
-		a.agentDialogQuery = ""
-		a.agentDialogSelect = 0
+		a.agentDialog.open = false
+		a.agentDialog.query = ""
+		a.agentDialog.selected = 0
 		a.input.Focus()
 		return a, nil
 
 	case msg.Code == tea.KeyEnter:
 		agents := a.filteredAgents()
 		if len(agents) == 0 {
-			a.agentDialogOpen = false
+			a.agentDialog.open = false
 			a.input.Focus()
 			return a, nil
 		}
-		sel := clamp(a.agentDialogSelect, 0, len(agents)-1)
+		sel := clamp(a.agentDialog.selected, 0, len(agents)-1)
 		selected := agents[sel]
-		a.agentDialogOpen = false
-		a.agentDialogQuery = ""
-		a.agentDialogSelect = 0
+		a.agentDialog.open = false
+		a.agentDialog.query = ""
+		a.agentDialog.selected = 0
 		a.input.Focus()
 		switch selected.Name {
 		case agent.NameBuild:
@@ -59,9 +59,9 @@ func (a App) handleAgentDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if len(agents) == 0 {
 			return a, nil
 		}
-		a.agentDialogSelect--
-		if a.agentDialogSelect < 0 {
-			a.agentDialogSelect = len(agents) - 1
+		a.agentDialog.selected--
+		if a.agentDialog.selected < 0 {
+			a.agentDialog.selected = len(agents) - 1
 		}
 		return a, nil
 
@@ -70,21 +70,21 @@ func (a App) handleAgentDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if len(agents) == 0 {
 			return a, nil
 		}
-		a.agentDialogSelect++
-		if a.agentDialogSelect >= len(agents) {
-			a.agentDialogSelect = 0
+		a.agentDialog.selected++
+		if a.agentDialog.selected >= len(agents) {
+			a.agentDialog.selected = 0
 		}
 		return a, nil
 
 	case msg.Code == tea.KeyBackspace:
-		a.agentDialogQuery = backspaceRune(a.agentDialogQuery)
-		a.agentDialogSelect = 0
+		a.agentDialog.query = backspaceRune(a.agentDialog.query)
+		a.agentDialog.selected = 0
 		return a, nil
 
 	default:
 		if msg.Text != "" {
-			a.agentDialogQuery += msg.Text
-			a.agentDialogSelect = 0
+			a.agentDialog.query += msg.Text
+			a.agentDialog.selected = 0
 		}
 		return a, nil
 	}
@@ -92,7 +92,7 @@ func (a App) handleAgentDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (a App) renderAgentDialog() string {
 	agents := a.filteredAgents()
-	query := strings.TrimSpace(a.agentDialogQuery)
+	query := strings.TrimSpace(a.agentDialog.query)
 	header := "Select agent (Enter choose, Esc close)"
 	if query != "" {
 		header += " - filter: " + query
@@ -109,5 +109,5 @@ func (a App) renderAgentDialog() string {
 		}
 		items[i] = pickerItem{Label: label, Description: ag.Description}
 	}
-	return renderPickerList(header, items, a.agentDialogSelect, 9)
+	return renderPickerList(header, items, a.agentDialog.selected, 9)
 }

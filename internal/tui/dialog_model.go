@@ -13,21 +13,21 @@ import (
 )
 
 func (a App) openModelDialog(query string) App {
-	a.modelDialogOpen = true
-	a.modelDialogQuery = strings.TrimSpace(query)
-	a.modelDialogSelect = 0
-	a.commandOpen = false
-	a.inlineOpen = false
+	a.modelDialog.open = true
+	a.modelDialog.query = strings.TrimSpace(query)
+	a.modelDialog.selected = 0
+	a.commandPalette.open = false
+	a.inline.open = false
 	a.input.Blur()
 	return a
 }
 
 func (a App) closeModelDialog() App {
-	a.modelDialogOpen = false
-	a.modelDialogQuery = ""
-	a.modelDialogSelect = 0
-	a.modelDialogProviderMode = false
-	a.modelProviderFilter = ""
+	a.modelDialog.open = false
+	a.modelDialog.query = ""
+	a.modelDialog.selected = 0
+	a.modelDialog.providerMode = false
+	a.modelDialog.providerFilter = ""
 	a.input.Focus()
 	return a
 }
@@ -35,16 +35,16 @@ func (a App) closeModelDialog() App {
 func (a App) filteredModelsDialog() []provider.ModelInfo {
 	// Apply provider filter first
 	source := a.modelsCache
-	if a.modelProviderFilter != "" {
+	if a.modelDialog.providerFilter != "" {
 		source = make([]provider.ModelInfo, 0)
 		for _, m := range a.modelsCache {
-			if m.ProviderName() == a.modelProviderFilter {
+			if m.ProviderName() == a.modelDialog.providerFilter {
 				source = append(source, m)
 			}
 		}
 	}
-	filtered := filterModels(source, strings.TrimSpace(a.modelDialogQuery))
-	query := strings.TrimSpace(a.modelDialogQuery)
+	filtered := filterModels(source, strings.TrimSpace(a.modelDialog.query))
+	query := strings.TrimSpace(a.modelDialog.query)
 	// When filtering, return flat fuzzy-sorted list (no grouping)
 	if query != "" {
 		return filtered
@@ -91,38 +91,38 @@ func (a App) uniqueProviders() []string {
 
 func (a App) handleModelDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Provider sub-mode: Escape clears filter and exits mode
-	if a.modelDialogProviderMode {
+	if a.modelDialog.providerMode {
 		switch {
 		case msg.Code == tea.KeyEscape:
-			a.modelDialogProviderMode = false
-			a.modelProviderFilter = ""
-			a.modelDialogSelect = 0
+			a.modelDialog.providerMode = false
+			a.modelDialog.providerFilter = ""
+			a.modelDialog.selected = 0
 			return a, nil
 		case msg.Code == tea.KeyEnter:
 			providers := a.uniqueProviders()
-			if a.modelDialogSelect == 0 {
+			if a.modelDialog.selected == 0 {
 				// "All" option
-				a.modelProviderFilter = ""
-			} else if a.modelDialogSelect > 0 && a.modelDialogSelect <= len(providers) {
-				a.modelProviderFilter = providers[a.modelDialogSelect-1]
+				a.modelDialog.providerFilter = ""
+			} else if a.modelDialog.selected > 0 && a.modelDialog.selected <= len(providers) {
+				a.modelDialog.providerFilter = providers[a.modelDialog.selected-1]
 			}
-			a.modelDialogProviderMode = false
-			a.modelDialogSelect = 0
+			a.modelDialog.providerMode = false
+			a.modelDialog.selected = 0
 			return a, nil
 		case msg.Code == tea.KeyUp:
 			providers := a.uniqueProviders()
 			total := len(providers) + 1 // +1 for "All"
-			a.modelDialogSelect--
-			if a.modelDialogSelect < 0 {
-				a.modelDialogSelect = total - 1
+			a.modelDialog.selected--
+			if a.modelDialog.selected < 0 {
+				a.modelDialog.selected = total - 1
 			}
 			return a, nil
 		case msg.Code == tea.KeyDown:
 			providers := a.uniqueProviders()
 			total := len(providers) + 1 // +1 for "All"
-			a.modelDialogSelect++
-			if a.modelDialogSelect >= total {
-				a.modelDialogSelect = 0
+			a.modelDialog.selected++
+			if a.modelDialog.selected >= total {
+				a.modelDialog.selected = 0
 			}
 			return a, nil
 		default:
@@ -135,8 +135,8 @@ func (a App) handleModelDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a.closeModelDialog(), nil
 
 	case msg.Mod == tea.ModCtrl && msg.Code == 'a':
-		a.modelDialogProviderMode = true
-		a.modelDialogSelect = 0
+		a.modelDialog.providerMode = true
+		a.modelDialog.selected = 0
 		return a, nil
 
 	case msg.Mod == tea.ModCtrl && msg.Code == 'f':
@@ -144,7 +144,7 @@ func (a App) handleModelDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if len(models) == 0 {
 			return a, nil
 		}
-		sel := clamp(a.modelDialogSelect, 0, len(models)-1)
+		sel := clamp(a.modelDialog.selected, 0, len(models)-1)
 		selected := models[sel]
 		ref := store.ModelRef{ProviderID: selected.ProviderName(), ModelID: selected.ID}
 		isFav := a.modelPrefs.ToggleFavorite(ref)
@@ -153,7 +153,7 @@ func (a App) handleModelDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		newModels := a.filteredModelsDialog()
 		for i, m := range newModels {
 			if m.ID == selected.ID {
-				a.modelDialogSelect = i
+				a.modelDialog.selected = i
 				break
 			}
 		}
@@ -169,14 +169,14 @@ func (a App) handleModelDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return a.closeModelDialog(), nil
 		}
 
-		if a.modelDialogSelect < 0 {
-			a.modelDialogSelect = 0
+		if a.modelDialog.selected < 0 {
+			a.modelDialog.selected = 0
 		}
-		if a.modelDialogSelect >= len(models) {
-			a.modelDialogSelect = len(models) - 1
+		if a.modelDialog.selected >= len(models) {
+			a.modelDialog.selected = len(models) - 1
 		}
 
-		selected := models[a.modelDialogSelect]
+		selected := models[a.modelDialog.selected]
 		a.switchModel(selected.ID)
 		return a.closeModelDialog(), nil
 
@@ -185,9 +185,9 @@ func (a App) handleModelDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if len(models) == 0 {
 			return a, nil
 		}
-		a.modelDialogSelect--
-		if a.modelDialogSelect < 0 {
-			a.modelDialogSelect = len(models) - 1
+		a.modelDialog.selected--
+		if a.modelDialog.selected < 0 {
+			a.modelDialog.selected = len(models) - 1
 		}
 		return a, nil
 
@@ -196,21 +196,21 @@ func (a App) handleModelDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if len(models) == 0 {
 			return a, nil
 		}
-		a.modelDialogSelect++
-		if a.modelDialogSelect >= len(models) {
-			a.modelDialogSelect = 0
+		a.modelDialog.selected++
+		if a.modelDialog.selected >= len(models) {
+			a.modelDialog.selected = 0
 		}
 		return a, nil
 
 	case msg.Code == tea.KeyBackspace:
-		a.modelDialogQuery = backspaceRune(a.modelDialogQuery)
-		a.modelDialogSelect = 0
+		a.modelDialog.query = backspaceRune(a.modelDialog.query)
+		a.modelDialog.selected = 0
 		return a, nil
 
 	default:
 		if msg.Text != "" {
-			a.modelDialogQuery += msg.Text
-			a.modelDialogSelect = 0
+			a.modelDialog.query += msg.Text
+			a.modelDialog.selected = 0
 		}
 		return a, nil
 	}
@@ -218,13 +218,13 @@ func (a App) handleModelDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (a App) renderModelDialog() string {
 	models := a.filteredModelsDialog()
-	query := strings.TrimSpace(a.modelDialogQuery)
+	query := strings.TrimSpace(a.modelDialog.query)
 	if query == "" {
 		query = "all"
 	}
 	header := "Select model (Enter choose, Esc close, ^F fav) - filter: " + query
 
-	isFiltering := strings.TrimSpace(a.modelDialogQuery) != ""
+	isFiltering := strings.TrimSpace(a.modelDialog.query) != ""
 
 	// Build items with badges
 	items := make([]pickerItem, len(models))
@@ -254,7 +254,7 @@ func (a App) renderModelDialog() string {
 
 	// When filtering, use flat list (no section headers)
 	if isFiltering || len(models) == 0 {
-		return renderPickerList(header, items, a.modelDialogSelect, 9)
+		return renderPickerList(header, items, a.modelDialog.selected, 9)
 	}
 
 	// When unfiltered, render with section headers
@@ -329,7 +329,7 @@ func (a App) renderModelDialog() string {
 
 	// Render with windowing
 	maxRows := 9
-	selected := clamp(a.modelDialogSelect, 0, len(models)-1)
+	selected := clamp(a.modelDialog.selected, 0, len(models)-1)
 	start := 0
 	if selected >= maxRows {
 		start = selected - maxRows + 1

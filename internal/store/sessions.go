@@ -87,10 +87,10 @@ func Save(s *session.Session) error {
 		},
 	}
 
-	for _, rec := range s.Messages {
+	for _, rec := range s.Records() {
 		mf := messageFile{
 			ID:         rec.ID,
-			Role:       rec.Message.Role,
+			Role:       string(rec.Message.Role),
 			Content:    rec.Message.Content,
 			ToolCallID: rec.Message.ToolCallID,
 			CreatedAt:  rec.CreatedAt,
@@ -154,7 +154,7 @@ func Load(id string) (*session.Session, error) {
 		rec := session.MessageRecord{
 			ID: mf.ID,
 			Message: provider.Message{
-				Role:       mf.Role,
+				Role:       provider.Role(mf.Role),
 				Content:    mf.Content,
 				ToolCallID: mf.ToolCallID,
 			},
@@ -177,7 +177,7 @@ func Load(id string) (*session.Session, error) {
 				Duration:     mf.Meta.Duration,
 			}
 		}
-		s.Messages = append(s.Messages, rec)
+		s.AppendRecord(rec)
 	}
 
 	return s, nil

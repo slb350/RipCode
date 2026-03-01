@@ -18,25 +18,25 @@ func (a App) handleMCPDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	switch {
 	case msg.Code == tea.KeyEscape || msg.Code == tea.KeyEnter:
-		a.mcpDialogOpen = false
+		a.mcpDialog.open = false
 		a.input.Focus()
 		return a, nil
 
 	case msg.Code == tea.KeyUp:
-		if a.mcpDialogSelect > 0 {
-			a.mcpDialogSelect--
+		if a.mcpDialog.selected > 0 {
+			a.mcpDialog.selected--
 		}
 		return a, nil
 
 	case msg.Code == tea.KeyDown:
-		if a.mcpDialogSelect < serverCount-1 {
-			a.mcpDialogSelect++
+		if a.mcpDialog.selected < serverCount-1 {
+			a.mcpDialog.selected++
 		}
 		return a, nil
 
 	case msg.Code == ' ':
-		if a.mcpConfig != nil && a.mcpDialogSelect < serverCount {
-			srv := a.mcpConfig.Servers[a.mcpDialogSelect]
+		if a.mcpConfig != nil && a.mcpDialog.selected < serverCount {
+			srv := a.mcpConfig.Servers[a.mcpDialog.selected]
 			newState := a.mcpConfig.ToggleEnabled(srv.Name)
 			a.warnOnErr(a.mcpConfig.Save(), "MCP config")
 			a.footer.SetMCPCount(a.mcpConfig.CountEnabled())
@@ -65,7 +65,7 @@ func (a App) renderMCPDialog() string {
 
 	for i, srv := range a.mcpConfig.Servers {
 		prefix := "  "
-		if i == a.mcpDialogSelect {
+		if i == a.mcpDialog.selected {
 			prefix = "> "
 		}
 		icon := enabledIcon(srv.Enabled)

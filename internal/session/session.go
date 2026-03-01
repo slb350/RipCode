@@ -13,7 +13,7 @@ type Session struct {
 	ID           string
 	Title        string
 	ParentID     string
-	Messages     []MessageRecord
+	messages     []MessageRecord
 	WorkDir      string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
@@ -56,9 +56,9 @@ func (s *Session) AddUser(content string) *MessageRecord {
 		},
 		CreatedAt: time.Now(),
 	}
-	s.Messages = append(s.Messages, rec)
+	s.messages = append(s.messages, rec)
 	s.UpdatedAt = time.Now()
-	return &s.Messages[len(s.Messages)-1]
+	return &s.messages[len(s.messages)-1]
 }
 
 // AddAssistant appends an assistant message with optional tool calls and metadata.
@@ -73,9 +73,9 @@ func (s *Session) AddAssistant(content string, toolCalls []provider.ToolCall, me
 		CreatedAt: time.Now(),
 		Meta:      meta,
 	}
-	s.Messages = append(s.Messages, rec)
+	s.messages = append(s.messages, rec)
 	s.UpdatedAt = time.Now()
-	return &s.Messages[len(s.Messages)-1]
+	return &s.messages[len(s.messages)-1]
 }
 
 // AddToolResult appends a tool result message.
@@ -89,9 +89,9 @@ func (s *Session) AddToolResult(callID, content string) *MessageRecord {
 		},
 		CreatedAt: time.Now(),
 	}
-	s.Messages = append(s.Messages, rec)
+	s.messages = append(s.messages, rec)
 	s.UpdatedAt = time.Now()
-	return &s.Messages[len(s.Messages)-1]
+	return &s.messages[len(s.messages)-1]
 }
 
 // History returns a copy of the full message history for sending to a
@@ -103,7 +103,7 @@ func (s *Session) History() []provider.Message {
 		offset = 1
 	}
 
-	msgs := make([]provider.Message, offset+len(s.Messages))
+	msgs := make([]provider.Message, offset+len(s.messages))
 
 	if s.systemPrompt != "" {
 		msgs[0] = provider.Message{
@@ -112,7 +112,7 @@ func (s *Session) History() []provider.Message {
 		}
 	}
 
-	for i, rec := range s.Messages {
+	for i, rec := range s.messages {
 		msgs[offset+i] = rec.Message
 	}
 	return msgs
@@ -120,16 +120,16 @@ func (s *Session) History() []provider.Message {
 
 // Records returns all message records.
 func (s *Session) Records() []MessageRecord {
-	out := make([]MessageRecord, len(s.Messages))
-	copy(out, s.Messages)
+	out := make([]MessageRecord, len(s.messages))
+	copy(out, s.messages)
 	return out
 }
 
 // RecordByID finds a message record by ID, or returns nil if not found.
 func (s *Session) RecordByID(id string) *MessageRecord {
-	for i := range s.Messages {
-		if s.Messages[i].ID == id {
-			return &s.Messages[i]
+	for i := range s.messages {
+		if s.messages[i].ID == id {
+			return &s.messages[i]
 		}
 	}
 	return nil
@@ -137,12 +137,12 @@ func (s *Session) RecordByID(id string) *MessageRecord {
 
 // MessageCount returns the count of messages matching the given role.
 // If role is empty, returns the total count.
-func (s *Session) MessageCount(role string) int {
+func (s *Session) MessageCount(role provider.Role) int {
 	if role == "" {
-		return len(s.Messages)
+		return len(s.messages)
 	}
 	count := 0
-	for _, rec := range s.Messages {
+	for _, rec := range s.messages {
 		if rec.Message.Role == role {
 			count++
 		}
@@ -155,7 +155,7 @@ func (s *Session) MessageCount(role string) int {
 func (s *Session) Reset() {
 	s.ID = generateID()
 	s.Title = ""
-	s.Messages = nil
+	s.messages = nil
 	s.redoStack = nil
 	s.Tokens = TokenCount{}
 	now := time.Now()
@@ -168,11 +168,11 @@ func (s *Session) Reset() {
 // and preserves the system prompt. Message records are deep-copied with
 // new IDs so the fork is fully independent.
 func (s *Session) Fork(upToIndex int) (*Session, error) {
-	if len(s.Messages) == 0 {
+	if len(s.messages) == 0 {
 		return nil, fmt.Errorf("cannot fork empty session")
 	}
-	if upToIndex < 0 || upToIndex >= len(s.Messages) {
-		return nil, fmt.Errorf("fork index %d out of range [0, %d)", upToIndex, len(s.Messages))
+	if upToIndex < 0 || upToIndex >= len(s.messages) {
+		return nil, fmt.Errorf("fork index %d out of range [0, %d)", upToIndex, len(s.messages))
 	}
 
 	now := time.Now()
@@ -188,10 +188,10 @@ func (s *Session) Fork(upToIndex int) (*Session, error) {
 		forked.SetSystemPrompt(s.systemPrompt)
 	}
 
-	src := s.Messages[:upToIndex+1]
-	forked.Messages = make([]MessageRecord, len(src))
+	src := s.messages[:upToIndex+1]
+	forked.messages = make([]MessageRecord, len(src))
 	for i, rec := range src {
-		forked.Messages[i] = MessageRecord{
+		forked.messages[i] = MessageRecord{
 			ID:        generateMessageID(),
 			Message:   rec.Message,
 			CreatedAt: rec.CreatedAt,
@@ -200,16 +200,32 @@ func (s *Session) Fork(upToIndex int) (*Session, error) {
 		if len(rec.Message.ToolCalls) > 0 {
 			tc := make([]provider.ToolCall, len(rec.Message.ToolCalls))
 			copy(tc, rec.Message.ToolCalls)
-			forked.Messages[i].Message.ToolCalls = tc
+			forked.messages[i].Message.ToolCalls = tc
 		}
 		// Deep-copy meta
 		if rec.Meta != nil {
 			meta := *rec.Meta
-			forked.Messages[i].Meta = &meta
+			forked.messages[i].Meta = &meta
 		}
 	}
 
 	return forked, nil
+}
+
+// Len returns the number of messages in the session.
+func (s *Session) Len() int {
+	return len(s.messages)
+}
+
+// ClearMessages removes all messages and clears the redo stack.
+func (s *Session) ClearMessages() {
+	s.messages = nil
+	s.redoStack = nil
+}
+
+// AppendRecord adds a pre-built message record (used by store.Load).
+func (s *Session) AppendRecord(rec MessageRecord) {
+	s.messages = append(s.messages, rec)
 }
 
 // AddTokens accumulates token usage.

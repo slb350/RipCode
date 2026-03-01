@@ -28,7 +28,7 @@ func TestApp_InlineSlash_UsesRegistryCommands(t *testing.T) {
 	// Type "/" to trigger inline autocomplete
 	model, _ = a.Update(tea.KeyPressMsg{Text: "/"})
 	a = model.(App)
-	assert.True(t, a.inlineOpen)
+	assert.True(t, a.inline.open)
 
 	// The inline entries should include registry commands like /compact
 	view := a.View()
@@ -63,15 +63,15 @@ func TestApp_InlineSlashAutocomplete_ExecutesModelsCommand(t *testing.T) {
 	model, _ = a.Update(tea.KeyPressMsg{Text: "d"})
 	a = model.(App)
 
-	assert.True(t, a.inlineOpen)
-	assert.Equal(t, "/", a.inlineMode)
+	assert.True(t, a.inline.open)
+	assert.Equal(t, "/", a.inline.mode)
 
 	model, cmd := a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	a = model.(App)
 
 	assert.Nil(t, cmd)
-	assert.False(t, a.inlineOpen)
-	assert.True(t, a.modelDialogOpen)
+	assert.False(t, a.inline.open)
+	assert.True(t, a.modelDialog.open)
 	assert.Contains(t, a.View().Content, "Select model")
 }
 
@@ -106,14 +106,14 @@ func TestApp_InlineFileAutocomplete_InsertsMention(t *testing.T) {
 	model, _ = a.Update(tea.KeyPressMsg{Text: "a"})
 	a = model.(App)
 
-	assert.True(t, a.inlineOpen)
-	assert.Equal(t, "@", a.inlineMode)
+	assert.True(t, a.inline.open)
+	assert.Equal(t, "@", a.inline.mode)
 	assert.Contains(t, a.View().Content, "main.go")
 
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	a = model.(App)
 
-	assert.False(t, a.inlineOpen)
+	assert.False(t, a.inline.open)
 	assert.Equal(t, "@main.go ", a.input.Value())
 }
 
@@ -127,7 +127,7 @@ func TestUpdateInlineSuggestions_CursorBoundary(t *testing.T) {
 		app.input.SetValue("")
 		cmd := app.updateInlineSuggestions()
 		assert.Nil(t, cmd)
-		assert.False(t, app.inlineOpen)
+		assert.False(t, app.inline.open)
 	})
 
 	t.Run("cursor at end of input", func(t *testing.T) {
@@ -140,7 +140,7 @@ func TestUpdateInlineSuggestions_CursorBoundary(t *testing.T) {
 		// Cursor should be at end by default
 		cmd := app.updateInlineSuggestions()
 		assert.Nil(t, cmd)
-		assert.False(t, app.inlineOpen, "plain text should not open inline suggestions")
+		assert.False(t, app.inline.open, "plain text should not open inline suggestions")
 	})
 }
 
@@ -172,11 +172,11 @@ func TestApp_InlineFileAutocomplete_MultibytePrefixReplacement(t *testing.T) {
 		a = model.(App)
 	}
 
-	assert.True(t, a.inlineOpen)
-	assert.Equal(t, "@", a.inlineMode)
-	assert.Equal(t, "ma", a.inlineQuery)
+	assert.True(t, a.inline.open)
+	assert.Equal(t, "@", a.inline.mode)
+	assert.Equal(t, "ma", a.inline.query)
 	// inlineStart should be rune index 3 (after "日本 "), not byte index 7
-	assert.Equal(t, 3, a.inlineStart)
+	assert.Equal(t, 3, a.inline.start)
 
 	// Select the file and confirm replacement works correctly.
 	a.fileCacheLoaded = true
@@ -187,6 +187,6 @@ func TestApp_InlineFileAutocomplete_MultibytePrefixReplacement(t *testing.T) {
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	a = model.(App)
 
-	assert.False(t, a.inlineOpen)
+	assert.False(t, a.inline.open)
 	assert.Equal(t, "日本 @main.go ", a.input.Value())
 }

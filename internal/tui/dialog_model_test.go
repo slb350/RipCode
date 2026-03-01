@@ -37,12 +37,12 @@ func TestApp_ModelsDialog_SelectsModelWithEnter(t *testing.T) {
 
 	model, _ = a.Update(components.InputSubmitMsg{Value: "/models gpt"})
 	a = model.(App)
-	assert.True(t, a.modelDialogOpen)
+	assert.True(t, a.modelDialog.open)
 
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	a = model.(App)
 
-	assert.False(t, a.modelDialogOpen)
+	assert.False(t, a.modelDialog.open)
 	assert.Equal(t, "openai/gpt-4o", p.model)
 	assert.Equal(t, "gpt-4o", a.model)
 	assert.Contains(t, a.View().Content, `Model switched to "openai/gpt-4o".`)
@@ -71,33 +71,33 @@ func TestApp_ModelsDialog_KeyboardNavigation(t *testing.T) {
 	// Open model dialog
 	model, _ = a.Update(components.InputSubmitMsg{Value: "/models"})
 	a = model.(App)
-	assert.True(t, a.modelDialogOpen)
-	assert.Equal(t, 0, a.modelDialogSelect)
+	assert.True(t, a.modelDialog.open)
+	assert.Equal(t, 0, a.modelDialog.selected)
 
 	// Down arrow moves selection
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	a = model.(App)
-	assert.Equal(t, 1, a.modelDialogSelect)
+	assert.Equal(t, 1, a.modelDialog.selected)
 
 	// Down again
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	a = model.(App)
-	assert.Equal(t, 2, a.modelDialogSelect)
+	assert.Equal(t, 2, a.modelDialog.selected)
 
 	// Down wraps to 0
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	a = model.(App)
-	assert.Equal(t, 0, a.modelDialogSelect)
+	assert.Equal(t, 0, a.modelDialog.selected)
 
 	// Up wraps to last
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	a = model.(App)
-	assert.Equal(t, 2, a.modelDialogSelect)
+	assert.Equal(t, 2, a.modelDialog.selected)
 
 	// Esc closes dialog
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	a = model.(App)
-	assert.False(t, a.modelDialogOpen)
+	assert.False(t, a.modelDialog.open)
 }
 
 func TestModelDialog_CtrlF_TogglesFavorite_ShowsToast(t *testing.T) {
@@ -181,13 +181,13 @@ func TestModelDialog_FavoriteToggle_SelectionStaysOnSameModel(t *testing.T) {
 	a.modelsLoaded = true
 	a = a.openModelDialog("")
 	// Move selection to claude (index 1)
-	a.modelDialogSelect = 1
+	a.modelDialog.selected = 1
 	model, _ := a.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	a = model.(App)
 	// After toggling favorite, claude should be in favorites (first), selection should still point at it
 	displayed := a.filteredModelsDialog()
 	if assert.NotEmpty(t, displayed) {
-		assert.Equal(t, "anthropic/claude-4", displayed[a.modelDialogSelect].ID)
+		assert.Equal(t, "anthropic/claude-4", displayed[a.modelDialog.selected].ID)
 	}
 }
 
@@ -198,7 +198,7 @@ func TestModelDialog_CtrlF_WhenNoModelsLoaded_NoOp(t *testing.T) {
 	a = a.openModelDialog("")
 	model, cmd := a.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	a = model.(App)
-	assert.True(t, a.modelDialogOpen, "dialog should remain open")
+	assert.True(t, a.modelDialog.open, "dialog should remain open")
 	assert.Nil(t, cmd)
 }
 
@@ -212,7 +212,7 @@ func TestModelDialog_CtrlA_OpensProviderFilter(t *testing.T) {
 	a = a.openModelDialog("")
 	model, _ := a.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
 	a = model.(App)
-	assert.True(t, a.modelDialogProviderMode)
+	assert.True(t, a.modelDialog.providerMode)
 }
 
 func TestProviderFilter_ListsUniqueProviders(t *testing.T) {
@@ -237,7 +237,7 @@ func TestProviderFilter_SelectProvider_FiltersModelList(t *testing.T) {
 	}
 	a.modelsLoaded = true
 	a = a.openModelDialog("")
-	a.modelProviderFilter = "anthropic"
+	a.modelDialog.providerFilter = "anthropic"
 	models := a.filteredModelsDialog()
 	assert.Len(t, models, 1)
 	assert.Equal(t, "anthropic/claude-4", models[0].ID)
@@ -251,13 +251,13 @@ func TestProviderFilter_Escape_ReturnsToFullList(t *testing.T) {
 	}
 	a.modelsLoaded = true
 	a = a.openModelDialog("")
-	a.modelProviderFilter = "anthropic"
+	a.modelDialog.providerFilter = "anthropic"
 	// Press ctrl+a to toggle to provider mode, then escape should clear filter
-	a.modelDialogProviderMode = true
+	a.modelDialog.providerMode = true
 	model, _ := a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	a = model.(App)
-	assert.False(t, a.modelDialogProviderMode)
-	assert.Equal(t, "", a.modelProviderFilter)
+	assert.False(t, a.modelDialog.providerMode)
+	assert.Equal(t, "", a.modelDialog.providerFilter)
 }
 
 func TestProviderFilter_SelectAll_ShowsAllModels(t *testing.T) {
@@ -268,7 +268,7 @@ func TestProviderFilter_SelectAll_ShowsAllModels(t *testing.T) {
 	}
 	a.modelsLoaded = true
 	a = a.openModelDialog("")
-	a.modelProviderFilter = "" // empty = all providers
+	a.modelDialog.providerFilter = "" // empty = all providers
 	models := a.filteredModelsDialog()
 	assert.Len(t, models, 2)
 }
@@ -333,7 +333,7 @@ func TestModelDialog_Filtering_FlatList_NoSections(t *testing.T) {
 	}
 	a.modelsLoaded = true
 	a = a.openModelDialog("")
-	a.modelDialogQuery = "claude"
+	a.modelDialog.query = "claude"
 	rendered := a.renderModelDialog()
 	assert.NotContains(t, rendered, "── anthropic", "sections should not appear when filtering")
 }
@@ -388,7 +388,7 @@ func TestModelDialog_EmptyCache_NavigationSafe(t *testing.T) {
 	// Enter with empty cache should close dialog
 	model, cmd = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	a = model.(App)
-	assert.False(t, a.modelDialogOpen)
+	assert.False(t, a.modelDialog.open)
 	assert.Nil(t, cmd)
 }
 

@@ -12,21 +12,21 @@ import (
 func (a App) handleThemesDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Code == tea.KeyEscape:
-		a.themesDialogOpen = false
+		a.themesDialog.open = false
 		a.input.Focus()
 		return a, nil
 	case msg.Code == tea.KeyEnter:
-		a.themesDialogOpen = false
+		a.themesDialog.open = false
 		a.input.Focus()
 		return a, a.ShowToast("Theme applied", components.ToastSuccess)
 	case msg.Code == tea.KeyUp:
-		if a.themesDialogSelect > 0 {
-			a.themesDialogSelect--
+		if a.themesDialog.selected > 0 {
+			a.themesDialog.selected--
 		}
 		return a, nil
 	case msg.Code == tea.KeyDown:
-		if a.themesDialogSelect < 2 {
-			a.themesDialogSelect++
+		if a.themesDialog.selected < 2 {
+			a.themesDialog.selected++
 		}
 		return a, nil
 	default:
@@ -40,7 +40,7 @@ func (a App) renderThemesDialog() string {
 	sb.WriteString("Themes (Enter select, Esc close)\n")
 	for i, name := range themes {
 		marker := "  "
-		if i == a.themesDialogSelect {
+		if i == a.themesDialog.selected {
 			marker = "> "
 		}
 		sb.WriteString(fmt.Sprintf("\n%s%s", marker, name))

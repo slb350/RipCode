@@ -256,7 +256,7 @@ func TestApp_SlashRename_OpensDialog(t *testing.T) {
 
 	model, _ = a.Update(components.InputSubmitMsg{Value: "/rename"})
 	a = model.(App)
-	assert.True(t, a.renameDialogOpen)
+	assert.True(t, a.renameDialog.open)
 }
 
 func TestApp_UnknownSlashCommand_ShowsError(t *testing.T) {
@@ -306,7 +306,7 @@ func TestApp_AgentSlashCommand_NoArgs_OpensDialog(t *testing.T) {
 	model, _ = a.Update(components.InputSubmitMsg{Value: "/agent"})
 	a = model.(App)
 
-	assert.True(t, a.agentDialogOpen, "/agent with no args should open agent picker dialog")
+	assert.True(t, a.agentDialog.open, "/agent with no args should open agent picker dialog")
 }
 
 func TestApp_ClearCommand_ResetsSession(t *testing.T) {
@@ -327,7 +327,7 @@ func TestApp_ClearCommand_ResetsSession(t *testing.T) {
 	model, _ = a.Update(components.InputSubmitMsg{Value: "/clear"})
 	a = model.(App)
 
-	assert.Empty(t, a.session.Messages, "/clear should reset session messages")
+	assert.Empty(t, a.session.Records(), "/clear should reset session messages")
 	assert.Equal(t, 0, a.session.Tokens.Input, "/clear should reset token count")
 	assert.Equal(t, 0, a.session.Tokens.Output)
 	assert.NotEqual(t, oldID, a.session.ID, "/clear should generate new session ID")
@@ -351,7 +351,7 @@ func TestApp_NewCommand_ResetsSession(t *testing.T) {
 	model, _ = a.Update(components.InputSubmitMsg{Value: "/new"})
 	a = model.(App)
 
-	assert.Empty(t, a.session.Messages)
+	assert.Empty(t, a.session.Records())
 	assert.Equal(t, 0, a.session.Tokens.Input)
 	assert.Contains(t, a.View().Content, "Conversation cleared.")
 }
@@ -411,11 +411,11 @@ func TestApp_CompactCommand_ShowsToast(t *testing.T) {
 
 func TestApp_CompactCommand_ReducesMessages(t *testing.T) {
 	a := makeSessionAppWithHistory(t)
-	assert.Len(t, a.session.Messages, 4)
+	assert.Len(t, a.session.Records(), 4)
 	model, _ := a.Update(components.InputSubmitMsg{Value: "/compact"})
 	a = model.(App)
 	// After compact, session should have fewer messages (just the summary)
-	assert.Less(t, len(a.session.Messages), 4)
+	assert.Less(t, a.session.Len(), 4)
 }
 
 // --- Editor command tests ---
@@ -491,10 +491,10 @@ func TestApp_StashPopCommand_EmptyStash_ShowsWarning(t *testing.T) {
 
 func TestApp_UndoCommand_RevertsLastExchange(t *testing.T) {
 	a := makeSessionAppWithHistory(t)
-	assert.Len(t, a.session.Messages, 4)
+	assert.Len(t, a.session.Records(), 4)
 	model, _ := a.Update(components.InputSubmitMsg{Value: "/undo"})
 	a = model.(App)
-	assert.Len(t, a.session.Messages, 2)
+	assert.Len(t, a.session.Records(), 2)
 }
 
 func TestApp_UndoCommand_RestoresPromptToInput(t *testing.T) {
@@ -508,10 +508,10 @@ func TestApp_RedoCommand_RestoresRevertedMessages(t *testing.T) {
 	a := makeSessionAppWithHistory(t)
 	model, _ := a.Update(components.InputSubmitMsg{Value: "/undo"})
 	a = model.(App)
-	assert.Len(t, a.session.Messages, 2)
+	assert.Len(t, a.session.Records(), 2)
 	model, _ = a.Update(components.InputSubmitMsg{Value: "/redo"})
 	a = model.(App)
-	assert.Len(t, a.session.Messages, 4)
+	assert.Len(t, a.session.Records(), 4)
 }
 
 func TestApp_RedoCommand_DisabledWhenNoRevert(t *testing.T) {
@@ -520,7 +520,7 @@ func TestApp_RedoCommand_DisabledWhenNoRevert(t *testing.T) {
 	model, _ := a.Update(components.InputSubmitMsg{Value: "/redo"})
 	a = model.(App)
 	// Session unchanged
-	assert.Len(t, a.session.Messages, 4)
+	assert.Len(t, a.session.Records(), 4)
 	// Should have a warning toast
 	toast := a.toasts.Current()
 	assert.NotNil(t, toast)
@@ -529,7 +529,7 @@ func TestApp_RedoCommand_DisabledWhenNoRevert(t *testing.T) {
 
 func TestApp_UndoCommand_EmptySession_ShowsWarning(t *testing.T) {
 	app := makeSessionApp(t)
-	app.session.Messages = nil
+	app.session.ClearMessages()
 	app.chat.Clear()
 	model, _ := app.Update(components.InputSubmitMsg{Value: "/undo"})
 	a := model.(App)
@@ -543,7 +543,7 @@ func TestApp_UndoCommand_BlockedWhileStreaming(t *testing.T) {
 	a.streaming = true
 	model, _ := a.Update(components.InputSubmitMsg{Value: "/undo"})
 	a = model.(App)
-	assert.Len(t, a.session.Messages, 4, "messages should not be reverted while streaming")
+	assert.Len(t, a.session.Records(), 4, "messages should not be reverted while streaming")
 	toast := a.toasts.Current()
 	assert.NotNil(t, toast)
 	assert.Contains(t, toast.Message, "busy")

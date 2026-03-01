@@ -46,112 +46,56 @@ type App struct {
 	todoTool   *tool.TodoTool
 
 	// Agent state
-	provider          provider.Provider
-	registry          *tool.Registry
-	session           *session.Session
-	agent             agent.Agent
-	model             string
-	fullModelID       string
-	activeVariant     string
-	maxSteps          int
-	streaming         bool
-	modelsCache       []provider.ModelInfo
-	modelsLoaded      bool
-	commandOpen       bool
-	commandQuery      string
-	commandSelect     int
-	inlineOpen        bool
-	inlineMode        string // "/" or "@"
-	inlineQuery       string
-	inlineSelect      int
-	inlineStart       int
-	inlineEnd         int
-	modelDialogOpen   bool
-	modelDialogQuery  string
-	modelDialogSelect int
-	sidebarHidden     bool
-	sidebarOverlay    bool
-	fileCache         []string
-	fileCacheLoaded   bool
-	fileCacheLoading  bool
-	responseStart     time.Time
-	cancel            context.CancelFunc
-	eventCh           <-chan agent.Event
-	promptHistory     *components.PromptHistory
-	toasts            components.ToastManager
-	shellMode         bool
-	cmdRegistry       *CommandRegistry
-	showDetails       bool
-	showThinking      bool
-	showTimestamps    bool
+	provider      provider.Provider
+	registry      *tool.Registry
+	session       *session.Session
+	agent         agent.Agent
+	model         string
+	fullModelID   string
+	activeVariant string
+	maxSteps      int
+	streaming     bool
+	modelsCache   []provider.ModelInfo
+	modelsLoaded  bool
+
+	// Dialog and overlay states
+	commandPalette commandPaletteState
+	inline         inlineState
+	modelDialog    modelDialogState
+	helpDialog     helpDialogState
+	statusDialog   statusDialogState
+	exportDialog   exportDialogState
+	renameDialog   renameDialogState
+	sessionsDialog sessionsDialogState
+	agentDialog    agentDialogState
+	connectDialog  connectDialogState
+	themesDialog   themesDialogState
+	timelineDialog timelineDialogState
+	forkDialog     forkDialogState
+	mcpDialog      mcpDialogState
+	stashDialog    stashDialogState
+
+	sidebarHidden    bool
+	sidebarOverlay   bool
+	fileCache        []string
+	fileCacheLoaded  bool
+	fileCacheLoading bool
+	responseStart    time.Time
+	cancel           context.CancelFunc
+	eventCh          <-chan agent.Event
+	promptHistory    *components.PromptHistory
+	toasts           components.ToastManager
+	shellMode        bool
+	cmdRegistry      *CommandRegistry
+	showDetails      bool
+	showThinking     bool
+	showTimestamps   bool
 
 	// Leader key prefix
 	leaderPending bool
 
-	// Help dialog
-	helpDialogOpen   bool
-	helpDialogQuery  string
-	helpDialogSelect int
-	helpDialogTab    int // 0=commands, 1=keybinds
-
-	// Status dialog
-	statusDialogOpen bool
-
-	// Export dialog
-	exportDialogOpen      bool
-	exportIncludeTools    bool
-	exportIncludeMeta     bool
-	exportIncludeThinking bool
-	exportFilename        string
-	exportFocusedField    int // 0=tools, 1=meta, 2=thinking, 3=filename
-
-	// Rename dialog
-	renameDialogOpen  bool
-	renameDialogValue string
-
-	// Sessions dialog
-	sessionsDialogOpen    bool
-	sessionsDialogQuery   string
-	sessionsDialogSelect  int
-	sessionsDialogConfirm bool
-	sessionsDialogEntries []store.SessionSummary
-	sessionsDialogLoaded  bool
-
-	// Agent dialog
-	agentDialogOpen   bool
-	agentDialogQuery  string
-	agentDialogSelect int
-
-	// Connect dialog
-	connectDialogOpen  bool
-	connectDialogInput string
-
-	// Model provider filter (sub-mode within model dialog)
-	modelDialogProviderMode bool
-	modelProviderFilter     string
-
-	// Themes dialog
-	themesDialogOpen   bool
-	themesDialogSelect int
-
-	// Timeline dialog
-	timelineDialogOpen   bool
-	timelineDialogQuery  string
-	timelineDialogSelect int
-
-	// Fork dialog
-	forkDialogOpen   bool
-	forkDialogSelect int
-
-	// MCP dialog
-	mcpDialogOpen   bool
-	mcpDialogSelect int
-
-	// Prompt stash
-	stash               *components.PromptStash
-	stashDialogOpen     bool
-	stashDialogSelect   int
-	stashPendingContent string // content to stash (captured before input reset)
+	// Prompt stash (the stash object; dialog state is in stashDialog)
+	stash *components.PromptStash
 
 	// Modified files tracking
 	modifiedFiles []string
@@ -222,21 +166,21 @@ func NewApp() App {
 
 // closeAllDialogs closes every dialog and overlay, then blurs input.
 func (a *App) closeAllDialogs() {
-	a.commandOpen = false
-	a.modelDialogOpen = false
-	a.helpDialogOpen = false
-	a.statusDialogOpen = false
-	a.exportDialogOpen = false
-	a.renameDialogOpen = false
-	a.sessionsDialogOpen = false
-	a.agentDialogOpen = false
-	a.connectDialogOpen = false
-	a.themesDialogOpen = false
-	a.timelineDialogOpen = false
-	a.forkDialogOpen = false
-	a.stashDialogOpen = false
-	a.mcpDialogOpen = false
-	a.inlineOpen = false
+	a.commandPalette.open = false
+	a.modelDialog.open = false
+	a.helpDialog.open = false
+	a.statusDialog.open = false
+	a.exportDialog.open = false
+	a.renameDialog.open = false
+	a.sessionsDialog.open = false
+	a.agentDialog.open = false
+	a.connectDialog.open = false
+	a.themesDialog.open = false
+	a.timelineDialog.open = false
+	a.forkDialog.open = false
+	a.stashDialog.open = false
+	a.mcpDialog.open = false
+	a.inline.open = false
 	a.input.Blur()
 }
 
@@ -326,7 +270,7 @@ func (a App) showGettingStarted() bool {
 		return false
 	}
 	// Hide when user has session history
-	if a.sessionsDialogLoaded && len(a.sessionsDialogEntries) > 0 {
+	if a.sessionsDialog.loaded && len(a.sessionsDialog.entries) > 0 {
 		return false
 	}
 	return true
@@ -381,8 +325,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case SessionsLoadedMsg:
-		a.sessionsDialogEntries = msg.Sessions
-		a.sessionsDialogLoaded = true
+		a.sessionsDialog.entries = msg.Sessions
+		a.sessionsDialog.loaded = true
 		return a, nil
 
 	case ToastDismissMsg:

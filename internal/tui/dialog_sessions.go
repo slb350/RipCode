@@ -22,53 +22,53 @@ func (a *App) loadSessions() tea.Cmd {
 }
 
 func (a App) handleSessionsDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if a.sessionsDialogConfirm {
+	if a.sessionsDialog.confirm {
 		return a.handleSessionsDeleteConfirm(msg)
 	}
 
 	switch {
 	case msg.Code == tea.KeyEscape:
-		a.sessionsDialogOpen = false
+		a.sessionsDialog.open = false
 		a.input.Focus()
 		return a, nil
 
 	case msg.Code == tea.KeyEnter:
 		filtered := a.filteredSessions()
-		if len(filtered) == 0 || a.sessionsDialogSelect >= len(filtered) {
+		if len(filtered) == 0 || a.sessionsDialog.selected >= len(filtered) {
 			return a, nil
 		}
-		entry := filtered[a.sessionsDialogSelect]
+		entry := filtered[a.sessionsDialog.selected]
 		return a.resumeSession(entry.ID)
 
 	case msg.Code == tea.KeyUp:
-		if a.sessionsDialogSelect > 0 {
-			a.sessionsDialogSelect--
+		if a.sessionsDialog.selected > 0 {
+			a.sessionsDialog.selected--
 		}
 		return a, nil
 
 	case msg.Code == tea.KeyDown:
 		filtered := a.filteredSessions()
-		if a.sessionsDialogSelect < len(filtered)-1 {
-			a.sessionsDialogSelect++
+		if a.sessionsDialog.selected < len(filtered)-1 {
+			a.sessionsDialog.selected++
 		}
 		return a, nil
 
 	case msg.Mod == tea.ModCtrl && msg.Code == 'd':
 		filtered := a.filteredSessions()
 		if len(filtered) > 0 {
-			a.sessionsDialogConfirm = true
+			a.sessionsDialog.confirm = true
 		}
 		return a, nil
 
 	case msg.Code == tea.KeyBackspace:
-		a.sessionsDialogQuery = backspaceRune(a.sessionsDialogQuery)
-		a.sessionsDialogSelect = 0
+		a.sessionsDialog.query = backspaceRune(a.sessionsDialog.query)
+		a.sessionsDialog.selected = 0
 		return a, nil
 
 	default:
 		if msg.Text != "" {
-			a.sessionsDialogQuery += msg.Text
-			a.sessionsDialogSelect = 0
+			a.sessionsDialog.query += msg.Text
+			a.sessionsDialog.selected = 0
 		}
 		return a, nil
 	}
@@ -77,30 +77,30 @@ func (a App) handleSessionsDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (a App) handleSessionsDeleteConfirm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Code == tea.KeyEscape:
-		a.sessionsDialogConfirm = false
+		a.sessionsDialog.confirm = false
 		return a, nil
 
 	case msg.Code == tea.KeyEnter:
 		filtered := a.filteredSessions()
-		if a.sessionsDialogSelect < len(filtered) {
-			entry := filtered[a.sessionsDialogSelect]
+		if a.sessionsDialog.selected < len(filtered) {
+			entry := filtered[a.sessionsDialog.selected]
 			if err := store.Delete(entry.ID); err != nil {
-				a.sessionsDialogConfirm = false
+				a.sessionsDialog.confirm = false
 				a.toasts.Show("Failed to delete session", components.ToastError, 3*time.Second)
 				return a, nil
 			}
 			// Remove from cached entries
-			for i, e := range a.sessionsDialogEntries {
+			for i, e := range a.sessionsDialog.entries {
 				if e.ID == entry.ID {
-					a.sessionsDialogEntries = append(a.sessionsDialogEntries[:i], a.sessionsDialogEntries[i+1:]...)
+					a.sessionsDialog.entries = append(a.sessionsDialog.entries[:i], a.sessionsDialog.entries[i+1:]...)
 					break
 				}
 			}
-			if a.sessionsDialogSelect >= len(a.filteredSessions()) && a.sessionsDialogSelect > 0 {
-				a.sessionsDialogSelect--
+			if a.sessionsDialog.selected >= len(a.filteredSessions()) && a.sessionsDialog.selected > 0 {
+				a.sessionsDialog.selected--
 			}
 		}
-		a.sessionsDialogConfirm = false
+		a.sessionsDialog.confirm = false
 		return a, nil
 
 	default:
@@ -109,12 +109,12 @@ func (a App) handleSessionsDeleteConfirm(msg tea.KeyPressMsg) (tea.Model, tea.Cm
 }
 
 func (a App) filteredSessions() []store.SessionSummary {
-	if a.sessionsDialogQuery == "" {
-		return a.sessionsDialogEntries
+	if a.sessionsDialog.query == "" {
+		return a.sessionsDialog.entries
 	}
-	q := strings.ToLower(a.sessionsDialogQuery)
+	q := strings.ToLower(a.sessionsDialog.query)
 	var out []store.SessionSummary
-	for _, e := range a.sessionsDialogEntries {
+	for _, e := range a.sessionsDialog.entries {
 		if strings.Contains(strings.ToLower(e.Title), q) ||
 			strings.Contains(strings.ToLower(e.WorkDir), q) {
 			out = append(out, e)
@@ -126,7 +126,7 @@ func (a App) filteredSessions() []store.SessionSummary {
 func (a App) resumeSession(id string) (tea.Model, tea.Cmd) {
 	loaded, err := store.Load(id)
 	if err != nil {
-		a.sessionsDialogOpen = false
+		a.sessionsDialog.open = false
 		a.input.Focus()
 		id := a.toasts.Show("Failed to load session: "+err.Error(), components.ToastError, 3*time.Second)
 		return a, func() tea.Msg {
@@ -137,7 +137,7 @@ func (a App) resumeSession(id string) (tea.Model, tea.Cmd) {
 
 	a.session = loaded
 	a.session.SetSystemPrompt(a.agent.SystemPrompt)
-	a.sessionsDialogOpen = false
+	a.sessionsDialog.open = false
 	a.input.Focus()
 
 	// Rebuild chat from session records
@@ -163,7 +163,7 @@ func (a *App) rebuildChatFromSession() {
 	if a.session == nil {
 		return
 	}
-	for _, rec := range a.session.Messages {
+	for _, rec := range a.session.Records() {
 		switch rec.Message.Role {
 		case "user":
 			a.chat.AddEntry(components.ChatEntry{
@@ -204,7 +204,7 @@ func (a App) renderSessionsDialog() string {
 	var sb strings.Builder
 	sb.WriteString("Sessions (type to filter, Esc close)\n")
 
-	if !a.sessionsDialogLoaded {
+	if !a.sessionsDialog.loaded {
 		sb.WriteString("\n  Loading...")
 		return sb.String()
 	}
@@ -215,8 +215,8 @@ func (a App) renderSessionsDialog() string {
 		return sb.String()
 	}
 
-	if a.sessionsDialogConfirm && a.sessionsDialogSelect < len(filtered) {
-		entry := filtered[a.sessionsDialogSelect]
+	if a.sessionsDialog.confirm && a.sessionsDialog.selected < len(filtered) {
+		entry := filtered[a.sessionsDialog.selected]
 		title := entry.Title
 		if title == "" {
 			title = entry.ID
@@ -236,7 +236,7 @@ func (a App) renderSessionsDialog() string {
 			lastGroup = group
 		}
 		marker := "  "
-		if i == a.sessionsDialogSelect {
+		if i == a.sessionsDialog.selected {
 			marker = "> "
 		}
 		title := entry.Title
@@ -247,8 +247,8 @@ func (a App) renderSessionsDialog() string {
 	}
 
 	// Footer with selected session details
-	if a.sessionsDialogSelect < len(filtered) {
-		sel := filtered[a.sessionsDialogSelect]
+	if a.sessionsDialog.selected < len(filtered) {
+		sel := filtered[a.sessionsDialog.selected]
 		sb.WriteString(fmt.Sprintf("\n\n  %s  %d msgs  %s",
 			sel.UpdatedAt.Format("3:04 PM"),
 			sel.MessageCount,

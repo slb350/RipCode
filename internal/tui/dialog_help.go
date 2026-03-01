@@ -10,39 +10,39 @@ import (
 func (a App) handleHelpDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Code == tea.KeyEscape:
-		a.helpDialogOpen = false
+		a.helpDialog.open = false
 		a.input.Focus()
 		return a, nil
 
 	case msg.Code == tea.KeyEnter:
-		a.helpDialogOpen = false
+		a.helpDialog.open = false
 		a.input.Focus()
 		return a, nil
 
 	case msg.Code == tea.KeyTab:
-		a.helpDialogTab = (a.helpDialogTab + 1) % 2
-		a.helpDialogSelect = 0
+		a.helpDialog.tab = (a.helpDialog.tab + 1) % 2
+		a.helpDialog.selected = 0
 		return a, nil
 
 	case msg.Code == tea.KeyUp:
-		if a.helpDialogSelect > 0 {
-			a.helpDialogSelect--
+		if a.helpDialog.selected > 0 {
+			a.helpDialog.selected--
 		}
 		return a, nil
 
 	case msg.Code == tea.KeyDown:
-		a.helpDialogSelect++
+		a.helpDialog.selected++
 		return a, nil
 
 	case msg.Code == tea.KeyBackspace:
-		a.helpDialogQuery = backspaceRune(a.helpDialogQuery)
-		a.helpDialogSelect = 0
+		a.helpDialog.query = backspaceRune(a.helpDialog.query)
+		a.helpDialog.selected = 0
 		return a, nil
 
 	default:
 		if msg.Text != "" {
-			a.helpDialogQuery += msg.Text
-			a.helpDialogSelect = 0
+			a.helpDialog.query += msg.Text
+			a.helpDialog.selected = 0
 		}
 		return a, nil
 	}
@@ -75,11 +75,11 @@ var helpKeybinds = []struct {
 
 func (a App) renderHelpDialog() string {
 	var sb strings.Builder
-	query := strings.TrimSpace(a.helpDialogQuery)
+	query := strings.TrimSpace(a.helpDialog.query)
 
 	tabs := []string{"Commands", "Keybinds"}
 	for i, t := range tabs {
-		if i == a.helpDialogTab {
+		if i == a.helpDialog.tab {
 			sb.WriteString("[" + t + "]")
 		} else {
 			sb.WriteString(" " + t + " ")
@@ -93,7 +93,7 @@ func (a App) renderHelpDialog() string {
 
 	q := strings.ToLower(query)
 
-	if a.helpDialogTab == 0 {
+	if a.helpDialog.tab == 0 {
 		cmds := a.cmdRegistry.All()
 		idx := 0
 		for _, c := range cmds {
@@ -104,7 +104,7 @@ func (a App) renderHelpDialog() string {
 				}
 			}
 			prefix := "  "
-			if idx == a.helpDialogSelect {
+			if idx == a.helpDialog.selected {
 				prefix = "> "
 			}
 			line := fmt.Sprintf("%-16s %s", "/"+c.Name, c.Description)
@@ -127,7 +127,7 @@ func (a App) renderHelpDialog() string {
 				}
 			}
 			prefix := "  "
-			if idx == a.helpDialogSelect {
+			if idx == a.helpDialog.selected {
 				prefix = "> "
 			}
 			sb.WriteString(fmt.Sprintf("\n%s%-24s %s", prefix, kb.Key, kb.Desc))

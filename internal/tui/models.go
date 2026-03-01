@@ -14,6 +14,103 @@ import (
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 )
 
+// --- Dialog state types ---
+
+type commandPaletteState struct {
+	open     bool
+	query    string
+	selected int
+}
+
+type inlineState struct {
+	open     bool
+	mode     string // "/" or "@"
+	query    string
+	selected int
+	start    int
+	end      int
+}
+
+type modelDialogState struct {
+	open           bool
+	query          string
+	selected       int
+	providerMode   bool
+	providerFilter string
+}
+
+type helpDialogState struct {
+	open     bool
+	query    string
+	selected int
+	tab      int // 0=commands, 1=keybinds
+}
+
+type statusDialogState struct {
+	open bool
+}
+
+type exportDialogState struct {
+	open            bool
+	includeTools    bool
+	includeMeta     bool
+	includeThinking bool
+	filename        string
+	focusedField    int // 0=tools, 1=meta, 2=thinking, 3=filename
+}
+
+type renameDialogState struct {
+	open  bool
+	value string
+}
+
+type sessionsDialogState struct {
+	open     bool
+	query    string
+	selected int
+	confirm  bool
+	entries  []store.SessionSummary
+	loaded   bool
+}
+
+type agentDialogState struct {
+	open     bool
+	query    string
+	selected int
+}
+
+type connectDialogState struct {
+	open  bool
+	input string
+}
+
+type themesDialogState struct {
+	open     bool
+	selected int
+}
+
+type timelineDialogState struct {
+	open     bool
+	query    string
+	selected int
+}
+
+type forkDialogState struct {
+	open     bool
+	selected int
+}
+
+type mcpDialogState struct {
+	open     bool
+	selected int
+}
+
+type stashDialogState struct {
+	open           bool
+	selected       int
+	pendingContent string // content to stash (captured before input reset)
+}
+
 // switchModel attempts to switch to the given model ID via the provider.
 // Returns true on success, false on error. Adds appropriate chat entries.
 func (a *App) switchModel(modelID string) bool {

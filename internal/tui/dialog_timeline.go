@@ -19,7 +19,7 @@ func (a App) timelineEntries() []timelineEntry {
 		return nil
 	}
 	var entries []timelineEntry
-	for _, rec := range a.session.Messages {
+	for _, rec := range a.session.Records() {
 		if rec.Message.Role == "user" {
 			content := rec.Message.Content
 			if len(content) > 60 {
@@ -38,30 +38,30 @@ func (a App) timelineEntries() []timelineEntry {
 func (a App) handleTimelineDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Code == tea.KeyEscape:
-		a.timelineDialogOpen = false
+		a.timelineDialog.open = false
 		a.input.Focus()
 		return a, nil
 
 	case msg.Code == tea.KeyEnter:
 		entries := a.timelineEntries()
-		if a.timelineDialogSelect < len(entries) {
+		if a.timelineDialog.selected < len(entries) {
 			// Scroll chat to the position of this user message
-			a.scrollToUserMessage(a.timelineDialogSelect)
+			a.scrollToUserMessage(a.timelineDialog.selected)
 		}
-		a.timelineDialogOpen = false
+		a.timelineDialog.open = false
 		a.input.Focus()
 		return a, nil
 
 	case msg.Code == tea.KeyUp:
-		if a.timelineDialogSelect > 0 {
-			a.timelineDialogSelect--
+		if a.timelineDialog.selected > 0 {
+			a.timelineDialog.selected--
 		}
 		return a, nil
 
 	case msg.Code == tea.KeyDown:
 		entries := a.timelineEntries()
-		if a.timelineDialogSelect < len(entries)-1 {
-			a.timelineDialogSelect++
+		if a.timelineDialog.selected < len(entries)-1 {
+			a.timelineDialog.selected++
 		}
 		return a, nil
 
@@ -97,7 +97,7 @@ func (a App) renderTimelineDialog() string {
 
 	for i, entry := range entries {
 		marker := "  "
-		if i == a.timelineDialogSelect {
+		if i == a.timelineDialog.selected {
 			marker = "> "
 		}
 		sb.WriteString(fmt.Sprintf("\n%s%s", marker, entry.Content))

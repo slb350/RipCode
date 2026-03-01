@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/stephenbrandon/ripcode/internal/agent"
+	"github.com/stephenbrandon/ripcode/internal/provider"
 	"github.com/stephenbrandon/ripcode/internal/session"
 	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tool"
@@ -19,7 +20,7 @@ func TestApp_SessionsDialog_OpensWithSlashSessions(t *testing.T) {
 	app := makeSessionApp(t)
 	model, _ := app.Update(components.InputSubmitMsg{Value: "/sessions"})
 	a := model.(App)
-	assert.True(t, a.sessionsDialogOpen)
+	assert.True(t, a.sessionsDialog.open)
 }
 
 func TestApp_SessionsDialog_EscCloses(t *testing.T) {
@@ -28,7 +29,7 @@ func TestApp_SessionsDialog_EscCloses(t *testing.T) {
 	a := model.(App)
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	a = model.(App)
-	assert.False(t, a.sessionsDialogOpen)
+	assert.False(t, a.sessionsDialog.open)
 }
 
 func TestApp_SessionsDialog_FilterByTitle(t *testing.T) {
@@ -40,7 +41,7 @@ func TestApp_SessionsDialog_FilterByTitle(t *testing.T) {
 	a = model.(App)
 	model, _ = a.Update(tea.KeyPressMsg{Text: "b"})
 	a = model.(App)
-	assert.Equal(t, "ab", a.sessionsDialogQuery)
+	assert.Equal(t, "ab", a.sessionsDialog.query)
 }
 
 func TestApp_SessionsDialog_ArrowNavigates(t *testing.T) {
@@ -55,7 +56,7 @@ func TestApp_SessionsDialog_ArrowNavigates(t *testing.T) {
 	a = model.(App)
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	a = model.(App)
-	assert.Equal(t, 1, a.sessionsDialogSelect)
+	assert.Equal(t, 1, a.sessionsDialog.selected)
 }
 
 func TestApp_SessionsDialog_ClosesOtherDialogs(t *testing.T) {
@@ -63,13 +64,13 @@ func TestApp_SessionsDialog_ClosesOtherDialogs(t *testing.T) {
 	// Open help dialog first
 	model, _ := app.Update(components.InputSubmitMsg{Value: "/help"})
 	a := model.(App)
-	assert.True(t, a.helpDialogOpen)
+	assert.True(t, a.helpDialog.open)
 	// Now open sessions
-	a.helpDialogOpen = false
+	a.helpDialog.open = false
 	model, _ = a.Update(components.InputSubmitMsg{Value: "/sessions"})
 	a = model.(App)
-	assert.True(t, a.sessionsDialogOpen)
-	assert.False(t, a.helpDialogOpen)
+	assert.True(t, a.sessionsDialog.open)
+	assert.False(t, a.helpDialog.open)
 }
 
 func TestApp_SessionsDialog_ShowsSessionEntries(t *testing.T) {
@@ -81,9 +82,9 @@ func TestApp_SessionsDialog_ShowsSessionEntries(t *testing.T) {
 		{ID: "s1", Title: "my project", MessageCount: 12},
 	}})
 	a = model.(App)
-	assert.True(t, a.sessionsDialogLoaded)
-	assert.Len(t, a.sessionsDialogEntries, 1)
-	assert.Equal(t, "my project", a.sessionsDialogEntries[0].Title)
+	assert.True(t, a.sessionsDialog.loaded)
+	assert.Len(t, a.sessionsDialog.entries, 1)
+	assert.Equal(t, "my project", a.sessionsDialog.entries[0].Title)
 }
 
 func TestApp_SessionsDialog_EmptyList(t *testing.T) {
@@ -92,8 +93,8 @@ func TestApp_SessionsDialog_EmptyList(t *testing.T) {
 	a := model.(App)
 	model, _ = a.Update(SessionsLoadedMsg{Sessions: nil})
 	a = model.(App)
-	assert.True(t, a.sessionsDialogLoaded)
-	assert.Empty(t, a.sessionsDialogEntries)
+	assert.True(t, a.sessionsDialog.loaded)
+	assert.Empty(t, a.sessionsDialog.entries)
 }
 
 func TestApp_SessionsDialog_CtrlD_EntersDeleteConfirm(t *testing.T) {
@@ -106,7 +107,7 @@ func TestApp_SessionsDialog_CtrlD_EntersDeleteConfirm(t *testing.T) {
 	a = model.(App)
 	model, _ = a.Update(tea.KeyPressMsg{Mod: tea.ModCtrl, Code: 'd'})
 	a = model.(App)
-	assert.True(t, a.sessionsDialogConfirm)
+	assert.True(t, a.sessionsDialog.confirm)
 }
 
 func TestApp_SessionsDialog_DeleteConfirm_Esc_Cancels(t *testing.T) {
@@ -119,11 +120,11 @@ func TestApp_SessionsDialog_DeleteConfirm_Esc_Cancels(t *testing.T) {
 	a = model.(App)
 	model, _ = a.Update(tea.KeyPressMsg{Mod: tea.ModCtrl, Code: 'd'})
 	a = model.(App)
-	assert.True(t, a.sessionsDialogConfirm)
+	assert.True(t, a.sessionsDialog.confirm)
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	a = model.(App)
-	assert.False(t, a.sessionsDialogConfirm)
-	assert.True(t, a.sessionsDialogOpen) // still open
+	assert.False(t, a.sessionsDialog.confirm)
+	assert.True(t, a.sessionsDialog.open) // still open
 }
 
 func TestApp_SessionsDialog_BackspaceDeletesQuery(t *testing.T) {
@@ -134,10 +135,10 @@ func TestApp_SessionsDialog_BackspaceDeletesQuery(t *testing.T) {
 	a = model.(App)
 	model, _ = a.Update(tea.KeyPressMsg{Text: "b"})
 	a = model.(App)
-	assert.Equal(t, "ab", a.sessionsDialogQuery)
+	assert.Equal(t, "ab", a.sessionsDialog.query)
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	a = model.(App)
-	assert.Equal(t, "a", a.sessionsDialogQuery)
+	assert.Equal(t, "a", a.sessionsDialog.query)
 }
 
 func TestApp_SessionsDialog_RenderShowsDateGroups(t *testing.T) {
@@ -207,7 +208,7 @@ func TestApp_ResumeSession_ReappliesSystemPrompt(t *testing.T) {
 	require.Equal(t, sess.ID, a.session.ID, "should have switched to loaded session")
 	history := a.session.History()
 	require.NotEmpty(t, history)
-	assert.Equal(t, "system", history[0].Role, "resumed session should have system prompt")
+	assert.Equal(t, provider.RoleSystem, history[0].Role, "resumed session should have system prompt")
 	assert.NotEmpty(t, history[0].Content)
 }
 

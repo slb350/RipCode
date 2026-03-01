@@ -17,49 +17,49 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return a, tea.Quit
 
-	case a.helpDialogOpen:
+	case a.helpDialog.open:
 		return a.handleHelpDialogKey(msg)
 
-	case a.statusDialogOpen:
+	case a.statusDialog.open:
 		return a.handleStatusDialogKey(msg)
 
-	case a.stashDialogOpen:
+	case a.stashDialog.open:
 		return a.handleStashDialogKey(msg)
 
-	case a.agentDialogOpen:
+	case a.agentDialog.open:
 		return a.handleAgentDialogKey(msg)
 
-	case a.connectDialogOpen:
+	case a.connectDialog.open:
 		return a.handleConnectDialogKey(msg)
 
-	case a.mcpDialogOpen:
+	case a.mcpDialog.open:
 		return a.handleMCPDialogKey(msg)
 
-	case a.themesDialogOpen:
+	case a.themesDialog.open:
 		return a.handleThemesDialogKey(msg)
 
-	case a.forkDialogOpen:
+	case a.forkDialog.open:
 		return a.handleForkDialogKey(msg)
 
-	case a.timelineDialogOpen:
+	case a.timelineDialog.open:
 		return a.handleTimelineDialogKey(msg)
 
-	case a.sessionsDialogOpen:
+	case a.sessionsDialog.open:
 		return a.handleSessionsDialogKey(msg)
 
-	case a.renameDialogOpen:
+	case a.renameDialog.open:
 		return a.handleRenameDialogKey(msg)
 
-	case a.exportDialogOpen:
+	case a.exportDialog.open:
 		return a.handleExportDialogKey(msg)
 
-	case a.modelDialogOpen:
+	case a.modelDialog.open:
 		return a.handleModelDialogKey(msg)
 
-	case a.commandOpen:
+	case a.commandPalette.open:
 		return a.handleCommandPaletteKey(msg)
 
-	case a.inlineOpen:
+	case a.inline.open:
 		return a.handleInlineKey(msg)
 
 	case a.sidebarOverlayActive():
@@ -104,11 +104,11 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	case msg.Mod == tea.ModCtrl && msg.Code == 'p':
 		if !a.streaming && a.state == StateSession {
-			a.commandOpen = true
-			a.commandQuery = ""
-			a.commandSelect = 0
-			a.modelDialogOpen = false
-			a.inlineOpen = false
+			a.commandPalette.open = true
+			a.commandPalette.query = ""
+			a.commandPalette.selected = 0
+			a.modelDialog.open = false
+			a.inline.open = false
 			a.input.Blur()
 		}
 		return a, nil
@@ -120,11 +120,11 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				cmd := a.input.Update(msg)
 				return a, cmd
 			}
-			a.commandOpen = true
-			a.commandQuery = ""
-			a.commandSelect = 0
-			a.modelDialogOpen = false
-			a.inlineOpen = false
+			a.commandPalette.open = true
+			a.commandPalette.query = ""
+			a.commandPalette.selected = 0
+			a.modelDialog.open = false
+			a.inline.open = false
 			a.input.Blur()
 		}
 		return a, nil
@@ -282,9 +282,9 @@ func (a App) handleLeaderKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	case msg.Code == 'a':
 		a.closeAllDialogs()
-		a.agentDialogOpen = true
-		a.agentDialogQuery = ""
-		a.agentDialogSelect = 0
+		a.agentDialog.open = true
+		a.agentDialog.query = ""
+		a.agentDialog.selected = 0
 		return a, nil
 	default:
 		return a, nil

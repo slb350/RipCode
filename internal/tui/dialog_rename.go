@@ -13,34 +13,34 @@ import (
 func (a App) handleRenameDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Code == tea.KeyEscape:
-		a.renameDialogOpen = false
+		a.renameDialog.open = false
 		a.input.Focus()
 		return a, nil
 
 	case msg.Code == tea.KeyEnter:
-		if strings.TrimSpace(a.renameDialogValue) == "" {
+		if strings.TrimSpace(a.renameDialog.value) == "" {
 			// Stay open — empty title not allowed
 			return a, nil
 		}
-		a.renameDialogOpen = false
+		a.renameDialog.open = false
 		a.input.Focus()
 		if a.session != nil {
-			a.session.Title = a.renameDialogValue
-			a.statusbar.SetTitle(a.renameDialogValue)
+			a.session.Title = a.renameDialog.value
+			a.statusbar.SetTitle(a.renameDialog.value)
 		}
-		id := a.toasts.Show(fmt.Sprintf("Renamed to \"%s\"", a.renameDialogValue), components.ToastSuccess, 3*time.Second)
+		id := a.toasts.Show(fmt.Sprintf("Renamed to \"%s\"", a.renameDialog.value), components.ToastSuccess, 3*time.Second)
 		return a, func() tea.Msg {
 			time.Sleep(3 * time.Second)
 			return ToastDismissMsg{ID: id}
 		}
 
 	case msg.Code == tea.KeyBackspace:
-		a.renameDialogValue = backspaceRune(a.renameDialogValue)
+		a.renameDialog.value = backspaceRune(a.renameDialog.value)
 		return a, nil
 
 	default:
 		if msg.Text != "" {
-			a.renameDialogValue += msg.Text
+			a.renameDialog.value += msg.Text
 		}
 		return a, nil
 	}
@@ -49,7 +49,7 @@ func (a App) handleRenameDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (a App) renderRenameDialog() string {
 	var sb strings.Builder
 	sb.WriteString("Rename session                            esc\n")
-	sb.WriteString(fmt.Sprintf("\n  > %s█", a.renameDialogValue))
+	sb.WriteString(fmt.Sprintf("\n  > %s█", a.renameDialog.value))
 	sb.WriteString("\n\n  [Enter] save  [Esc] cancel")
 	return sb.String()
 }

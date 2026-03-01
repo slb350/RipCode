@@ -86,11 +86,11 @@ func TestLoad_PreservesMessages(t *testing.T) {
 
 	loaded, err := Load(sess.ID)
 	require.NoError(t, err)
-	require.Len(t, loaded.Messages, 2)
-	assert.Equal(t, "user", loaded.Messages[0].Message.Role)
-	assert.Equal(t, "hello", loaded.Messages[0].Message.Content)
-	assert.Equal(t, "assistant", loaded.Messages[1].Message.Role)
-	assert.Equal(t, "world", loaded.Messages[1].Message.Content)
+	require.Len(t, loaded.Records(), 2)
+	assert.Equal(t, provider.RoleUser, loaded.Records()[0].Message.Role)
+	assert.Equal(t, "hello", loaded.Records()[0].Message.Content)
+	assert.Equal(t, provider.RoleAssistant, loaded.Records()[1].Message.Role)
+	assert.Equal(t, "world", loaded.Records()[1].Message.Content)
 }
 
 func TestLoad_PreservesMetadata(t *testing.T) {
@@ -100,12 +100,12 @@ func TestLoad_PreservesMetadata(t *testing.T) {
 
 	loaded, err := Load(sess.ID)
 	require.NoError(t, err)
-	require.NotNil(t, loaded.Messages[1].Meta)
-	assert.Equal(t, "gpt-4", loaded.Messages[1].Meta.Model)
-	assert.Equal(t, 100, loaded.Messages[1].Meta.InputTokens)
-	assert.Equal(t, 50, loaded.Messages[1].Meta.OutputTokens)
-	assert.Equal(t, "stop", loaded.Messages[1].Meta.FinishReason)
-	assert.Equal(t, 2*time.Second, loaded.Messages[1].Meta.Duration)
+	require.NotNil(t, loaded.Records()[1].Meta)
+	assert.Equal(t, "gpt-4", loaded.Records()[1].Meta.Model)
+	assert.Equal(t, 100, loaded.Records()[1].Meta.InputTokens)
+	assert.Equal(t, 50, loaded.Records()[1].Meta.OutputTokens)
+	assert.Equal(t, "stop", loaded.Records()[1].Meta.FinishReason)
+	assert.Equal(t, 2*time.Second, loaded.Records()[1].Meta.Duration)
 }
 
 func TestLoad_PreservesMessageIDs(t *testing.T) {
@@ -115,8 +115,8 @@ func TestLoad_PreservesMessageIDs(t *testing.T) {
 
 	loaded, err := Load(sess.ID)
 	require.NoError(t, err)
-	assert.Equal(t, sess.Messages[0].ID, loaded.Messages[0].ID)
-	assert.Equal(t, sess.Messages[1].ID, loaded.Messages[1].ID)
+	assert.Equal(t, sess.Records()[0].ID, loaded.Records()[0].ID)
+	assert.Equal(t, sess.Records()[1].ID, loaded.Records()[1].ID)
 }
 
 func TestLoad_NonExistent_ReturnsError(t *testing.T) {
@@ -270,12 +270,12 @@ func TestSaveLoad_PreservesToolCalls(t *testing.T) {
 
 	loaded, err := Load(sess.ID)
 	require.NoError(t, err)
-	require.Len(t, loaded.Messages, 3)
-	require.Len(t, loaded.Messages[1].Message.ToolCalls, 1)
-	assert.Equal(t, "call_1", loaded.Messages[1].Message.ToolCalls[0].ID)
-	assert.Equal(t, "bash", loaded.Messages[1].Message.ToolCalls[0].Name)
-	assert.Equal(t, "tool", loaded.Messages[2].Message.Role)
-	assert.Equal(t, "call_1", loaded.Messages[2].Message.ToolCallID)
+	require.Len(t, loaded.Records(), 3)
+	require.Len(t, loaded.Records()[1].Message.ToolCalls, 1)
+	assert.Equal(t, "call_1", loaded.Records()[1].Message.ToolCalls[0].ID)
+	assert.Equal(t, "bash", loaded.Records()[1].Message.ToolCalls[0].Name)
+	assert.Equal(t, provider.RoleTool, loaded.Records()[2].Message.Role)
+	assert.Equal(t, "call_1", loaded.Records()[2].Message.ToolCallID)
 }
 
 func TestSaveLoad_PreservesTimestamps(t *testing.T) {
@@ -288,5 +288,5 @@ func TestSaveLoad_PreservesTimestamps(t *testing.T) {
 	// Timestamps should be preserved within second precision (JSON marshaling truncation)
 	assert.WithinDuration(t, sess.CreatedAt, loaded.CreatedAt, time.Second)
 	assert.WithinDuration(t, sess.UpdatedAt, loaded.UpdatedAt, time.Second)
-	assert.WithinDuration(t, sess.Messages[0].CreatedAt, loaded.Messages[0].CreatedAt, time.Second)
+	assert.WithinDuration(t, sess.Records()[0].CreatedAt, loaded.Records()[0].CreatedAt, time.Second)
 }

@@ -91,7 +91,7 @@ func TestIntegration_SingleTurnConversation(t *testing.T) {
 	assert.Equal(t, "Hello! How can I help?", content.String())
 
 	// Session should have 2 messages
-	assert.Len(t, sess.Messages, 2)
+	assert.Len(t, sess.Records(), 2)
 	assert.Equal(t, 15, sess.Tokens.Input)
 	assert.Equal(t, 8, sess.Tokens.Output)
 }
@@ -145,7 +145,7 @@ func TestIntegration_ToolExecution(t *testing.T) {
 	assert.Contains(t, toolNames, "read")
 
 	// Session should have: user, assistant+tool_call, tool_result, assistant
-	assert.Len(t, sess.Messages, 4)
+	assert.Len(t, sess.Records(), 4)
 	assert.Equal(t, 50, sess.Tokens.Input)
 	assert.Equal(t, 25, sess.Tokens.Output)
 }

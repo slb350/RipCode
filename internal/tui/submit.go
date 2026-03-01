@@ -17,11 +17,11 @@ func (a App) handleSubmit(input string) (tea.Model, tea.Cmd) {
 	// Transition from home to session on first submit
 	if a.state == StateHome {
 		a.state = StateSession
-		a.commandOpen = false
-		a.modelDialogOpen = false
+		a.commandPalette.open = false
+		a.modelDialog.open = false
 		a.sidebarOverlay = false
 	}
-	a.inlineOpen = false
+	a.inline.open = false
 
 	mode := "normal"
 	if a.shellMode {

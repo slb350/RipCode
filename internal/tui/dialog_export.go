@@ -13,25 +13,25 @@ import (
 
 func (a App) handleExportDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// When editing filename, handle text input
-	if a.exportFocusedField == 3 {
+	if a.exportDialog.focusedField == 3 {
 		switch {
 		case msg.Code == tea.KeyEscape:
-			a.exportDialogOpen = false
+			a.exportDialog.open = false
 			a.input.Focus()
 			return a, nil
 		case msg.Code == tea.KeyEnter:
-			a.exportDialogOpen = false
+			a.exportDialog.open = false
 			a.input.Focus()
 			return a, a.executeExport()
 		case msg.Code == tea.KeyUp:
-			a.exportFocusedField--
+			a.exportDialog.focusedField--
 			return a, nil
 		case msg.Code == tea.KeyBackspace:
-			a.exportFilename = backspaceRune(a.exportFilename)
+			a.exportDialog.filename = backspaceRune(a.exportDialog.filename)
 			return a, nil
 		default:
 			if msg.Text != "" {
-				a.exportFilename += msg.Text
+				a.exportDialog.filename += msg.Text
 			}
 			return a, nil
 		}
@@ -39,35 +39,35 @@ func (a App) handleExportDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	switch {
 	case msg.Code == tea.KeyEscape:
-		a.exportDialogOpen = false
+		a.exportDialog.open = false
 		a.input.Focus()
 		return a, nil
 
 	case msg.Code == tea.KeyEnter:
-		a.exportDialogOpen = false
+		a.exportDialog.open = false
 		a.input.Focus()
 		return a, a.executeExport()
 
 	case msg.Code == tea.KeyUp:
-		if a.exportFocusedField > 0 {
-			a.exportFocusedField--
+		if a.exportDialog.focusedField > 0 {
+			a.exportDialog.focusedField--
 		}
 		return a, nil
 
 	case msg.Code == tea.KeyDown:
-		if a.exportFocusedField < 3 {
-			a.exportFocusedField++
+		if a.exportDialog.focusedField < 3 {
+			a.exportDialog.focusedField++
 		}
 		return a, nil
 
 	case msg.Text == " ":
-		switch a.exportFocusedField {
+		switch a.exportDialog.focusedField {
 		case 0:
-			a.exportIncludeTools = !a.exportIncludeTools
+			a.exportDialog.includeTools = !a.exportDialog.includeTools
 		case 1:
-			a.exportIncludeMeta = !a.exportIncludeMeta
+			a.exportDialog.includeMeta = !a.exportDialog.includeMeta
 		case 2:
-			a.exportIncludeThinking = !a.exportIncludeThinking
+			a.exportDialog.includeThinking = !a.exportDialog.includeThinking
 		}
 		return a, nil
 
@@ -90,12 +90,12 @@ func (a *App) executeExport() tea.Cmd {
 			sb.WriteString("## Assistant\n\n")
 			sb.WriteString(e.Content + "\n\n")
 		case "tool":
-			if a.exportIncludeTools {
+			if a.exportDialog.includeTools {
 				sb.WriteString(fmt.Sprintf("**Tool: %s** (%s)\n", e.ToolName, e.ToolStatus))
 				sb.WriteString(e.Content + "\n\n")
 			}
 		case "complete":
-			if a.exportIncludeMeta && e.Meta != nil {
+			if a.exportDialog.includeMeta && e.Meta != nil {
 				sb.WriteString(fmt.Sprintf("*%s · %s · %.1fs*\n\n",
 					e.Meta.Mode, e.Meta.Model, e.Meta.Duration.Seconds()))
 			}
@@ -110,7 +110,7 @@ func (a *App) executeExport() tea.Cmd {
 	if a.session != nil {
 		workDir = a.session.WorkDir
 	}
-	exportPath := filepath.Join(workDir, a.exportFilename)
+	exportPath := filepath.Join(workDir, a.exportDialog.filename)
 	if err := os.WriteFile(exportPath, []byte(sb.String()), 0o644); err != nil {
 		return a.ShowToast("Export failed: "+err.Error(), components.ToastError)
 	}
@@ -128,22 +128,22 @@ func (a App) renderExportDialog() string {
 		return "[ ]"
 	}
 	marker := func(idx int) string {
-		if idx == a.exportFocusedField {
+		if idx == a.exportDialog.focusedField {
 			return "> "
 		}
 		return "  "
 	}
 
-	sb.WriteString(fmt.Sprintf("\n%s%s Include tool calls", marker(0), check(a.exportIncludeTools)))
-	sb.WriteString(fmt.Sprintf("\n%s%s Include metadata (model, tokens, duration)", marker(1), check(a.exportIncludeMeta)))
-	sb.WriteString(fmt.Sprintf("\n%s%s Include thinking blocks", marker(2), check(a.exportIncludeThinking)))
+	sb.WriteString(fmt.Sprintf("\n%s%s Include tool calls", marker(0), check(a.exportDialog.includeTools)))
+	sb.WriteString(fmt.Sprintf("\n%s%s Include metadata (model, tokens, duration)", marker(1), check(a.exportDialog.includeMeta)))
+	sb.WriteString(fmt.Sprintf("\n%s%s Include thinking blocks", marker(2), check(a.exportDialog.includeThinking)))
 
 	fnMarker := "  "
-	if a.exportFocusedField == 3 {
+	if a.exportDialog.focusedField == 3 {
 		fnMarker = "> "
 	}
-	sb.WriteString(fmt.Sprintf("\n\n%sFilename: %s", fnMarker, a.exportFilename))
-	if a.exportFocusedField == 3 {
+	sb.WriteString(fmt.Sprintf("\n\n%sFilename: %s", fnMarker, a.exportDialog.filename))
+	if a.exportDialog.focusedField == 3 {
 		sb.WriteString("_")
 	}
 	sb.WriteString("\n\n  [Enter] export  [Space] toggle  [Esc] cancel")

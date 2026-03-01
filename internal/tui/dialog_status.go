@@ -10,7 +10,7 @@ import (
 func (a App) handleStatusDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Code == tea.KeyEscape, msg.Code == tea.KeyEnter:
-		a.statusDialogOpen = false
+		a.statusDialog.open = false
 		a.input.Focus()
 		return a, nil
 	default:
@@ -46,7 +46,7 @@ func (a App) renderStatusDialog() string {
 	tokOut := 0
 	workDir := "(not set)"
 	if a.session != nil {
-		msgCount = len(a.session.Messages)
+		msgCount = a.session.Len()
 		tokIn = a.session.Tokens.Input
 		tokOut = a.session.Tokens.Output
 		workDir = a.session.WorkDir

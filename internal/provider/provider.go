@@ -5,9 +5,9 @@ import (
 	"strings"
 )
 
-// Role is a type alias for message roles, providing named constants
-// without breaking existing string comparisons.
-type Role = string
+// Role is a defined type for message roles. Use the constants
+// RoleSystem, RoleUser, RoleAssistant, RoleTool.
+type Role string
 
 const (
 	RoleSystem    Role = "system"

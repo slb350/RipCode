@@ -13,7 +13,7 @@ func TestApp_StatusDialog_OpensWithSlashStatus(t *testing.T) {
 	a := makeSessionApp(t)
 	model, _ := a.Update(components.InputSubmitMsg{Value: "/status"})
 	a = model.(App)
-	assert.True(t, a.statusDialogOpen)
+	assert.True(t, a.statusDialog.open)
 }
 
 func TestApp_StatusDialog_ShowsModel(t *testing.T) {
@@ -64,19 +64,19 @@ func TestApp_StatusDialog_EscapeCloses(t *testing.T) {
 	a := makeSessionApp(t)
 	model, _ := a.Update(components.InputSubmitMsg{Value: "/status"})
 	a = model.(App)
-	assert.True(t, a.statusDialogOpen)
+	assert.True(t, a.statusDialog.open)
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	a = model.(App)
-	assert.False(t, a.statusDialogOpen)
+	assert.False(t, a.statusDialog.open)
 }
 
 func TestApp_StatusDialog_ClosesOtherDialogs(t *testing.T) {
 	a := makeSessionApp(t)
-	a.commandOpen = true
+	a.commandPalette.open = true
 	model, _ := a.Update(components.InputSubmitMsg{Value: "/status"})
 	a = model.(App)
-	assert.True(t, a.statusDialogOpen)
-	assert.False(t, a.commandOpen)
+	assert.True(t, a.statusDialog.open)
+	assert.False(t, a.commandPalette.open)
 }
 
 func TestApp_StatusDialog_ShowsMCPSection(t *testing.T) {

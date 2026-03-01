@@ -28,10 +28,10 @@ func (a *App) initRegistry() {
 		Suggested: true, Execute: true,
 		Handler: func(a *App) tea.Cmd {
 			a.closeAllDialogs()
-			a.helpDialogOpen = true
-			a.helpDialogQuery = ""
-			a.helpDialogSelect = 0
-			a.helpDialogTab = 0
+			a.helpDialog.open = true
+			a.helpDialog.query = ""
+			a.helpDialog.selected = 0
+			a.helpDialog.tab = 0
 			return nil
 		},
 	})
@@ -74,9 +74,9 @@ func (a *App) initRegistry() {
 		Handler: func(a *App) tea.Cmd {
 			// Opens agent dialog when invoked without args
 			a.closeAllDialogs()
-			a.agentDialogOpen = true
-			a.agentDialogQuery = ""
-			a.agentDialogSelect = 0
+			a.agentDialog.open = true
+			a.agentDialog.query = ""
+			a.agentDialog.selected = 0
 			return nil
 		},
 	})
@@ -118,14 +118,14 @@ func (a *App) initRegistry() {
 		Title: "Compact", Description: "Compact session history",
 		Execute: true,
 		Handler: func(a *App) tea.Cmd {
-			if a.session == nil || len(a.session.Messages) == 0 {
+			if a.session == nil || a.session.Len() == 0 {
 				return a.ShowToast("Nothing to compact", components.ToastWarning)
 			}
 			// Build summary from messages
 			var summary strings.Builder
 			summary.WriteString("Session compacted. Previous conversation covered:\n")
 			userCount := 0
-			for _, rec := range a.session.Messages {
+			for _, rec := range a.session.Records() {
 				if rec.Message.Role == "user" {
 					userCount++
 					content := rec.Message.Content
@@ -136,7 +136,7 @@ func (a *App) initRegistry() {
 				}
 			}
 			// Replace session messages with a single summary
-			a.session.Messages = nil
+			a.session.ClearMessages()
 			a.session.AddUser("[compacted: " + fmt.Sprintf("%d", userCount) + " exchanges]")
 			a.session.AddAssistant(summary.String(), nil, nil)
 			a.rebuildChatFromSession()
@@ -150,8 +150,8 @@ func (a *App) initRegistry() {
 		Execute: true,
 		Handler: func(a *App) tea.Cmd {
 			a.closeAllDialogs()
-			a.connectDialogOpen = true
-			a.connectDialogInput = ""
+			a.connectDialog.open = true
+			a.connectDialog.input = ""
 			return nil
 		},
 	})
@@ -162,8 +162,8 @@ func (a *App) initRegistry() {
 		Execute: true,
 		Handler: func(a *App) tea.Cmd {
 			a.closeAllDialogs()
-			a.mcpDialogOpen = true
-			a.mcpDialogSelect = 0
+			a.mcpDialog.open = true
+			a.mcpDialog.selected = 0
 			return nil
 		},
 	})
@@ -231,12 +231,12 @@ func (a *App) initRegistry() {
 				return a.ShowToast("Nothing to export", components.ToastWarning)
 			}
 			a.closeAllDialogs()
-			a.exportDialogOpen = true
-			a.exportIncludeTools = true
-			a.exportIncludeMeta = false
-			a.exportIncludeThinking = false
-			a.exportFilename = "session-export.md"
-			a.exportFocusedField = 0
+			a.exportDialog.open = true
+			a.exportDialog.includeTools = true
+			a.exportDialog.includeMeta = false
+			a.exportDialog.includeThinking = false
+			a.exportDialog.filename = "session-export.md"
+			a.exportDialog.focusedField = 0
 			return nil
 		},
 	})
@@ -250,8 +250,8 @@ func (a *App) initRegistry() {
 				return a.ShowToast("Nothing to fork", components.ToastWarning)
 			}
 			a.closeAllDialogs()
-			a.forkDialogOpen = true
-			a.forkDialogSelect = 0
+			a.forkDialog.open = true
+			a.forkDialog.selected = 0
 			return nil
 		},
 	})
@@ -263,10 +263,10 @@ func (a *App) initRegistry() {
 		Execute: true,
 		Handler: func(a *App) tea.Cmd {
 			a.closeAllDialogs()
-			a.renameDialogOpen = true
-			a.renameDialogValue = ""
+			a.renameDialog.open = true
+			a.renameDialog.value = ""
 			if a.session != nil {
-				a.renameDialogValue = a.session.Title
+				a.renameDialog.value = a.session.Title
 			}
 			return nil
 		},
@@ -278,11 +278,11 @@ func (a *App) initRegistry() {
 		Suggested: true, Execute: true,
 		Handler: func(a *App) tea.Cmd {
 			a.closeAllDialogs()
-			a.sessionsDialogOpen = true
-			a.sessionsDialogQuery = ""
-			a.sessionsDialogSelect = 0
-			a.sessionsDialogConfirm = false
-			if !a.sessionsDialogLoaded {
+			a.sessionsDialog.open = true
+			a.sessionsDialog.query = ""
+			a.sessionsDialog.selected = 0
+			a.sessionsDialog.confirm = false
+			if !a.sessionsDialog.loaded {
 				return a.loadSessions()
 			}
 			return nil
@@ -318,7 +318,7 @@ func (a *App) initRegistry() {
 		Execute: true,
 		Handler: func(a *App) tea.Cmd {
 			a.closeAllDialogs()
-			a.statusDialogOpen = true
+			a.statusDialog.open = true
 			return nil
 		},
 	})
@@ -329,8 +329,8 @@ func (a *App) initRegistry() {
 		Execute: true,
 		Handler: func(a *App) tea.Cmd {
 			a.closeAllDialogs()
-			a.themesDialogOpen = true
-			a.themesDialogSelect = 0
+			a.themesDialog.open = true
+			a.themesDialog.selected = 0
 			return nil
 		},
 	})
@@ -355,9 +355,9 @@ func (a *App) initRegistry() {
 		Execute: true,
 		Handler: func(a *App) tea.Cmd {
 			a.closeAllDialogs()
-			a.timelineDialogOpen = true
-			a.timelineDialogQuery = ""
-			a.timelineDialogSelect = 0
+			a.timelineDialog.open = true
+			a.timelineDialog.query = ""
+			a.timelineDialog.selected = 0
 			return nil
 		},
 	})
@@ -424,9 +424,9 @@ func (a *App) initRegistry() {
 		Handler: func(a *App) tea.Cmd {
 			content := a.input.Value()
 			// Also check stashPendingContent for when invoked via slash command
-			if a.stashPendingContent != "" {
-				content = a.stashPendingContent
-				a.stashPendingContent = ""
+			if a.stashDialog.pendingContent != "" {
+				content = a.stashDialog.pendingContent
+				a.stashDialog.pendingContent = ""
 			}
 			if strings.TrimSpace(content) == "" {
 				return a.ShowToast("Nothing to stash", components.ToastWarning)
@@ -462,8 +462,8 @@ func (a *App) initRegistry() {
 				return a.ShowToast("Stash is empty", components.ToastWarning)
 			}
 			a.closeAllDialogs()
-			a.stashDialogOpen = true
-			a.stashDialogSelect = 0
+			a.stashDialog.open = true
+			a.stashDialog.selected = 0
 			return nil
 		},
 	})

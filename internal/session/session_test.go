@@ -16,7 +16,7 @@ func TestNew(t *testing.T) {
 	assert.Equal(t, "/tmp/test", s.WorkDir)
 	assert.NotZero(t, s.CreatedAt)
 	assert.NotZero(t, s.UpdatedAt)
-	assert.Empty(t, s.Messages)
+	assert.Empty(t, s.messages)
 	assert.Empty(t, s.Title)
 }
 
@@ -24,20 +24,20 @@ func TestAddUser(t *testing.T) {
 	s := New("/tmp")
 	rec := s.AddUser("hello")
 
-	require.Len(t, s.Messages, 1)
-	assert.Equal(t, "user", s.Messages[0].Message.Role)
-	assert.Equal(t, "hello", s.Messages[0].Message.Content)
+	require.Len(t, s.messages, 1)
+	assert.Equal(t, provider.RoleUser, s.messages[0].Message.Role)
+	assert.Equal(t, "hello", s.messages[0].Message.Content)
 	assert.NotNil(t, rec)
-	assert.Equal(t, "user", rec.Message.Role)
+	assert.Equal(t, provider.RoleUser, rec.Message.Role)
 }
 
 func TestAddAssistant(t *testing.T) {
 	s := New("/tmp")
 	rec := s.AddAssistant("I'll help", nil, nil)
 
-	require.Len(t, s.Messages, 1)
-	assert.Equal(t, "assistant", s.Messages[0].Message.Role)
-	assert.Equal(t, "I'll help", s.Messages[0].Message.Content)
+	require.Len(t, s.messages, 1)
+	assert.Equal(t, provider.RoleAssistant, s.messages[0].Message.Role)
+	assert.Equal(t, "I'll help", s.messages[0].Message.Content)
 	assert.NotNil(t, rec)
 	assert.Nil(t, rec.Meta)
 }
@@ -49,10 +49,10 @@ func TestAddAssistantWithToolCalls(t *testing.T) {
 	}
 	rec := s.AddAssistant("Let me check.", calls, nil)
 
-	require.Len(t, s.Messages, 1)
-	assert.Equal(t, "assistant", s.Messages[0].Message.Role)
-	assert.Len(t, s.Messages[0].Message.ToolCalls, 1)
-	assert.Equal(t, "bash", s.Messages[0].Message.ToolCalls[0].Name)
+	require.Len(t, s.messages, 1)
+	assert.Equal(t, provider.RoleAssistant, s.messages[0].Message.Role)
+	assert.Len(t, s.messages[0].Message.ToolCalls, 1)
+	assert.Equal(t, "bash", s.messages[0].Message.ToolCalls[0].Name)
 	assert.NotNil(t, rec)
 }
 
@@ -60,10 +60,10 @@ func TestAddToolResult(t *testing.T) {
 	s := New("/tmp")
 	rec := s.AddToolResult("call_1", "file1.go\nfile2.go")
 
-	require.Len(t, s.Messages, 1)
-	assert.Equal(t, "tool", s.Messages[0].Message.Role)
-	assert.Equal(t, "call_1", s.Messages[0].Message.ToolCallID)
-	assert.Equal(t, "file1.go\nfile2.go", s.Messages[0].Message.Content)
+	require.Len(t, s.messages, 1)
+	assert.Equal(t, provider.RoleTool, s.messages[0].Message.Role)
+	assert.Equal(t, "call_1", s.messages[0].Message.ToolCallID)
+	assert.Equal(t, "file1.go\nfile2.go", s.messages[0].Message.Content)
 	assert.NotNil(t, rec)
 }
 
@@ -78,10 +78,10 @@ func TestHistory_IncludesAllMessages(t *testing.T) {
 
 	history := s.History()
 	require.Len(t, history, 4)
-	assert.Equal(t, "user", history[0].Role)
-	assert.Equal(t, "assistant", history[1].Role)
-	assert.Equal(t, "tool", history[2].Role)
-	assert.Equal(t, "assistant", history[3].Role)
+	assert.Equal(t, provider.RoleUser, history[0].Role)
+	assert.Equal(t, provider.RoleAssistant, history[1].Role)
+	assert.Equal(t, provider.RoleTool, history[2].Role)
+	assert.Equal(t, provider.RoleAssistant, history[3].Role)
 }
 
 func TestAddTokens(t *testing.T) {
@@ -111,9 +111,9 @@ func TestSetSystemPrompt(t *testing.T) {
 
 	history := s.History()
 	require.Len(t, history, 2)
-	assert.Equal(t, "system", history[0].Role)
+	assert.Equal(t, provider.RoleSystem, history[0].Role)
 	assert.Equal(t, "You are a helpful assistant.", history[0].Content)
-	assert.Equal(t, "user", history[1].Role)
+	assert.Equal(t, provider.RoleUser, history[1].Role)
 }
 
 // --- New Phase 2 tests ---
@@ -145,7 +145,7 @@ func TestMessageRecord_IDsAreUnique(t *testing.T) {
 func TestSession_AddUser_ReturnsMessageRecord(t *testing.T) {
 	s := New("/tmp")
 	rec := s.AddUser("hello")
-	assert.Equal(t, "user", rec.Message.Role)
+	assert.Equal(t, provider.RoleUser, rec.Message.Role)
 	assert.Equal(t, "hello", rec.Message.Content)
 }
 
@@ -159,7 +159,7 @@ func TestSession_AddUser_SetsIDAndTimestamp(t *testing.T) {
 func TestSession_AddAssistant_ReturnsMessageRecord(t *testing.T) {
 	s := New("/tmp")
 	rec := s.AddAssistant("response", nil, nil)
-	assert.Equal(t, "assistant", rec.Message.Role)
+	assert.Equal(t, provider.RoleAssistant, rec.Message.Role)
 	assert.Equal(t, "response", rec.Message.Content)
 }
 
@@ -188,7 +188,7 @@ func TestSession_AddAssistant_NilMetaOK(t *testing.T) {
 func TestSession_AddToolResult_ReturnsMessageRecord(t *testing.T) {
 	s := New("/tmp")
 	rec := s.AddToolResult("call_1", "output")
-	assert.Equal(t, "tool", rec.Message.Role)
+	assert.Equal(t, provider.RoleTool, rec.Message.Role)
 	assert.Equal(t, "call_1", rec.Message.ToolCallID)
 }
 
@@ -210,7 +210,7 @@ func TestSession_History_ExcludesMetadata(t *testing.T) {
 	history := s.History()
 	// provider.Message has no Meta field — it's pure wire format
 	require.Len(t, history, 1)
-	assert.Equal(t, "assistant", history[0].Role)
+	assert.Equal(t, provider.RoleAssistant, history[0].Role)
 	assert.Equal(t, "response", history[0].Content)
 }
 
@@ -242,9 +242,9 @@ func TestSession_Records_ReturnsAllMessageRecords(t *testing.T) {
 
 	recs := s.Records()
 	require.Len(t, recs, 3)
-	assert.Equal(t, "user", recs[0].Message.Role)
-	assert.Equal(t, "assistant", recs[1].Message.Role)
-	assert.Equal(t, "tool", recs[2].Message.Role)
+	assert.Equal(t, provider.RoleUser, recs[0].Message.Role)
+	assert.Equal(t, provider.RoleAssistant, recs[1].Message.Role)
+	assert.Equal(t, provider.RoleTool, recs[2].Message.Role)
 }
 
 func TestSession_RecordByID_FindsByID(t *testing.T) {
@@ -280,7 +280,7 @@ func TestSession_Records_ReturnsCopy(t *testing.T) {
 	s.AddUser("original")
 	recs := s.Records()
 	recs[0].Message.Content = "modified"
-	assert.Equal(t, "original", s.Messages[0].Message.Content)
+	assert.Equal(t, "original", s.messages[0].Message.Content)
 }
 
 func TestSession_Reset_ClearsTitle(t *testing.T) {
@@ -302,7 +302,7 @@ func TestSession_Revert_TruncatesFromUserMessage(t *testing.T) {
 	prompt, err := s.Revert()
 	require.NoError(t, err)
 	assert.Equal(t, "second", prompt)
-	assert.Len(t, s.Messages, 2) // only first exchange remains
+	assert.Len(t, s.messages, 2) // only first exchange remains
 }
 
 func TestSession_Revert_ReturnsPromptText(t *testing.T) {
@@ -341,12 +341,12 @@ func TestSession_Unrevert_RestoresMessages(t *testing.T) {
 
 	_, err := s.Revert()
 	require.NoError(t, err)
-	assert.Len(t, s.Messages, 2)
+	assert.Len(t, s.messages, 2)
 
 	err = s.Unrevert()
 	require.NoError(t, err)
-	assert.Len(t, s.Messages, 4)
-	assert.Equal(t, "second", s.Messages[2].Message.Content)
+	assert.Len(t, s.messages, 4)
+	assert.Equal(t, "second", s.messages[2].Message.Content)
 }
 
 func TestSession_CanRedo_TrueAfterRevert(t *testing.T) {
@@ -381,11 +381,11 @@ func TestSession_Revert_MultipleTimes(t *testing.T) {
 
 	prompt, _ := s.Revert()
 	assert.Equal(t, "third", prompt)
-	assert.Len(t, s.Messages, 4)
+	assert.Len(t, s.messages, 4)
 
 	prompt, _ = s.Revert()
 	assert.Equal(t, "second", prompt)
-	assert.Len(t, s.Messages, 2)
+	assert.Len(t, s.messages, 2)
 }
 
 func TestSession_Unrevert_MultipleTimes(t *testing.T) {
@@ -397,13 +397,13 @@ func TestSession_Unrevert_MultipleTimes(t *testing.T) {
 
 	_, _ = s.Revert()
 	_, _ = s.Revert()
-	assert.Empty(t, s.Messages)
+	assert.Empty(t, s.messages)
 
 	_ = s.Unrevert()
-	assert.Len(t, s.Messages, 2)
+	assert.Len(t, s.messages, 2)
 
 	_ = s.Unrevert()
-	assert.Len(t, s.Messages, 4)
+	assert.Len(t, s.messages, 4)
 }
 
 func TestSession_RevertClearsRedoOnNewMessage(t *testing.T) {
@@ -431,9 +431,9 @@ func TestFork_CopiesMessagesUpToIndex(t *testing.T) {
 
 	forked, err := s.Fork(1) // include messages 0..1 (q1 + a1)
 	require.NoError(t, err)
-	assert.Len(t, forked.Messages, 2)
-	assert.Equal(t, "q1", forked.Messages[0].Message.Content)
-	assert.Equal(t, "a1", forked.Messages[1].Message.Content)
+	assert.Len(t, forked.messages, 2)
+	assert.Equal(t, "q1", forked.messages[0].Message.Content)
+	assert.Equal(t, "a1", forked.messages[1].Message.Content)
 }
 
 func TestFork_GetsNewID(t *testing.T) {
@@ -473,8 +473,8 @@ func TestFork_GeneratesNewMessageIDs(t *testing.T) {
 
 	forked, err := s.Fork(1)
 	require.NoError(t, err)
-	assert.NotEqual(t, s.Messages[0].ID, forked.Messages[0].ID)
-	assert.NotEqual(t, s.Messages[1].ID, forked.Messages[1].ID)
+	assert.NotEqual(t, s.messages[0].ID, forked.messages[0].ID)
+	assert.NotEqual(t, s.messages[1].ID, forked.messages[1].ID)
 }
 
 func TestFork_PreservesSystemPrompt(t *testing.T) {
@@ -486,7 +486,7 @@ func TestFork_PreservesSystemPrompt(t *testing.T) {
 	require.NoError(t, err)
 	history := forked.History()
 	require.Len(t, history, 2) // system + user
-	assert.Equal(t, "system", history[0].Role)
+	assert.Equal(t, provider.RoleSystem, history[0].Role)
 	assert.Equal(t, "you are helpful", history[0].Content)
 }
 
@@ -556,9 +556,9 @@ func TestFork_PreservesMessageMeta(t *testing.T) {
 
 	forked, err := s.Fork(1)
 	require.NoError(t, err)
-	require.NotNil(t, forked.Messages[1].Meta)
-	assert.Equal(t, "gpt-4", forked.Messages[1].Meta.Model)
-	assert.Equal(t, "build", forked.Messages[1].Meta.Agent)
+	require.NotNil(t, forked.messages[1].Meta)
+	assert.Equal(t, "gpt-4", forked.messages[1].Meta.Model)
+	assert.Equal(t, "build", forked.messages[1].Meta.Agent)
 }
 
 func TestFork_BoundaryConditions(t *testing.T) {
@@ -568,8 +568,8 @@ func TestFork_BoundaryConditions(t *testing.T) {
 
 		forked, err := s.Fork(0)
 		require.NoError(t, err)
-		assert.Len(t, forked.Messages, 1)
-		assert.Equal(t, "only message", forked.Messages[0].Message.Content)
+		assert.Len(t, forked.messages, 1)
+		assert.Equal(t, "only message", forked.messages[0].Message.Content)
 	})
 
 	t.Run("fork at last valid index", func(t *testing.T) {
@@ -579,9 +579,9 @@ func TestFork_BoundaryConditions(t *testing.T) {
 		s.AddUser("q2")
 		s.AddAssistant("a2", nil, nil)
 
-		forked, err := s.Fork(len(s.Messages) - 1)
+		forked, err := s.Fork(len(s.messages) - 1)
 		require.NoError(t, err)
-		assert.Len(t, forked.Messages, 4)
+		assert.Len(t, forked.messages, 4)
 	})
 
 	t.Run("fork at len(Messages) returns error", func(t *testing.T) {
@@ -589,7 +589,7 @@ func TestFork_BoundaryConditions(t *testing.T) {
 		s.AddUser("q1")
 		s.AddAssistant("a1", nil, nil)
 
-		_, err := s.Fork(len(s.Messages))
+		_, err := s.Fork(len(s.messages))
 		assert.Error(t, err, "index == len(Messages) should be out of range")
 	})
 }
@@ -603,5 +603,5 @@ func TestFork_DoesNotMutateOriginal(t *testing.T) {
 
 	_, err := s.Fork(1)
 	require.NoError(t, err)
-	assert.Len(t, s.Messages, 4, "original session should be unchanged")
+	assert.Len(t, s.messages, 4, "original session should be unchanged")
 }

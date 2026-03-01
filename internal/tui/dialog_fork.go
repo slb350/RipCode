@@ -13,24 +13,25 @@ import (
 func (a App) handleForkDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Code == tea.KeyEscape:
-		a.forkDialogOpen = false
+		a.forkDialog.open = false
 		a.input.Focus()
 		return a, nil
 
 	case msg.Code == tea.KeyEnter:
 		entries := a.timelineEntries()
-		if a.forkDialogSelect >= len(entries) {
-			a.forkDialogOpen = false
+		if a.forkDialog.selected >= len(entries) {
+			a.forkDialog.open = false
 			a.input.Focus()
 			return a, nil
 		}
 		// Find the message index in session for this user message
-		entry := entries[a.forkDialogSelect]
+		entry := entries[a.forkDialog.selected]
 		forkIdx := -1
-		for i, rec := range a.session.Messages {
+		recs := a.session.Records()
+		for i, rec := range recs {
 			if rec.ID == entry.ID {
 				// Include the next assistant response if available
-				if i+1 < len(a.session.Messages) && a.session.Messages[i+1].Message.Role == "assistant" {
+				if i+1 < len(recs) && recs[i+1].Message.Role == "assistant" {
 					forkIdx = i + 1
 				} else {
 					forkIdx = i
@@ -39,19 +40,19 @@ func (a App) handleForkDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if forkIdx < 0 {
-			a.forkDialogOpen = false
+			a.forkDialog.open = false
 			a.input.Focus()
 			return a, a.ShowToast("Fork failed: message not found", components.ToastError)
 		}
 		forked, err := a.session.Fork(forkIdx)
 		if err != nil {
-			a.forkDialogOpen = false
+			a.forkDialog.open = false
 			a.input.Focus()
 			return a, a.ShowToast("Fork failed: "+err.Error(), components.ToastError)
 		}
 		// Save the current session before switching
 		if err := store.Save(a.session); err != nil {
-			a.forkDialogOpen = false
+			a.forkDialog.open = false
 			a.input.Focus()
 			return a, a.ShowToast("Fork failed: could not save session", components.ToastError)
 		}
@@ -60,20 +61,20 @@ func (a App) handleForkDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.rebuildChatFromSession()
 		a.statusbar.SetTitle(shortSessionTitle(forked.ID))
 		a.statusbar.SetTokens(0)
-		a.forkDialogOpen = false
+		a.forkDialog.open = false
 		a.input.Focus()
 		return a, a.ShowToast("Forked session", components.ToastSuccess)
 
 	case msg.Code == tea.KeyUp:
-		if a.forkDialogSelect > 0 {
-			a.forkDialogSelect--
+		if a.forkDialog.selected > 0 {
+			a.forkDialog.selected--
 		}
 		return a, nil
 
 	case msg.Code == tea.KeyDown:
 		entries := a.timelineEntries()
-		if a.forkDialogSelect < len(entries)-1 {
-			a.forkDialogSelect++
+		if a.forkDialog.selected < len(entries)-1 {
+			a.forkDialog.selected++
 		}
 		return a, nil
 
@@ -94,7 +95,7 @@ func (a App) renderForkDialog() string {
 
 	for i, entry := range entries {
 		marker := "  "
-		if i == a.forkDialogSelect {
+		if i == a.forkDialog.selected {
 			marker = "> "
 		}
 		sb.WriteString(fmt.Sprintf("\n%s%s", marker, entry.Content))

@@ -19,17 +19,17 @@ func TestApp_ExportDialog_OpensWithSlashExport(t *testing.T) {
 	a := makeSessionApp(t)
 	model, _ := a.Update(components.InputSubmitMsg{Value: "/export"})
 	a = model.(App)
-	assert.True(t, a.exportDialogOpen)
+	assert.True(t, a.exportDialog.open)
 }
 
 func TestApp_ExportDialog_EscCancels(t *testing.T) {
 	a := makeSessionApp(t)
 	model, _ := a.Update(components.InputSubmitMsg{Value: "/export"})
 	a = model.(App)
-	assert.True(t, a.exportDialogOpen)
+	assert.True(t, a.exportDialog.open)
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	a = model.(App)
-	assert.False(t, a.exportDialogOpen)
+	assert.False(t, a.exportDialog.open)
 }
 
 func TestApp_ExportDialog_ShowsOptions(t *testing.T) {
@@ -45,20 +45,20 @@ func TestApp_ExportDialog_SpaceTogglesOption(t *testing.T) {
 	a := makeSessionApp(t)
 	model, _ := a.Update(components.InputSubmitMsg{Value: "/export"})
 	a = model.(App)
-	assert.True(t, a.exportIncludeTools)
+	assert.True(t, a.exportDialog.includeTools)
 	model, _ = a.Update(tea.KeyPressMsg{Text: " "})
 	a = model.(App)
-	assert.False(t, a.exportIncludeTools)
+	assert.False(t, a.exportDialog.includeTools)
 }
 
 func TestApp_ExportDialog_ArrowNavigatesOptions(t *testing.T) {
 	a := makeSessionApp(t)
 	model, _ := a.Update(components.InputSubmitMsg{Value: "/export"})
 	a = model.(App)
-	assert.Equal(t, 0, a.exportFocusedField)
+	assert.Equal(t, 0, a.exportDialog.focusedField)
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	a = model.(App)
-	assert.Equal(t, 1, a.exportFocusedField)
+	assert.Equal(t, 1, a.exportDialog.focusedField)
 }
 
 func TestApp_ExportDialog_EnterExports(t *testing.T) {
@@ -70,7 +70,7 @@ func TestApp_ExportDialog_EnterExports(t *testing.T) {
 	a = model.(App)
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	a = model.(App)
-	assert.False(t, a.exportDialogOpen)
+	assert.False(t, a.exportDialog.open)
 	// Should show a toast
 	assert.NotNil(t, a.toasts.Current())
 }
@@ -86,7 +86,7 @@ func TestApp_ExportDialog_WritesFile(t *testing.T) {
 	a = model.(App)
 
 	// Check file was created
-	exportPath := filepath.Join(a.session.WorkDir, a.exportFilename)
+	exportPath := filepath.Join(a.session.WorkDir, a.exportDialog.filename)
 	data, err := os.ReadFile(exportPath)
 	if err == nil {
 		assert.Contains(t, string(data), "hello")
@@ -113,7 +113,7 @@ func TestApp_ExportDialog_EmptyChat_ShowsWarning(t *testing.T) {
 	model, _ = a.Update(components.InputSubmitMsg{Value: "/export"})
 	a = model.(App)
 	// With only the /export user entry, dialog still opens since there's 1 entry
-	assert.True(t, a.exportDialogOpen)
+	assert.True(t, a.exportDialog.open)
 }
 
 func TestApp_ExportDialog_HasThinkingToggle(t *testing.T) {
@@ -133,11 +133,11 @@ func TestApp_ExportDialog_ThinkingToggle_SpaceToggles(t *testing.T) {
 	a = model.(App)
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	a = model.(App)
-	assert.Equal(t, 2, a.exportFocusedField)
-	assert.False(t, a.exportIncludeThinking)
+	assert.Equal(t, 2, a.exportDialog.focusedField)
+	assert.False(t, a.exportDialog.includeThinking)
 	model, _ = a.Update(tea.KeyPressMsg{Text: " "})
 	a = model.(App)
-	assert.True(t, a.exportIncludeThinking)
+	assert.True(t, a.exportDialog.includeThinking)
 }
 
 func TestApp_ExportDialog_FilenameEditing(t *testing.T) {
@@ -149,12 +149,12 @@ func TestApp_ExportDialog_FilenameEditing(t *testing.T) {
 		model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 		a = model.(App)
 	}
-	assert.Equal(t, 3, a.exportFocusedField)
+	assert.Equal(t, 3, a.exportDialog.focusedField)
 	// Type characters to replace filename
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	a = model.(App)
 	// Filename should have been shortened
-	assert.True(t, len(a.exportFilename) < len("session-export.md"))
+	assert.True(t, len(a.exportDialog.filename) < len("session-export.md"))
 }
 
 func TestApp_ExportDialog_RendersFilenameInEditMode(t *testing.T) {
