@@ -227,6 +227,49 @@ func TestInput_SetModel(t *testing.T) {
 	assert.Equal(t, "test-model", i.model)
 }
 
+func TestInput_CursorOffsetAndSetCursorOffset(t *testing.T) {
+	i := NewInput()
+	i.SetValue("hello\nworld")
+
+	i.SetCursorOffset(7) // w in world
+	assert.Equal(t, 7, i.CursorOffset())
+	assert.Equal(t, "hello\nworld", i.Value())
+}
+
+func TestInput_ReplaceRange(t *testing.T) {
+	i := NewInput()
+	i.SetValue("/mod")
+
+	i.ReplaceRange(0, 4, "/models")
+	assert.Equal(t, "/models", i.Value())
+	assert.Equal(t, len("/models"), i.CursorOffset())
+}
+
+func TestInput_CursorOffset_Unicode(t *testing.T) {
+	i := NewInput()
+	i.SetValue("héllo")
+
+	// "héllo" has 5 runes, cursor should be at end = 5
+	assert.Equal(t, 5, i.CursorOffset())
+
+	i.SetCursorOffset(2) // after "hé"
+	assert.Equal(t, 2, i.CursorOffset())
+
+	i.ReplaceRange(0, 2, "HE")
+	assert.Equal(t, "HEllo", i.Value())
+	assert.Equal(t, 2, i.CursorOffset())
+}
+
+func TestInput_ReplaceRange_Emoji(t *testing.T) {
+	i := NewInput()
+	i.SetValue("@📁test ")
+
+	// "@📁test " = 7 runes: @, 📁, t, e, s, t, ' '
+	// Replace [0,7) = entire string, result is just the replacement.
+	i.ReplaceRange(0, 7, "@readme.md ")
+	assert.Equal(t, "@readme.md ", i.Value())
+}
+
 // --- Home tests ---
 
 func TestHome_RendersLogo(t *testing.T) {
@@ -280,12 +323,13 @@ func TestHome_Input(t *testing.T) {
 func TestStatusBar_View(t *testing.T) {
 	sb := NewStatusBar()
 	sb.SetSize(80)
+	sb.SetTitle("Session sess-1234")
 	sb.SetModel("test-model")
 	sb.SetMode("build")
 	sb.SetTokens(1500)
 
 	view := sb.View()
-	assert.Contains(t, view, "ripcode")
+	assert.Contains(t, view, "# Session sess-1234")
 	assert.Contains(t, view, "build")
 	assert.Contains(t, view, "test-model")
 	assert.Contains(t, view, "1.5K")
@@ -300,23 +344,54 @@ func TestStatusBar_Spinning(t *testing.T) {
 	assert.Contains(t, view, "●")
 }
 
-func TestStatusBar_ShowsHotkeys(t *testing.T) {
+func TestStatusBar_NoHotkeys(t *testing.T) {
 	sb := NewStatusBar()
 	sb.SetSize(120)
 
 	view := sb.View()
-	assert.Contains(t, view, "^C quit")
-	assert.Contains(t, view, "Esc cancel")
-	assert.Contains(t, view, "^L clear")
+	assert.NotContains(t, view, "^C quit")
+	assert.NotContains(t, view, "Esc cancel")
 }
 
-func TestStatusBar_HidesHotkeys_WhenNarrow(t *testing.T) {
+func TestStatusBar_NarrowStillShowsHeader(t *testing.T) {
 	sb := NewStatusBar()
+	sb.SetTitle("Session abc")
 	sb.SetSize(30) // too narrow for hotkeys
 
 	view := sb.View()
-	assert.Contains(t, view, "ripcode")
-	assert.NotContains(t, view, "^C quit")
+	assert.Contains(t, view, "Session abc")
+}
+
+func TestSessionFooter_Default(t *testing.T) {
+	f := NewSessionFooter()
+	f.SetSize(80)
+	f.SetWorkDir("/tmp/project")
+	f.SetConnected(true)
+
+	view := f.View()
+	assert.Contains(t, view, "/tmp/project")
+	assert.Contains(t, view, "/models · /help")
+}
+
+func TestSessionFooter_Streaming(t *testing.T) {
+	f := NewSessionFooter()
+	f.SetSize(80)
+	f.SetWorkDir("/tmp/project")
+	f.SetConnected(true)
+	f.SetStreaming(true)
+
+	view := f.View()
+	assert.Contains(t, view, "● Running")
+	assert.Contains(t, view, "Esc interrupt")
+}
+
+func TestSessionFooter_Disconnected(t *testing.T) {
+	f := NewSessionFooter()
+	f.SetSize(80)
+	f.SetConnected(false)
+
+	view := f.View()
+	assert.Contains(t, view, "Set OPENROUTER_API_KEY to connect")
 }
 
 // --- ToolPanel tests ---

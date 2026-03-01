@@ -69,3 +69,8 @@ type Provider interface {
 type ModelLister interface {
 	ListModels(ctx context.Context) ([]ModelInfo, error)
 }
+
+// ModelSetter is implemented by providers that support changing active model at runtime.
+type ModelSetter interface {
+	SetModel(model string)
+}

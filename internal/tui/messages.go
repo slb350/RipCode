@@ -21,3 +21,8 @@ type ModelsLoadedMsg struct {
 	Err    error
 	Query  string
 }
+
+// FileCacheLoadedMsg carries the result of an async file cache scan.
+type FileCacheLoadedMsg struct {
+	Files []string
+}

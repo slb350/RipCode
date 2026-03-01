@@ -8,9 +8,10 @@ import (
 	"github.com/stephenbrandon/ripcode/internal/tui/styles"
 )
 
-// StatusBar displays model info, mode, and token count.
+// StatusBar displays the session header information.
 type StatusBar struct {
 	width    int
+	title    string
 	model    string
 	mode     string
 	tokens   int
@@ -20,6 +21,7 @@ type StatusBar struct {
 // NewStatusBar creates a new status bar.
 func NewStatusBar() StatusBar {
 	return StatusBar{
+		title: "Session",
 		model: "claude-sonnet-4",
 		mode:  "build",
 	}
@@ -28,6 +30,15 @@ func NewStatusBar() StatusBar {
 // SetSize updates the status bar width.
 func (s *StatusBar) SetSize(width int) {
 	s.width = width
+}
+
+// SetTitle updates the displayed session title.
+func (s *StatusBar) SetTitle(title string) {
+	if strings.TrimSpace(title) == "" {
+		s.title = "Session"
+		return
+	}
+	s.title = title
 }
 
 // SetModel updates the displayed model name.
@@ -56,35 +67,28 @@ func (s StatusBar) View() string {
 		return ""
 	}
 
-	left := " ripcode"
+	left := " #" + " " + s.title
 	if s.spinning {
 		left += " ●"
 	}
 
-	hotkeys := "  ^C quit │ Esc cancel │ ^L clear"
-
-	right := fmt.Sprintf("%s │ %s", s.mode, s.model)
+	right := fmt.Sprintf("%s · %s", s.mode, s.model)
 	if s.tokens > 0 {
-		right += fmt.Sprintf(" │ %s tokens", formatTokens(s.tokens))
+		right += fmt.Sprintf(" · %s tokens", FormatTokens(s.tokens))
 	}
-	right += " "
+	right = " " + right
 
-	// Check if hotkeys fit
-	gap := s.width - lipgloss.Width(left) - lipgloss.Width(hotkeys) - lipgloss.Width(right)
-	if gap < 1 {
-		hotkeys = ""
-		gap = s.width - lipgloss.Width(left) - lipgloss.Width(right)
-	}
+	gap := s.width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 0 {
 		gap = 0
 	}
 
-	hotkeyStyled := styles.Muted.Render(hotkeys)
-	bar := left + hotkeyStyled + strings.Repeat(" ", gap) + right
+	bar := left + strings.Repeat(" ", gap) + right
 	return styles.StatusBar.Width(s.width).Render(bar)
 }
 
-func formatTokens(n int) string {
+// FormatTokens formats a token count for display (e.g. "1.5K", "2.3M").
+func FormatTokens(n int) string {
 	if n >= 1_000_000 {
 		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
 	}

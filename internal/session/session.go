@@ -85,6 +85,15 @@ func (s *Session) History() []provider.Message {
 	return msgs
 }
 
+// Reset clears messages, tokens, and generates a new session ID,
+// preserving the working directory and system prompt.
+func (s *Session) Reset() {
+	s.ID = generateID()
+	s.Messages = nil
+	s.Tokens = TokenCount{}
+	s.CreatedAt = time.Now()
+}
+
 // AddTokens accumulates token usage.
 func (s *Session) AddTokens(input, output int) {
 	s.Tokens.Input += input

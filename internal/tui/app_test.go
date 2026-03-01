@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -16,6 +18,7 @@ import (
 type modelListProvider struct {
 	models []provider.ModelInfo
 	calls  int
+	model  string
 }
 
 func (m *modelListProvider) Name() string { return "mock" }
@@ -29,6 +32,10 @@ func (m *modelListProvider) Chat(_ context.Context, _ []provider.Message, _ []pr
 func (m *modelListProvider) ListModels(_ context.Context) ([]provider.ModelInfo, error) {
 	m.calls++
 	return m.models, nil
+}
+
+func (m *modelListProvider) SetModel(model string) {
+	m.model = model
 }
 
 func TestNewApp(t *testing.T) {
@@ -253,8 +260,9 @@ func TestApp_ModelsCommand_AsyncFetchAndCache(t *testing.T) {
 	a = model.(App)
 	assert.Nil(t, cmd, "loaded message should not produce another cmd")
 	assert.True(t, a.modelsLoaded, "cache should be populated")
+	assert.True(t, a.modelDialogOpen, "/models should open the model picker dialog")
 	view := a.View()
-	assert.Contains(t, view.Content, "Available models")
+	assert.Contains(t, view.Content, "Select model")
 	assert.Contains(t, view.Content, "anthropic/claude-sonnet-4")
 	assert.Contains(t, view.Content, "openai/gpt-4o")
 
@@ -263,12 +271,14 @@ func TestApp_ModelsCommand_AsyncFetchAndCache(t *testing.T) {
 	a = model.(App)
 	assert.Nil(t, cmd, "cache hit must not produce a command")
 	assert.Equal(t, 1, p.calls, "provider should not be called again")
+	assert.True(t, a.modelDialogOpen, "cache hit should reopen model picker")
+	assert.Equal(t, "claude", a.modelDialogQuery)
 	view = a.View()
-	assert.Contains(t, view.Content, "Filtered models")
+	assert.Contains(t, view.Content, "filter: claude")
 	assert.Contains(t, view.Content, "anthropic/claude-sonnet-4")
 }
 
-func TestApp_ModelsCommand_PrefixMatchRejectsInvalid(t *testing.T) {
+func TestApp_UnknownSlashCommand_ShowsError(t *testing.T) {
 	app := NewApp()
 	app.SetProvider(&modelListProvider{})
 	app.SetRegistry(tool.NewRegistry())
@@ -278,9 +288,511 @@ func TestApp_ModelsCommand_PrefixMatchRejectsInvalid(t *testing.T) {
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	a := model.(App)
 
-	// "/modelsxyz" should NOT route to models handler — it should go
-	// through normal submit, which adds a user chat entry and starts streaming.
+	// Unknown slash commands should be handled locally with an error.
 	model, _ = a.Update(components.InputSubmitMsg{Value: "/modelsxyz"})
 	a = model.(App)
-	assert.True(t, a.streaming, "/modelsxyz must not route to models handler")
+	assert.False(t, a.streaming)
+	assert.Contains(t, a.View().Content, "Unknown command")
+}
+
+func TestApp_AgentSlashCommand_SwitchesMode(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/agent plan"})
+	a = model.(App)
+
+	assert.Equal(t, "plan", a.agent.Name)
+	assert.Contains(t, a.View().Content, `Agent switched to "plan".`)
+}
+
+func TestApp_ModelSlashCommand_SetsProviderModel(t *testing.T) {
+	p := &modelListProvider{}
+	app := NewApp()
+	app.SetProvider(p)
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+	app.SetModel("glm-5")
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/model openai/gpt-4o"})
+	a = model.(App)
+
+	assert.Equal(t, "openai/gpt-4o", p.model)
+	assert.Equal(t, "gpt-4o", a.model)
+	assert.Contains(t, a.View().Content, `Model switched to "openai/gpt-4o".`)
+}
+
+func TestApp_ModelsDialog_SelectsModelWithEnter(t *testing.T) {
+	p := &modelListProvider{
+		models: []provider.ModelInfo{
+			{ID: "anthropic/claude-sonnet-4", Name: "Claude Sonnet 4"},
+			{ID: "openai/gpt-4o", Name: "GPT-4o"},
+		},
+	}
+	app := NewApp()
+	app.SetProvider(p)
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+	app.SetModel("claude-sonnet-4")
+	app.modelsCache = p.models
+	app.modelsLoaded = true
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/models gpt"})
+	a = model.(App)
+	assert.True(t, a.modelDialogOpen)
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+
+	assert.False(t, a.modelDialogOpen)
+	assert.Equal(t, "openai/gpt-4o", p.model)
+	assert.Equal(t, "gpt-4o", a.model)
+	assert.Contains(t, a.View().Content, `Model switched to "openai/gpt-4o".`)
+}
+
+func TestApp_CommandPalette_OpensWithCtrlK(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	a = model.(App)
+
+	assert.True(t, a.commandOpen)
+	assert.Contains(t, a.View().Content, "Commands (Ctrl+P/Ctrl+K")
+}
+
+func TestApp_CommandPalette_OpensWithCtrlP(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
+	a = model.(App)
+
+	assert.True(t, a.commandOpen)
+	assert.Contains(t, a.View().Content, "Commands (Ctrl+P/Ctrl+K")
+}
+
+func TestApp_TabCyclesAgent(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+	assert.Equal(t, "build", a.agent.Name)
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	a = model.(App)
+	assert.Equal(t, "plan", a.agent.Name)
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	a = model.(App)
+	assert.Equal(t, "build", a.agent.Name)
+}
+
+func TestApp_SessionLayout_ShowsHeaderAndFooter(t *testing.T) {
+	workDir := t.TempDir()
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(workDir))
+	app.SetAgent(agent.BuildAgent())
+	app.SetModel("glm-5")
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	view := a.View().Content
+	assert.Contains(t, view, "# Session")
+	assert.Contains(t, view, workDir)
+	assert.Contains(t, view, "/help")
+}
+
+func TestApp_InlineSlashAutocomplete_ExecutesModelsCommand(t *testing.T) {
+	p := &modelListProvider{
+		models: []provider.ModelInfo{
+			{ID: "openai/gpt-4o", Name: "GPT-4o"},
+		},
+	}
+
+	app := NewApp()
+	app.SetProvider(p)
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+	app.modelsLoaded = true
+	app.modelsCache = p.models
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	model, _ = a.Update(tea.KeyPressMsg{Text: "/"})
+	a = model.(App)
+	model, _ = a.Update(tea.KeyPressMsg{Text: "m"})
+	a = model.(App)
+	model, _ = a.Update(tea.KeyPressMsg{Text: "o"})
+	a = model.(App)
+	model, _ = a.Update(tea.KeyPressMsg{Text: "d"})
+	a = model.(App)
+
+	assert.True(t, a.inlineOpen)
+	assert.Equal(t, "/", a.inlineMode)
+
+	model, cmd := a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+
+	assert.Nil(t, cmd)
+	assert.False(t, a.inlineOpen)
+	assert.True(t, a.modelDialogOpen)
+	assert.Contains(t, a.View().Content, "Select model")
+}
+
+func TestApp_InlineFileAutocomplete_InsertsMention(t *testing.T) {
+	workDir := t.TempDir()
+	err := os.WriteFile(filepath.Join(workDir, "main.go"), []byte("package main"), 0o644)
+	assert.NoError(t, err)
+
+	app := NewApp()
+	app.SetSession(session.New(workDir))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	// Type "@" — triggers async file cache load.
+	model, cmd := a.Update(tea.KeyPressMsg{Text: "@"})
+	a = model.(App)
+
+	// Execute the file cache command and feed result back.
+	if cmd != nil {
+		msg := cmd()
+		model, _ = a.Update(msg)
+		a = model.(App)
+	}
+	assert.True(t, a.fileCacheLoaded)
+
+	// Continue typing "m" and "a".
+	model, _ = a.Update(tea.KeyPressMsg{Text: "m"})
+	a = model.(App)
+	model, _ = a.Update(tea.KeyPressMsg{Text: "a"})
+	a = model.(App)
+
+	assert.True(t, a.inlineOpen)
+	assert.Equal(t, "@", a.inlineMode)
+	assert.Contains(t, a.View().Content, "main.go")
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+
+	assert.False(t, a.inlineOpen)
+	assert.Equal(t, "@main.go ", a.input.Value())
+}
+
+func TestApp_Sidebar_VisibleOnWideLayout_AndTogglesWithCtrlB(t *testing.T) {
+	workDir := t.TempDir()
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(workDir))
+	app.SetAgent(agent.BuildAgent())
+	app.SetModel("glm-5")
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 140, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	view := a.View().Content
+	assert.Contains(t, view, "Recent tools")
+	assert.Contains(t, view, "^B toggle sidebar")
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	a = model.(App)
+
+	view = a.View().Content
+	assert.NotContains(t, view, "Recent tools")
+}
+
+func TestApp_SidebarSlashCommand_TogglesSidebar(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 140, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+	assert.False(t, a.sidebarHidden)
+
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/sidebar"})
+	a = model.(App)
+	assert.True(t, a.sidebarHidden)
+	assert.Contains(t, a.View().Content, "Sidebar hidden.")
+}
+
+func TestApp_Sidebar_NarrowCtrlB_OpensOverlayAndEscCloses(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	assert.False(t, a.sidebarOverlayActive())
+	assert.NotContains(t, a.View().Content, "Sidebar overlay (Esc close)")
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	a = model.(App)
+
+	assert.True(t, a.sidebarOverlayActive())
+	view := a.View().Content
+	assert.Contains(t, view, "Sidebar overlay (Esc close)")
+	assert.Contains(t, view, "Session")
+
+	model, cmd := a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	a = model.(App)
+
+	assert.Nil(t, cmd, "Esc should close overlay, not quit app")
+	assert.False(t, a.sidebarOverlayActive())
+	assert.NotContains(t, a.View().Content, "Sidebar overlay (Esc close)")
+}
+
+func TestApp_SidebarSlashCommand_OnNarrow_TogglesOverlay(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/sidebar"})
+	a = model.(App)
+	assert.True(t, a.sidebarOverlayActive())
+	assert.Contains(t, a.View().Content, "Sidebar overlay (Esc close)")
+
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/sidebar"})
+	a = model.(App)
+	assert.False(t, a.sidebarOverlayActive())
+	assert.Contains(t, a.View().Content, "Sidebar hidden.")
+}
+
+func TestApp_ClearCommand_ResetsSession(t *testing.T) {
+	workDir := t.TempDir()
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	sess := session.New(workDir)
+	sess.AddUser("hello")
+	sess.AddTokens(500, 200)
+	app.SetSession(sess)
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	oldID := a.session.ID
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/clear"})
+	a = model.(App)
+
+	assert.Empty(t, a.session.Messages, "/clear should reset session messages")
+	assert.Equal(t, 0, a.session.Tokens.Input, "/clear should reset token count")
+	assert.Equal(t, 0, a.session.Tokens.Output)
+	assert.NotEqual(t, oldID, a.session.ID, "/clear should generate new session ID")
+	assert.Contains(t, a.View().Content, "Conversation cleared.")
+}
+
+func TestApp_NewCommand_ResetsSession(t *testing.T) {
+	workDir := t.TempDir()
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	sess := session.New(workDir)
+	sess.AddUser("hello")
+	sess.AddTokens(1000, 300)
+	app.SetSession(sess)
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/new"})
+	a = model.(App)
+
+	assert.Empty(t, a.session.Messages)
+	assert.Equal(t, 0, a.session.Tokens.Input)
+	assert.Contains(t, a.View().Content, "Conversation cleared.")
+}
+
+func TestApp_ExitCommand_Quits(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	_, cmd := a.Update(components.InputSubmitMsg{Value: "/exit"})
+	assert.NotNil(t, cmd, "/exit should return a quit command")
+
+	_, cmd = a.Update(components.InputSubmitMsg{Value: "/quit"})
+	assert.NotNil(t, cmd, "/quit should return a quit command")
+
+	_, cmd = a.Update(components.InputSubmitMsg{Value: "/q"})
+	assert.NotNil(t, cmd, "/q should return a quit command")
+}
+
+func TestApp_ModelsDialog_KeyboardNavigation(t *testing.T) {
+	p := &modelListProvider{
+		models: []provider.ModelInfo{
+			{ID: "a/model-a", Name: "Model A"},
+			{ID: "b/model-b", Name: "Model B"},
+			{ID: "c/model-c", Name: "Model C"},
+		},
+	}
+	app := NewApp()
+	app.SetProvider(p)
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+	app.modelsCache = p.models
+	app.modelsLoaded = true
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	// Open model dialog
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/models"})
+	a = model.(App)
+	assert.True(t, a.modelDialogOpen)
+	assert.Equal(t, 0, a.modelDialogSelect)
+
+	// Down arrow moves selection
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	a = model.(App)
+	assert.Equal(t, 1, a.modelDialogSelect)
+
+	// Down again
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	a = model.(App)
+	assert.Equal(t, 2, a.modelDialogSelect)
+
+	// Down wraps to 0
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	a = model.(App)
+	assert.Equal(t, 0, a.modelDialogSelect)
+
+	// Up wraps to last
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	a = model.(App)
+	assert.Equal(t, 2, a.modelDialogSelect)
+
+	// Esc closes dialog
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	a = model.(App)
+	assert.False(t, a.modelDialogOpen)
+}
+
+func TestApp_InputEmptyMode_NoPanic(t *testing.T) {
+	i := components.NewInput()
+	i.SetMode("")
+	i.SetSize(80, 6)
+	// This should not panic even with empty mode
+	view := i.View()
+	assert.Contains(t, view, "Build", "empty mode should fallback to Build")
+}
+
+func TestApp_SessionResetPreservesWorkDir(t *testing.T) {
+	workDir := t.TempDir()
+	sess := session.New(workDir)
+	sess.AddUser("test")
+	sess.AddTokens(100, 50)
+	sess.SetSystemPrompt("you are helpful")
+	oldID := sess.ID
+
+	sess.Reset()
+
+	assert.Equal(t, workDir, sess.WorkDir, "Reset should preserve WorkDir")
+	assert.Empty(t, sess.Messages, "Reset should clear messages")
+	assert.Equal(t, 0, sess.Tokens.Input, "Reset should clear tokens")
+	assert.NotEqual(t, oldID, sess.ID, "Reset should generate new ID")
+}
+
+func TestApp_SidebarOverlay_MouseClickOutside_Closes(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	a = model.(App)
+	assert.True(t, a.sidebarOverlayActive())
+
+	x, y, w, h := a.sidebarOverlayPanelRect()
+
+	// Click inside panel should keep overlay open.
+	model, _ = a.Update(tea.MouseClickMsg{
+		X:      x + min(1, w-1),
+		Y:      y + min(1, h-1),
+		Button: tea.MouseLeft,
+	})
+	a = model.(App)
+	assert.True(t, a.sidebarOverlayActive())
+
+	// Click outside panel should close overlay.
+	model, _ = a.Update(tea.MouseClickMsg{
+		X:      0,
+		Y:      0,
+		Button: tea.MouseLeft,
+	})
+	a = model.(App)
+	assert.False(t, a.sidebarOverlayActive())
 }

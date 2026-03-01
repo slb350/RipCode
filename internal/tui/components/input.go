@@ -2,6 +2,7 @@ package components
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -70,6 +71,83 @@ func (i *Input) Reset() {
 	i.cursorY = 0
 }
 
+// SetValue replaces the current input text and moves the cursor to the end.
+func (i *Input) SetValue(v string) {
+	i.value = strings.Split(v, "\n")
+	if len(i.value) == 0 {
+		i.value = []string{""}
+	}
+	i.cursorY = len(i.value) - 1
+	i.cursorX = utf8.RuneCountInString(i.value[i.cursorY])
+}
+
+// CursorOffset returns the cursor rune offset in the full input string.
+func (i Input) CursorOffset() int {
+	offset := 0
+	for y := 0; y < i.cursorY; y++ {
+		offset += utf8.RuneCountInString(i.value[y]) + 1 // +1 for newline
+	}
+	offset += i.cursorX
+	return offset
+}
+
+// SetCursorOffset moves the cursor to a rune offset in the full input string.
+func (i *Input) SetCursorOffset(offset int) {
+	text := i.Value()
+	runeCount := utf8.RuneCountInString(text)
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > runeCount {
+		offset = runeCount
+	}
+
+	lines := strings.Split(text, "\n")
+	if len(lines) == 0 {
+		lines = []string{""}
+	}
+	i.value = lines
+
+	remaining := offset
+	for y, line := range lines {
+		lineRunes := utf8.RuneCountInString(line)
+		if remaining <= lineRunes {
+			i.cursorY = y
+			i.cursorX = remaining
+			return
+		}
+		remaining -= lineRunes + 1
+	}
+
+	i.cursorY = len(lines) - 1
+	i.cursorX = utf8.RuneCountInString(lines[i.cursorY])
+}
+
+// ReplaceRange replaces rune range [start,end) in the full input string
+// and sets cursor after replacement.
+func (i *Input) ReplaceRange(start, end int, replacement string) {
+	runes := []rune(i.Value())
+	if start < 0 {
+		start = 0
+	}
+	if end < 0 {
+		end = 0
+	}
+	if start > len(runes) {
+		start = len(runes)
+	}
+	if end > len(runes) {
+		end = len(runes)
+	}
+	if start > end {
+		start, end = end, start
+	}
+
+	next := string(runes[:start]) + replacement + string(runes[end:])
+	i.SetValue(next)
+	i.SetCursorOffset(start + utf8.RuneCountInString(replacement))
+}
+
 // Update handles key events.
 func (i *Input) Update(msg tea.Msg) tea.Cmd {
 	if !i.focused {
@@ -88,9 +166,9 @@ func (i *Input) Update(msg tea.Msg) tea.Cmd {
 			return func() tea.Msg { return InputSubmitMsg{Value: val} }
 
 		case msg.Code == tea.KeyEnter && msg.Mod == tea.ModShift:
-			line := i.value[i.cursorY]
-			before := line[:i.cursorX]
-			after := line[i.cursorX:]
+			runes := []rune(i.value[i.cursorY])
+			before := string(runes[:i.cursorX])
+			after := string(runes[i.cursorX:])
 
 			newLines := make([]string, 0, len(i.value)+1)
 			newLines = append(newLines, i.value[:i.cursorY]...)
@@ -103,12 +181,12 @@ func (i *Input) Update(msg tea.Msg) tea.Cmd {
 
 		case msg.Code == tea.KeyBackspace:
 			if i.cursorX > 0 {
-				line := i.value[i.cursorY]
-				i.value[i.cursorY] = line[:i.cursorX-1] + line[i.cursorX:]
+				runes := []rune(i.value[i.cursorY])
+				i.value[i.cursorY] = string(runes[:i.cursorX-1]) + string(runes[i.cursorX:])
 				i.cursorX--
 			} else if i.cursorY > 0 {
 				prevLine := i.value[i.cursorY-1]
-				i.cursorX = len(prevLine)
+				i.cursorX = utf8.RuneCountInString(prevLine)
 				i.value[i.cursorY-1] = prevLine + i.value[i.cursorY]
 				i.value = append(i.value[:i.cursorY], i.value[i.cursorY+1:]...)
 				i.cursorY--
@@ -120,31 +198,31 @@ func (i *Input) Update(msg tea.Msg) tea.Cmd {
 			}
 
 		case msg.Code == tea.KeyRight:
-			if i.cursorX < len(i.value[i.cursorY]) {
+			if i.cursorX < utf8.RuneCountInString(i.value[i.cursorY]) {
 				i.cursorX++
 			}
 
 		case msg.Code == tea.KeyUp:
 			if i.cursorY > 0 {
 				i.cursorY--
-				if i.cursorX > len(i.value[i.cursorY]) {
-					i.cursorX = len(i.value[i.cursorY])
+				if i.cursorX > utf8.RuneCountInString(i.value[i.cursorY]) {
+					i.cursorX = utf8.RuneCountInString(i.value[i.cursorY])
 				}
 			}
 
 		case msg.Code == tea.KeyDown:
 			if i.cursorY < len(i.value)-1 {
 				i.cursorY++
-				if i.cursorX > len(i.value[i.cursorY]) {
-					i.cursorX = len(i.value[i.cursorY])
+				if i.cursorX > utf8.RuneCountInString(i.value[i.cursorY]) {
+					i.cursorX = utf8.RuneCountInString(i.value[i.cursorY])
 				}
 			}
 
 		default:
 			if msg.Text != "" {
-				line := i.value[i.cursorY]
-				i.value[i.cursorY] = line[:i.cursorX] + msg.Text + line[i.cursorX:]
-				i.cursorX += len(msg.Text)
+				runes := []rune(i.value[i.cursorY])
+				i.value[i.cursorY] = string(runes[:i.cursorX]) + msg.Text + string(runes[i.cursorX:])
+				i.cursorX += utf8.RuneCountInString(msg.Text)
 			}
 		}
 	}
@@ -183,7 +261,10 @@ func (i Input) View() string {
 	sb.WriteByte('\n')
 
 	// Line 3: agent badge
-	modeLabel := strings.ToUpper(i.mode[:1]) + i.mode[1:]
+	modeLabel := "Build"
+	if len(i.mode) > 0 {
+		modeLabel = strings.ToUpper(i.mode[:1]) + i.mode[1:]
+	}
 	badge := "    " + accentStyle.Render("▣") + " " + mutedStyle.Render(modeLabel)
 	if i.model != "" {
 		badge += mutedStyle.Render(" · " + i.model)
@@ -192,7 +273,7 @@ func (i Input) View() string {
 	sb.WriteByte('\n')
 
 	// Line 4: keyboard hints
-	sb.WriteString("    " + mutedStyle.Render("Enter send · Shift+Enter newline · Esc cancel"))
+	sb.WriteString("    " + mutedStyle.Render("Enter send · Shift+Enter newline · / @ autocomplete · Ctrl+P commands · Tab agents · Esc cancel"))
 
 	return sb.String()
 }
@@ -207,10 +288,11 @@ func (i Input) renderContent() string {
 		}
 
 		if i.focused && lineIdx == i.cursorY {
-			before := line[:i.cursorX]
+			runes := []rune(line)
+			before := string(runes[:i.cursorX])
 			after := ""
-			if i.cursorX < len(line) {
-				after = line[i.cursorX:]
+			if i.cursorX < len(runes) {
+				after = string(runes[i.cursorX:])
 			}
 			sb.WriteString(before + "█" + after)
 		} else {

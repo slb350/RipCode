@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/stephenbrandon/ripcode/internal/provider"
 )
@@ -19,6 +20,7 @@ const defaultModelsURL = "https://openrouter.ai/api/v1/models"
 
 // OpenRouter implements provider.Provider using the OpenRouter API.
 type OpenRouter struct {
+	mu         sync.RWMutex
 	apiKey     string
 	model      string
 	baseURL    string
@@ -38,6 +40,14 @@ func NewOpenRouter(apiKey, model string) *OpenRouter {
 }
 
 func (c *OpenRouter) Name() string { return "openrouter" }
+
+// SetModel updates the model used for chat completions.
+// Safe to call concurrently with Chat/buildRequest.
+func (c *OpenRouter) SetModel(model string) {
+	c.mu.Lock()
+	c.model = model
+	c.mu.Unlock()
+}
 
 // ListModels fetches the available models from OpenRouter.
 func (c *OpenRouter) ListModels(ctx context.Context) ([]provider.ModelInfo, error) {
@@ -121,6 +131,10 @@ func (c *OpenRouter) Chat(ctx context.Context, msgs []provider.Message, tools []
 
 // buildRequest constructs the JSON request body.
 func (c *OpenRouter) buildRequest(msgs []provider.Message, tools []provider.ToolDef) ([]byte, error) {
+	c.mu.RLock()
+	model := c.model
+	c.mu.RUnlock()
+
 	apiMsgs := make([]apiMessage, 0, len(msgs))
 	for _, m := range msgs {
 		am := apiMessage{
@@ -147,7 +161,7 @@ func (c *OpenRouter) buildRequest(msgs []provider.Message, tools []provider.Tool
 	}
 
 	req := apiRequest{
-		Model:    c.model,
+		Model:    model,
 		Messages: apiMsgs,
 		Stream:   true,
 	}
@@ -183,8 +197,12 @@ func (c *OpenRouter) streamResponse(ctx context.Context, resp *http.Response, ch
 	}
 	toolCalls := map[int]*toolCallAcc{}
 
+	c.mu.RLock()
+	currentModel := c.model
+	c.mu.RUnlock()
+
 	var meta provider.Metadata
-	meta.Model = c.model
+	meta.Model = currentModel
 
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {

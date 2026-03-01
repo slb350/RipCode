@@ -16,13 +16,19 @@ const (
 func (m Mode) String() string {
 	switch m {
 	case ModeBuild:
-		return "build"
+		return NameBuild
 	case ModePlan:
-		return "plan"
+		return NamePlan
 	default:
 		return "unknown"
 	}
 }
+
+// Agent name constants.
+const (
+	NameBuild = "build"
+	NamePlan  = "plan"
+)
 
 // Agent defines an agent configuration with a name, mode, and tool restrictions.
 type Agent struct {
@@ -35,7 +41,7 @@ type Agent struct {
 // BuildAgent creates an agent with full tool access.
 func BuildAgent() Agent {
 	return Agent{
-		Name:         "build",
+		Name:         NameBuild,
 		Mode:         ModeBuild,
 		SystemPrompt: buildSystemPrompt,
 	}
@@ -44,7 +50,7 @@ func BuildAgent() Agent {
 // PlanAgent creates an agent with read-only tool access.
 func PlanAgent() Agent {
 	return Agent{
-		Name:         "plan",
+		Name:         NamePlan,
 		Mode:         ModePlan,
 		SystemPrompt: planSystemPrompt,
 		AllowedTools: []string{"read", "glob", "grep", "ls", "todo"},
