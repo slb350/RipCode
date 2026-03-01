@@ -94,10 +94,11 @@ func (s *skipTracker) note(noun string) string {
 }
 
 // classifyError maps an error to a human-readable reason category.
+// Returns "unknown" for nil errors (defensive; callers should not pass nil).
 func classifyError(err error) string {
 	switch {
 	case err == nil:
-		return "error"
+		return "unknown"
 	case errors.Is(err, os.ErrPermission):
 		return "permission denied"
 	case errors.Is(err, os.ErrNotExist):

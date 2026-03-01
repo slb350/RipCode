@@ -254,10 +254,15 @@ func (s *Session) ClearMessages() {
 }
 
 // LoadRecord adds a pre-built message record during session loading from disk.
-func (s *Session) LoadRecord(rec MessageRecord) {
+// Returns an error if the record fails validation.
+func (s *Session) LoadRecord(rec MessageRecord) error {
+	if err := rec.Valid(); err != nil {
+		return fmt.Errorf("load record: %w", err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.messages = append(s.messages, rec)
+	return nil
 }
 
 // AddTokens accumulates token usage.

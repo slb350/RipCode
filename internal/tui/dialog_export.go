@@ -3,11 +3,11 @@ package tui
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/stephenbrandon/ripcode/internal/tool"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 )
 
@@ -83,25 +83,25 @@ func (a *App) executeExport() tea.Cmd {
 	sb.WriteString("# Session Export\n\n")
 	for _, e := range entries {
 		switch e.Role {
-		case "user":
+		case components.RoleUser:
 			sb.WriteString("## User\n\n")
 			sb.WriteString(e.Content + "\n\n")
-		case "assistant":
+		case components.RoleAssistant:
 			sb.WriteString("## Assistant\n\n")
 			sb.WriteString(e.Content + "\n\n")
-		case "tool":
+		case components.RoleTool:
 			if a.exportDialog.includeTools {
 				sb.WriteString(fmt.Sprintf("**Tool: %s** (%s)\n", e.ToolName, e.ToolStatus))
 				sb.WriteString(e.Content + "\n\n")
 			}
-		case "complete":
+		case components.RoleComplete:
 			if a.exportDialog.includeMeta && e.Meta != nil {
 				sb.WriteString(fmt.Sprintf("*%s · %s · %.1fs*\n\n",
 					e.Meta.Mode, e.Meta.Model, e.Meta.Duration.Seconds()))
 			}
-		case "error":
+		case components.RoleError:
 			sb.WriteString("**Error:** " + e.Content + "\n\n")
-		case "system":
+		case components.RoleSystem:
 			sb.WriteString("*" + e.Content + "*\n\n")
 		}
 	}
@@ -110,8 +110,19 @@ func (a *App) executeExport() tea.Cmd {
 	if a.session != nil {
 		workDir = a.session.WorkDir
 	}
-	exportPath := filepath.Join(workDir, a.exportDialog.filename)
-	if err := os.WriteFile(exportPath, []byte(sb.String()), 0o644); err != nil {
+	exportPath, err := tool.ValidatePath(a.exportDialog.filename, workDir, false)
+	if err != nil {
+		return a.ShowToast("Export failed: invalid path", components.ToastError)
+	}
+	f, err := tool.OpenNoFollow(exportPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return a.ShowToast("Export failed: "+err.Error(), components.ToastError)
+	}
+	if _, err := f.Write([]byte(sb.String())); err != nil {
+		f.Close()
+		return a.ShowToast("Export failed: "+err.Error(), components.ToastError)
+	}
+	if err := f.Close(); err != nil {
 		return a.ShowToast("Export failed: "+err.Error(), components.ToastError)
 	}
 	return a.ShowToast("Exported to "+exportPath, components.ToastSuccess)

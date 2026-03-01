@@ -445,3 +445,36 @@ func TestSaveLoad_PreservesTimestamps(t *testing.T) {
 	assert.WithinDuration(t, sess.UpdatedAt, loaded.UpdatedAt, time.Second)
 	assert.WithinDuration(t, sess.Records()[0].CreatedAt, loaded.Records()[0].CreatedAt, time.Second)
 }
+
+func TestLoad_InvalidRecords_ReturnsSessionWithError(t *testing.T) {
+	dir := testDir(t)
+	// Create a valid session first
+	sess := makeTestSession(t)
+	require.NoError(t, Save(sess))
+
+	// Corrupt one message record's role in the JSON file
+	path := filepath.Join(SessionsDir(), sess.ID+".json")
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	var f map[string]any
+	require.NoError(t, json.Unmarshal(data, &f))
+	msgs := f["messages"].([]any)
+	// Set an invalid role on the first message
+	msgs[0].(map[string]any)["role"] = "bogus"
+	data, err = json.MarshalIndent(f, "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, data, 0o644))
+
+	loaded, err := Load(sess.ID)
+	assert.Error(t, err, "should return error for skipped records")
+	assert.Contains(t, err.Error(), "1 invalid record(s) skipped")
+	assert.NotNil(t, loaded)
+	// Only the valid assistant message should remain
+	assert.Equal(t, 1, loaded.Len())
+
+	// Verify error was also logged to disk
+	logData, readErr := os.ReadFile(filepath.Join(dir, "state", "errors.log"))
+	require.NoError(t, readErr)
+	assert.Contains(t, string(logData), "invalid record")
+}

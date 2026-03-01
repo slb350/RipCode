@@ -9,6 +9,8 @@ import (
 )
 
 // MaxReadLines is the default maximum number of lines returned.
+// 2000 lines at ~80 chars/line is ~160 KB, well within typical LLM context
+// limits while covering most source files in full.
 const MaxReadLines = 2000
 
 // ReadTool reads file contents with line numbers.

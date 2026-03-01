@@ -2,11 +2,9 @@ package tool
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 )
 
 // WriteTool writes content to a file.
@@ -63,13 +61,8 @@ func (w *WriteTool) Execute(ctx Context, argsJSON string) Result {
 		return Result{Error: fmt.Errorf("create directories: %w", err)}
 	}
 
-	// O_NOFOLLOW rejects symlinks atomically, eliminating the TOCTOU race
-	// that existed with the previous Lstat-then-WriteFile approach.
-	f, err := os.OpenFile(validated, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0644)
+	f, err := OpenNoFollow(validated, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
-		if errors.Is(err, syscall.ELOOP) {
-			return Result{Error: fmt.Errorf("refusing to write through symlink: %s", validated)}
-		}
 		return Result{Error: fmt.Errorf("open file: %w", err)}
 	}
 	if _, err := f.Write([]byte(args.Content)); err != nil {

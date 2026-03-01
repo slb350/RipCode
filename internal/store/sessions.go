@@ -184,6 +184,7 @@ func Load(id string) (*session.Session, error) {
 		},
 	}
 
+	skipped := 0
 	for _, mf := range f.Messages {
 		rec := session.MessageRecord{
 			ID: mf.ID,
@@ -211,13 +212,16 @@ func Load(id string) (*session.Session, error) {
 				Duration:     mf.Meta.Duration,
 			}
 		}
-		if err := rec.Valid(); err != nil {
+		if err := s.LoadRecord(rec); err != nil {
 			LogError("sessions: invalid record in "+id, err)
+			skipped++
 			continue
 		}
-		s.LoadRecord(rec)
 	}
 
+	if skipped > 0 {
+		return s, fmt.Errorf("session %s: %d invalid record(s) skipped", id, skipped)
+	}
 	return s, nil
 }
 

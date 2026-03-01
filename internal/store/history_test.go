@@ -122,3 +122,40 @@ func TestLoadHistory_MalformedLines_Logged(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(logData), "history: malformed entry")
 }
+
+func TestSaveHistory_AtomicWrite_PreservesOnCrash(t *testing.T) {
+	testDir(t)
+	// Write initial entries
+	entries := []HistoryEntry{{Prompt: "first", Mode: "normal"}}
+	require.NoError(t, SaveHistory(entries))
+
+	// Verify no .tmp file left behind
+	path := historyPath()
+	_, err := os.Stat(path + ".tmp")
+	assert.True(t, os.IsNotExist(err), "tmp file should be cleaned up")
+
+	// Verify the file is valid JSONL
+	loaded, err := LoadHistory()
+	require.NoError(t, err)
+	assert.Len(t, loaded, 1)
+	assert.Equal(t, "first", loaded[0].Prompt)
+}
+
+func TestSaveHistory_Overwrite_ReplacesContent(t *testing.T) {
+	testDir(t)
+	// Write initial entries
+	require.NoError(t, SaveHistory([]HistoryEntry{
+		{Prompt: "old1", Mode: "normal"},
+		{Prompt: "old2", Mode: "normal"},
+	}))
+
+	// Overwrite with fewer entries
+	require.NoError(t, SaveHistory([]HistoryEntry{
+		{Prompt: "new1", Mode: "shell"},
+	}))
+
+	loaded, err := LoadHistory()
+	require.NoError(t, err)
+	assert.Len(t, loaded, 1, "should have replaced, not appended")
+	assert.Equal(t, "new1", loaded[0].Prompt)
+}

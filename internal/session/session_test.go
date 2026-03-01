@@ -708,3 +708,39 @@ func TestMessageRecord_Valid_InvalidRole(t *testing.T) {
 	}
 	assert.Error(t, rec.Valid())
 }
+
+func TestLoadRecord_ValidRecord_Succeeds(t *testing.T) {
+	s := New("/tmp")
+	rec := MessageRecord{
+		ID:        "msg-001",
+		Message:   provider.Message{Role: provider.RoleUser, Content: "hello"},
+		CreatedAt: time.Now(),
+	}
+	err := s.LoadRecord(rec)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, s.Len())
+}
+
+func TestLoadRecord_InvalidRecord_ReturnsError(t *testing.T) {
+	s := New("/tmp")
+	rec := MessageRecord{
+		ID:      "",
+		Message: provider.Message{Role: provider.RoleUser, Content: "hello"},
+	}
+	err := s.LoadRecord(rec)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "load record")
+	assert.Equal(t, 0, s.Len(), "invalid record should not be appended")
+}
+
+func TestLoadRecord_InvalidRole_ReturnsError(t *testing.T) {
+	s := New("/tmp")
+	rec := MessageRecord{
+		ID:        "msg-001",
+		Message:   provider.Message{Role: "bogus", Content: "hello"},
+		CreatedAt: time.Now(),
+	}
+	err := s.LoadRecord(rec)
+	assert.Error(t, err)
+	assert.Equal(t, 0, s.Len())
+}

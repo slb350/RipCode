@@ -12,6 +12,8 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
+// maxGrepFiles limits search results to prevent overwhelming the LLM context.
+// 100 files typically provides sufficient context without exceeding token budgets.
 const maxGrepFiles = 100
 
 // GrepTool searches file contents with regex patterns.

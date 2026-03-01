@@ -8,13 +8,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/stephenbrandon/ripcode/internal/provider"
+	"github.com/stephenbrandon/ripcode/internal/store"
 )
 
 const defaultBaseURL = "https://openrouter.ai/api/v1/chat/completions"
@@ -112,10 +112,10 @@ func (c *OpenRouter) ListModels(ctx context.Context) ([]provider.ModelInfo, erro
 			prompt, errP := strconv.ParseFloat(m.Pricing.Prompt, 64)
 			completion, errC := strconv.ParseFloat(m.Pricing.Completion, 64)
 			if errP != nil {
-				fmt.Fprintf(os.Stderr, "[ripcode] pricing prompt %s: %v\n", m.ID, errP)
+				store.LogError("pricing prompt "+m.ID, errP)
 			}
 			if errC != nil {
-				fmt.Fprintf(os.Stderr, "[ripcode] pricing completion %s: %v\n", m.ID, errC)
+				store.LogError("pricing completion "+m.ID, errC)
 			}
 			if errP == nil && errC == nil {
 				info.Pricing = &provider.ModelPricing{
@@ -330,8 +330,14 @@ func (c *OpenRouter) streamResponse(ctx context.Context, resp *http.Response, ch
 	// Emit accumulated tool calls. SSE delivers tool call fields incrementally
 	// (index, name chunk, args chunk across multiple events). We accumulate
 	// fragments by index key during streaming and emit complete calls here.
+	// Incomplete tool calls (missing ID or Name) are discarded — executing
+	// a partial call could cause errors or data corruption downstream.
 	for i := 0; i < len(toolCalls); i++ {
 		acc := toolCalls[i]
+		if acc.id == "" || acc.name == "" {
+			send(provider.NewErrorEvent(fmt.Errorf("incomplete tool call from provider: id=%q name=%q", acc.id, acc.name)))
+			return
+		}
 		if !send(provider.NewToolCallEvent(&provider.ToolCall{
 			ID:   acc.id,
 			Name: acc.name,

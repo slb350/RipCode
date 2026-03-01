@@ -155,6 +155,28 @@ func TestEdit_SymlinkEditBlocked(t *testing.T) {
 	assert.Error(t, result.Error)
 }
 
+func TestEdit_SymlinkWithinWorkDir_Blocked(t *testing.T) {
+	e := NewEditTool()
+	ctx := newTestCtx(t)
+
+	// Create a real file and a symlink to it, both within workdir
+	target := filepath.Join(ctx.WorkDir, "real.txt")
+	require.NoError(t, os.WriteFile(target, []byte("original content"), 0644))
+
+	link := filepath.Join(ctx.WorkDir, "link.txt")
+	require.NoError(t, os.Symlink(target, link))
+
+	// Edit via the symlink should be blocked (O_NOFOLLOW rejects symlinks)
+	result := e.Execute(ctx, `{"file_path":"`+link+`","old_string":"original","new_string":"modified"}`)
+	assert.Error(t, result.Error)
+	assert.Contains(t, result.Error.Error(), "symlink")
+
+	// Original file should be unchanged
+	data, err := os.ReadFile(target)
+	require.NoError(t, err)
+	assert.Equal(t, "original content", string(data))
+}
+
 func TestEdit_MapNormPos_TabBoundary(t *testing.T) {
 	orig := "\thello"
 	norm := normalizeWhitespace(orig)

@@ -1,10 +1,23 @@
 package store
 
+import "fmt"
+
 // LSPClient represents a configured LSP client.
 type LSPClient struct {
 	Name    string `json:"name"`
 	Root    string `json:"root"`
 	Enabled bool   `json:"enabled"`
+}
+
+// Valid returns an error if the client configuration is invalid.
+func (c LSPClient) Valid() error {
+	if c.Name == "" {
+		return fmt.Errorf("client name is required")
+	}
+	if c.Root == "" {
+		return fmt.Errorf("client %q requires a root path", c.Name)
+	}
+	return nil
 }
 
 // LSPConfig holds LSP client configurations.

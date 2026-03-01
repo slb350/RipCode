@@ -203,6 +203,59 @@ func TestMessage_Valid_ToolMissingCallID(t *testing.T) {
 	assert.Error(t, m.Valid())
 }
 
+func TestStreamEvent_Valid_ContentDelta(t *testing.T) {
+	e := StreamEvent{Type: EventContentDelta, Content: "hello"}
+	assert.NoError(t, e.Valid())
+}
+
+func TestStreamEvent_Valid_ContentDelta_Empty(t *testing.T) {
+	e := StreamEvent{Type: EventContentDelta}
+	assert.NoError(t, e.Valid(), "empty content delta is valid (whitespace-only deltas)")
+}
+
+func TestStreamEvent_Valid_ToolCall(t *testing.T) {
+	e := StreamEvent{Type: EventToolCall, ToolCall: &ToolCall{ID: "1", Name: "bash"}}
+	assert.NoError(t, e.Valid())
+}
+
+func TestStreamEvent_Valid_ToolCall_MissingToolCall(t *testing.T) {
+	e := StreamEvent{Type: EventToolCall}
+	err := e.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing ToolCall")
+}
+
+func TestStreamEvent_Valid_Finish(t *testing.T) {
+	e := StreamEvent{Type: EventFinish, Meta: &Metadata{InputTokens: 10}}
+	assert.NoError(t, e.Valid())
+}
+
+func TestStreamEvent_Valid_Finish_MissingMeta(t *testing.T) {
+	e := StreamEvent{Type: EventFinish}
+	err := e.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing Meta")
+}
+
+func TestStreamEvent_Valid_Error(t *testing.T) {
+	e := StreamEvent{Type: EventError, Error: fmt.Errorf("fail")}
+	assert.NoError(t, e.Valid())
+}
+
+func TestStreamEvent_Valid_Error_MissingError(t *testing.T) {
+	e := StreamEvent{Type: EventError}
+	err := e.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing Error")
+}
+
+func TestStreamEvent_Valid_UnknownType(t *testing.T) {
+	e := StreamEvent{Type: EventType(99)}
+	err := e.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown event type")
+}
+
 func TestStreamEvent_Constructors(t *testing.T) {
 	e1 := NewContentDelta("hello")
 	assert.Equal(t, EventContentDelta, e1.Type)

@@ -87,3 +87,22 @@ func TestLSPConfig_CountEnabled_Empty(t *testing.T) {
 	cfg := &LSPConfig{}
 	assert.Equal(t, 0, cfg.CountEnabled())
 }
+
+func TestLSPClient_Valid_EmptyName_ReturnsError(t *testing.T) {
+	c := LSPClient{Name: "", Root: "/tmp"}
+	err := c.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "client name is required")
+}
+
+func TestLSPClient_Valid_EmptyRoot_ReturnsError(t *testing.T) {
+	c := LSPClient{Name: "gopls", Root: ""}
+	err := c.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "requires a root path")
+}
+
+func TestLSPClient_Valid_ValidConfig_ReturnsNil(t *testing.T) {
+	c := LSPClient{Name: "gopls", Root: "/home/user/project", Enabled: true}
+	assert.NoError(t, c.Valid())
+}

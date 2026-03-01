@@ -205,5 +205,81 @@ func TestApp_ExportDialog_RendersFilenameInEditMode(t *testing.T) {
 	assert.Contains(t, rendered, "session-export.md")
 }
 
+func TestApp_ExportDialog_PathTraversal_Blocked(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	sess := session.New(t.TempDir())
+	sess.AddUser("hello")
+	sess.AddAssistant("world", nil, nil)
+	app.SetSession(sess)
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.rebuildChatFromSession()
+
+	// Open export dialog
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/export"})
+	a = model.(App)
+	assert.True(t, a.exportDialog.open)
+
+	// Set a path-traversal filename
+	a.exportDialog.filename = "../../../etc/pwned.md"
+	a.exportDialog.focusedField = 3
+
+	// Press Enter to export
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+	assert.False(t, a.exportDialog.open)
+
+	// Should show error toast
+	toast := a.toasts.Current()
+	require.NotNil(t, toast)
+	assert.Contains(t, toast.Message, "invalid path")
+}
+
+func TestApp_ExportDialog_Symlink_Blocked(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	workDir := t.TempDir()
+	sess := session.New(workDir)
+	sess.AddUser("hello")
+	sess.AddAssistant("world", nil, nil)
+	app.SetSession(sess)
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.rebuildChatFromSession()
+
+	// Create a real file and a symlink to it, both within workdir.
+	// ValidatePath will resolve the symlink and allow it (target is within workdir),
+	// but O_NOFOLLOW will reject the symlink at open time.
+	target := filepath.Join(workDir, "real-target.md")
+	require.NoError(t, os.WriteFile(target, []byte("existing"), 0644))
+	link := filepath.Join(workDir, "link-export.md")
+	require.NoError(t, os.Symlink(target, link))
+
+	// Open export dialog
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/export"})
+	a = model.(App)
+	a.exportDialog.filename = "link-export.md"
+	a.exportDialog.focusedField = 3
+
+	// Press Enter to export
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+	assert.False(t, a.exportDialog.open)
+
+	// Should show symlink rejection toast
+	toast := a.toasts.Current()
+	require.NotNil(t, toast)
+	assert.Contains(t, toast.Message, "symlink")
+}
+
 // Ensure unused imports don't cause issues
 var _ = provider.ModelInfo{}

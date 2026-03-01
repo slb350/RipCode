@@ -78,6 +78,29 @@ type StreamEvent struct {
 	Error    error     // error details (EventError)
 }
 
+// Valid checks that the event has the correct fields for its type.
+func (e StreamEvent) Valid() error {
+	switch e.Type {
+	case EventContentDelta:
+		// Content may be empty (e.g. whitespace-only delta)
+	case EventToolCall:
+		if e.ToolCall == nil {
+			return fmt.Errorf("tool call event missing ToolCall")
+		}
+	case EventFinish:
+		if e.Meta == nil {
+			return fmt.Errorf("finish event missing Meta")
+		}
+	case EventError:
+		if e.Error == nil {
+			return fmt.Errorf("error event missing Error")
+		}
+	default:
+		return fmt.Errorf("unknown event type: %d", e.Type)
+	}
+	return nil
+}
+
 // NewContentDelta creates a content delta event.
 func NewContentDelta(content string) StreamEvent {
 	return StreamEvent{Type: EventContentDelta, Content: content}
@@ -151,7 +174,9 @@ type Provider interface {
 	// Chat sends messages and streams the response as events on the returned channel.
 	// The channel is closed when the stream ends (either successfully or on error).
 	// Callers must drain the channel to avoid goroutine leaks.
-	// Implementations should respect context cancellation and close the channel promptly.
+	// Implementations MUST close the channel promptly when the context is cancelled.
+	// After cancellation, callers must still drain any remaining buffered events;
+	// the implementation will close the channel shortly after noticing cancellation.
 	Chat(ctx context.Context, msgs []Message, tools []ToolDef) (<-chan StreamEvent, error)
 	// Name returns the provider identifier (e.g., "openrouter").
 	Name() string

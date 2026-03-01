@@ -12,30 +12,38 @@ import (
 )
 
 // MaxOutputBytes is the limit beyond which tool output is truncated.
+// 50 KB keeps output within typical LLM context budgets while still providing
+// enough detail for most command results.
 const MaxOutputBytes = 50 * 1024 // 50 KB
 
 const defaultTimeout = 2 * time.Minute
 
 // blockedPatterns contains regex patterns for commands that are never allowed.
-// These are defense-in-depth — not a security sandbox.
+// These are defense-in-depth — not a security sandbox. They catch common
+// destructive patterns but cannot prevent all evasion techniques.
 var blockedPatterns = []*regexp.Regexp{
 	// rm with -r and -f flags in any order, targeting root
 	regexp.MustCompile(`\brm\s+(-[a-z]*r[a-z]*\s+)*-[a-z]*f[a-z]*\s+/(\s|$)`),
 	regexp.MustCompile(`\brm\s+(-[a-z]*f[a-z]*\s+)*-[a-z]*r[a-z]*\s+/(\s|$)`),
 	regexp.MustCompile(`\brm\s+-rf\s+/(\s|$)`),
-	// sudo rm / sudo dd
+	// sudo with destructive commands (rm, dd, mkfs, chmod)
 	regexp.MustCompile(`\bsudo\s+rm\b`),
 	regexp.MustCompile(`\bsudo\s+dd\b`),
-	// mkfs variants
+	// mkfs variants — can format disks
 	regexp.MustCompile(`\bmkfs\b`),
-	// dd to block devices
+	// dd to block devices — can overwrite disks
 	regexp.MustCompile(`\bdd\s+.*of=/dev/(sd|nvm)`),
-	// Fork bomb
+	// Fork bomb — exhausts process table
 	regexp.MustCompile(`:\(\)\s*\{.*\|.*&.*\}\s*;`),
-	// Write to block devices
+	// Write to block devices — can corrupt disks
 	regexp.MustCompile(`>\s*/dev/sd`),
-	// chmod 777 root
+	// chmod 777 root — opens entire filesystem
 	regexp.MustCompile(`\bchmod\s+(-[a-zA-Z]*\s+)*777\s+/(\s|$)`),
+	// eval — enables arbitrary code construction to bypass blocklist
+	regexp.MustCompile(`\beval\s+`),
+	// Nested shell — enables blocklist bypass via inner command
+	regexp.MustCompile(`\bsh\s+-c\s+`),
+	regexp.MustCompile(`\bbash\s+-c\s+`),
 }
 
 // BashTool executes shell commands.

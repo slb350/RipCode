@@ -144,6 +144,29 @@ func TestBash_BlockedCommandVariants(t *testing.T) {
 	}
 }
 
+func TestBash_BlockedEvalAndNestedShell(t *testing.T) {
+	b := NewBashTool()
+	ctx := newTestCtx(t)
+
+	blocked := []struct {
+		name string
+		args string
+	}{
+		{"eval with command", `{"command":"eval rm -rf /"}`},
+		{"eval with variable", `{"command":"eval $CMD"}`},
+		{"sh -c bypass", `{"command":"sh -c 'rm -rf /'"}`},
+		{"bash -c bypass", `{"command":"bash -c 'rm -rf /'"}`},
+	}
+
+	for _, tc := range blocked {
+		t.Run(tc.name, func(t *testing.T) {
+			result := b.Execute(ctx, tc.args)
+			assert.Error(t, result.Error, "should block: %s", tc.name)
+			assert.Contains(t, result.Error.Error(), "blocked")
+		})
+	}
+}
+
 func TestBash_AllowedCommands(t *testing.T) {
 	b := NewBashTool()
 	ctx := newTestCtx(t)

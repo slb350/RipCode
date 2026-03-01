@@ -2,6 +2,7 @@ package store
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -51,36 +52,33 @@ func LoadHistory() ([]HistoryEntry, error) {
 	return entries, nil
 }
 
-// SaveHistory writes all entries to the JSONL file, replacing any existing content.
+// SaveHistory writes all entries to the JSONL file atomically, replacing any
+// existing content. Returns an error if any entries fail to marshal.
 func SaveHistory(entries []HistoryEntry) error {
 	dir := StateDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create state dir: %w", err)
 	}
 
-	f, err := os.Create(historyPath())
-	if err != nil {
-		return fmt.Errorf("create history file: %w", err)
-	}
-	defer f.Close()
-
-	w := bufio.NewWriter(f)
+	var buf bytes.Buffer
+	writeErrors := 0
 	for _, entry := range entries {
 		data, err := json.Marshal(entry)
 		if err != nil {
 			LogError("history: marshal entry", err)
+			writeErrors++
 			continue
 		}
-		if _, err := w.Write(data); err != nil {
-			LogError("history: write entry", err)
-			continue
-		}
-		if err := w.WriteByte('\n'); err != nil {
-			LogError("history: write newline", err)
-			continue
-		}
+		buf.Write(data)
+		buf.WriteByte('\n')
 	}
-	return w.Flush()
+	if err := atomicWrite(historyPath(), buf.Bytes(), 0o644); err != nil {
+		return fmt.Errorf("write history: %w", err)
+	}
+	if writeErrors > 0 {
+		return fmt.Errorf("failed to write %d/%d history entries", writeErrors, len(entries))
+	}
+	return nil
 }
 
 // AppendHistory appends a single entry to the JSONL file.

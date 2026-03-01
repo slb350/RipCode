@@ -144,7 +144,7 @@ func TestSkipTracker_NilError(t *testing.T) {
 	st.add(nil)
 	assert.Equal(t, 1, st.count())
 	note := st.note("paths")
-	assert.Contains(t, note, "error")
+	assert.Contains(t, note, "unknown")
 }
 
 func TestSkipTracker_WithPaths(t *testing.T) {
@@ -180,5 +180,8 @@ func TestClassifyError_NotExist(t *testing.T) {
 
 func TestClassifyError_Default(t *testing.T) {
 	assert.Equal(t, "error", classifyError(fmt.Errorf("unknown")))
-	assert.Equal(t, "error", classifyError(nil))
+}
+
+func TestClassifyError_Nil_ReturnsUnknown(t *testing.T) {
+	assert.Equal(t, "unknown", classifyError(nil))
 }

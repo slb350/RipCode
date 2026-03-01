@@ -3,6 +3,7 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
@@ -60,22 +61,18 @@ func (e *EditTool) Execute(ctx Context, argsJSON string) Result {
 		return Result{Error: err}
 	}
 
-	// Reject symlinks — edit must target real files
-	linfo, err := os.Lstat(validated)
+	f, err := OpenNoFollow(validated, os.O_RDONLY, 0)
 	if err != nil {
-		return Result{Error: fmt.Errorf("stat file: %w", err)}
+		return Result{Error: fmt.Errorf("open file: %w", err)}
 	}
-	if linfo.Mode()&os.ModeSymlink != 0 {
-		return Result{Error: fmt.Errorf("refusing to edit symlink: %s", validated)}
-	}
-
-	info, err := os.Stat(validated)
+	info, err := f.Stat()
 	if err != nil {
+		f.Close()
 		return Result{Error: fmt.Errorf("stat file: %w", err)}
 	}
 	perm := info.Mode().Perm()
-
-	data, err := os.ReadFile(validated)
+	data, err := io.ReadAll(f)
+	f.Close()
 	if err != nil {
 		return Result{Error: fmt.Errorf("read file: %w", err)}
 	}
