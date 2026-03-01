@@ -52,7 +52,8 @@ func NewCommandRegistry() *CommandRegistry {
 	return &CommandRegistry{byName: make(map[string]*Command)}
 }
 
-// Register adds a command. Panics on duplicate name/alias.
+// Register adds a command. Panics on duplicate name or alias — this catches
+// programming errors at init time (similar to regexp.MustCompile).
 func (r *CommandRegistry) Register(cmd Command) {
 	if _, ok := r.byName[cmd.Name]; ok {
 		panic(fmt.Sprintf("duplicate command name: %s", cmd.Name))
