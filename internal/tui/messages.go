@@ -31,3 +31,10 @@ type FileCacheLoadedMsg struct {
 type ToastDismissMsg struct {
 	ID int64
 }
+
+// ShellResultMsg carries the result of an async shell command.
+type ShellResultMsg struct {
+	Command string
+	Output  string
+	Error   string
+}

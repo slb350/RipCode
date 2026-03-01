@@ -16,17 +16,18 @@ type InputSubmitMsg struct {
 
 // Input is a multi-line text input component with accent border and agent badge.
 type Input struct {
-	value   []string
-	cursorX int
-	cursorY int
-	width   int
-	height  int
-	focused bool
-	mode    string
-	model   string
-	theme   *styles.Theme
-	history *EditHistory
-	lastOp  inputOp // tracks last operation type for undo grouping
+	value     []string
+	cursorX   int
+	cursorY   int
+	width     int
+	height    int
+	focused   bool
+	mode      string
+	model     string
+	theme     *styles.Theme
+	history   *EditHistory
+	lastOp    inputOp // tracks last operation type for undo grouping
+	shellMode bool
 }
 
 // inputOp classifies the last operation for undo grouping.
@@ -115,6 +116,9 @@ func (i *Input) findWordRight() int {
 	}
 	return pos
 }
+
+// SetShellMode toggles the shell mode badge.
+func (i *Input) SetShellMode(on bool) { i.shellMode = on }
 
 // CursorY returns the current cursor line index.
 func (i Input) CursorY() int { return i.cursorY }
@@ -441,9 +445,11 @@ func (i Input) View() string {
 	sb.WriteString(accentStyle.Render("╹"))
 	sb.WriteByte('\n')
 
-	// Line 3: agent badge
+	// Line 3: agent badge (or shell badge)
 	modeLabel := "Build"
-	if len(i.mode) > 0 {
+	if i.shellMode {
+		modeLabel = "Shell"
+	} else if len(i.mode) > 0 {
 		modeLabel = strings.ToUpper(i.mode[:1]) + i.mode[1:]
 	}
 	badge := "    " + accentStyle.Render("▣") + " " + mutedStyle.Render(modeLabel)

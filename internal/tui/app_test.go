@@ -353,6 +353,139 @@ func TestApp_ToastDismissMsg_IgnoresMismatchedID(t *testing.T) {
 	assert.Equal(t, "second", a.toasts.Current().Message)
 }
 
+// --- Shell Mode tests ---
+
+func TestApp_ShellMode_ExclamationEntersShellMode(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	// Type "!"
+	model, _ = a.Update(tea.KeyPressMsg{Text: "!"})
+	a = model.(App)
+	assert.True(t, a.shellMode, "typing ! should enter shell mode")
+}
+
+func TestApp_ShellMode_BadgeShowsShell(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+	a.shellMode = true
+	a.input.SetShellMode(true)
+
+	view := a.View()
+	assert.Contains(t, view.Content, "Shell")
+}
+
+func TestApp_ShellMode_BackspacePastBang_ExitsShellMode(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	// Type "!" then backspace
+	model, _ = a.Update(tea.KeyPressMsg{Text: "!"})
+	a = model.(App)
+	assert.True(t, a.shellMode)
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	a = model.(App)
+	assert.False(t, a.shellMode, "backspacing past ! should exit shell mode")
+}
+
+func TestApp_ShellMode_ExclamationMidText_NoShellMode(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	// Type "hello!" — should NOT enter shell mode
+	a.input.SetValue("hello")
+	model, _ = a.Update(tea.KeyPressMsg{Text: "!"})
+	a = model.(App)
+	assert.False(t, a.shellMode, "! mid-text should not enter shell mode")
+}
+
+func TestApp_ShellMode_EmptyCommand_ShowsErrorToast(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+	a.shellMode = true
+
+	model, cmd := a.Update(components.InputSubmitMsg{Value: "!"})
+	a = model.(App)
+	assert.NotNil(t, cmd, "empty shell command should return toast dismiss cmd")
+	assert.NotNil(t, a.toasts.Current(), "should show error toast")
+	assert.False(t, a.shellMode, "shell mode should be cleared after submit")
+}
+
+func TestApp_ShellMode_ClearsShellModeAfterSubmit(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	reg := tool.NewRegistry()
+	app.SetRegistry(reg)
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+	a.shellMode = true
+
+	model, _ = a.Update(components.InputSubmitMsg{Value: "!echo hello"})
+	a = model.(App)
+	assert.False(t, a.shellMode, "shell mode should be cleared after submit")
+}
+
+func TestApp_ShellMode_Submit_AddsToHistory(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+	a.shellMode = true
+
+	model, _ = a.Update(components.InputSubmitMsg{Value: "!echo test"})
+	a = model.(App)
+
+	// Up arrow should recall "!echo test"
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	a = model.(App)
+	assert.Equal(t, "!echo test", a.input.Value())
+}
+
 func TestApp_ContentDelta_ContinuesListening(t *testing.T) {
 	app := NewApp()
 	ch := make(chan agent.Event, 1)

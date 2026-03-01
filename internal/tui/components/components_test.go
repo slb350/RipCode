@@ -842,6 +842,27 @@ func TestToastManager_View_Empty_ReturnsEmpty(t *testing.T) {
 	assert.Equal(t, "", tm.View())
 }
 
+// --- Shell Mode Badge tests ---
+
+func TestInput_ShellModeBadge_ShowsShellLabel(t *testing.T) {
+	i := NewInput()
+	i.SetSize(80, 6)
+	i.SetShellMode(true)
+	view := i.View()
+	assert.Contains(t, view, "Shell")
+}
+
+func TestInput_ShellModeBadge_ReturnsToAgentOnExit(t *testing.T) {
+	i := NewInput()
+	i.SetSize(80, 6)
+	i.SetMode("build")
+	i.SetShellMode(true)
+	i.SetShellMode(false)
+	view := i.View()
+	assert.Contains(t, view, "Build")
+	assert.NotContains(t, view, "Shell")
+}
+
 // --- Home tests ---
 
 func TestHome_RendersLogo(t *testing.T) {

@@ -76,6 +76,7 @@ type App struct {
 	eventCh           <-chan agent.Event
 	promptHistory     *components.PromptHistory
 	toasts            components.ToastManager
+	shellMode         bool
 }
 
 type commandEntry struct {
@@ -247,6 +248,21 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.toasts.Dismiss(msg.ID)
 		return a, nil
 
+	case ShellResultMsg:
+		if msg.Error != "" {
+			a.chat.AddEntry(components.ChatEntry{Role: "error", Content: msg.Error})
+			toastCmd := a.ShowToast("Command failed", components.ToastError)
+			return a, toastCmd
+		}
+		output := msg.Output
+		if len(output) > 2000 {
+			output = output[:2000] + "\n... (truncated)"
+		}
+		if output != "" {
+			a.chat.AddEntry(components.ChatEntry{Role: "system", Content: output})
+		}
+		return a, nil
+
 	case AgentEventMsg:
 		return a.handleAgentEvent(msg.Event)
 
@@ -364,6 +380,19 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 
 			cmd := a.input.Update(msg)
+
+			// Detect shell mode based on leading "!"
+			val := a.input.Value()
+			if strings.HasPrefix(val, "!") {
+				if !a.shellMode {
+					a.shellMode = true
+					a.input.SetShellMode(true)
+				}
+			} else if a.shellMode {
+				a.shellMode = false
+				a.input.SetShellMode(false)
+			}
+
 			cacheCmd := a.updateInlineSuggestions()
 			return a, tea.Batch(cmd, cacheCmd)
 		}
@@ -383,6 +412,11 @@ func (a App) handleSubmit(input string) (tea.Model, tea.Cmd) {
 	a.inlineOpen = false
 
 	a.promptHistory.Push(input)
+
+	// Shell mode: ! prefix executes bash directly
+	if a.shellMode && strings.HasPrefix(strings.TrimSpace(input), "!") {
+		return a.handleShellSubmit(input)
+	}
 
 	trimmed := strings.TrimSpace(input)
 	if strings.HasPrefix(trimmed, "/") {
@@ -412,6 +446,38 @@ func (a App) handleSubmit(input string) (tea.Model, tea.Cmd) {
 	a.eventCh = loop.Run(ctx, input)
 
 	return a, listenForEvents(a.eventCh)
+}
+
+func (a App) handleShellSubmit(input string) (tea.Model, tea.Cmd) {
+	a.shellMode = false
+	a.input.SetShellMode(false)
+
+	cmd := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(input), "!"))
+	if cmd == "" {
+		toastCmd := a.ShowToast("Empty shell command", components.ToastWarning)
+		return a, toastCmd
+	}
+
+	a.chat.AddEntry(components.ChatEntry{Role: "user", Content: "! " + cmd})
+
+	// Execute async via tea.Cmd
+	shellCmd := cmd
+	workDir := ""
+	if a.session != nil {
+		workDir = a.session.WorkDir
+	}
+	return a, func() tea.Msg {
+		bashTool := tool.NewBashTool()
+		argsJSON := fmt.Sprintf(`{"command":%q}`, shellCmd)
+		result := bashTool.Execute(tool.Context{
+			WorkDir: workDir,
+			Abort:   context.Background(),
+		}, argsJSON)
+		if result.Error != nil {
+			return ShellResultMsg{Command: shellCmd, Error: result.Error.Error()}
+		}
+		return ShellResultMsg{Command: shellCmd, Output: result.Output}
+	}
 }
 
 func (a App) handleSlashCommand(input string) (App, tea.Cmd, bool) {
