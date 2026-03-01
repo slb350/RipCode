@@ -25,7 +25,18 @@ type Input struct {
 	mode    string
 	model   string
 	theme   *styles.Theme
+	history *EditHistory
+	lastOp  inputOp // tracks last operation type for undo grouping
 }
+
+// inputOp classifies the last operation for undo grouping.
+type inputOp int
+
+const (
+	opNone   inputOp = iota
+	opInsert         // character insertion (grouped into one undo step)
+	opOther          // any non-insert operation
+)
 
 // NewInput creates a new input component.
 func NewInput() Input {
@@ -35,7 +46,30 @@ func NewInput() Input {
 		mode:    "build",
 		model:   "",
 		theme:   styles.DefaultTheme,
+		history: NewEditHistory(100),
 	}
+}
+
+// pushUndo snapshots current state onto the undo stack.
+func (i *Input) pushUndo() {
+	i.history.Push(EditState{
+		Value:   i.Value(),
+		CursorX: i.cursorX,
+		CursorY: i.cursorY,
+	})
+}
+
+// applyState restores an EditState to the input.
+func (i *Input) applyState(s *EditState) {
+	if s == nil {
+		return
+	}
+	i.value = strings.Split(s.Value, "\n")
+	if len(i.value) == 0 {
+		i.value = []string{""}
+	}
+	i.cursorX = s.CursorX
+	i.cursorY = s.CursorY
 }
 
 // SetSize updates the input dimensions.
@@ -157,15 +191,38 @@ func (i *Input) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch {
+		case msg.Code == '-' && msg.Mod == tea.ModCtrl:
+			// Snapshot current state so we can redo back to it.
+			i.history.PushIfChanged(EditState{
+				Value: i.Value(), CursorX: i.cursorX, CursorY: i.cursorY,
+			})
+			s := i.history.Undo()
+			if s != nil {
+				i.applyState(s)
+				i.lastOp = opOther
+			}
+			return nil
+
+		case msg.Code == '.' && msg.Mod == tea.ModCtrl:
+			s := i.history.Redo()
+			if s != nil {
+				i.applyState(s)
+				i.lastOp = opOther
+			}
+			return nil
+
 		case msg.Code == tea.KeyEnter && msg.Mod == 0:
 			val := i.Value()
 			if strings.TrimSpace(val) == "" {
 				return nil
 			}
 			i.Reset()
+			i.lastOp = opNone
 			return func() tea.Msg { return InputSubmitMsg{Value: val} }
 
 		case msg.Code == tea.KeyEnter && msg.Mod == tea.ModShift:
+			i.pushUndo()
+			i.lastOp = opOther
 			runes := []rune(i.value[i.cursorY])
 			before := string(runes[:i.cursorX])
 			after := string(runes[i.cursorX:])
@@ -180,6 +237,8 @@ func (i *Input) Update(msg tea.Msg) tea.Cmd {
 			i.cursorX = 0
 
 		case msg.Code == tea.KeyBackspace:
+			i.pushUndo()
+			i.lastOp = opOther
 			if i.cursorX > 0 {
 				runes := []rune(i.value[i.cursorY])
 				i.value[i.cursorY] = string(runes[:i.cursorX-1]) + string(runes[i.cursorX:])
@@ -220,6 +279,11 @@ func (i *Input) Update(msg tea.Msg) tea.Cmd {
 
 		default:
 			if msg.Text != "" {
+				// Debounce: only push undo on first char after non-insert op.
+				if i.lastOp != opInsert {
+					i.pushUndo()
+				}
+				i.lastOp = opInsert
 				runes := []rune(i.value[i.cursorY])
 				i.value[i.cursorY] = string(runes[:i.cursorX]) + msg.Text + string(runes[i.cursorX:])
 				i.cursorX += utf8.RuneCountInString(msg.Text)

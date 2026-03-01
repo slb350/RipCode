@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/stephenbrandon/ripcode/internal/agent"
 	"github.com/stretchr/testify/assert"
 )
@@ -268,6 +269,192 @@ func TestInput_ReplaceRange_Emoji(t *testing.T) {
 	// Replace [0,7) = entire string, result is just the replacement.
 	i.ReplaceRange(0, 7, "@readme.md ")
 	assert.Equal(t, "@readme.md ", i.Value())
+}
+
+// --- EditHistory tests ---
+
+func TestEditHistory_Push(t *testing.T) {
+	h := NewEditHistory(10)
+	h.Push(EditState{Value: "a", CursorX: 1})
+	assert.False(t, h.CanUndo(), "single state has nothing to undo to")
+
+	h.Push(EditState{Value: "ab", CursorX: 2})
+	assert.True(t, h.CanUndo(), "two states means we can undo")
+}
+
+func TestEditHistory_Undo_RestoresPreviousState(t *testing.T) {
+	h := NewEditHistory(10)
+	h.Push(EditState{Value: "a", CursorX: 1})
+	h.Push(EditState{Value: "ab", CursorX: 2})
+	s := h.Undo()
+	assert.NotNil(t, s)
+	assert.Equal(t, "a", s.Value)
+	assert.Equal(t, 1, s.CursorX)
+}
+
+func TestEditHistory_Redo_RestoresNextState(t *testing.T) {
+	h := NewEditHistory(10)
+	h.Push(EditState{Value: "a", CursorX: 1})
+	h.Push(EditState{Value: "ab", CursorX: 2})
+	h.Undo()
+	s := h.Redo()
+	assert.NotNil(t, s)
+	assert.Equal(t, "ab", s.Value)
+	assert.Equal(t, 2, s.CursorX)
+}
+
+func TestEditHistory_Undo_AtStart_ReturnsNil(t *testing.T) {
+	h := NewEditHistory(10)
+	assert.Nil(t, h.Undo())
+
+	h.Push(EditState{Value: "a"})
+	h.Undo()
+	assert.Nil(t, h.Undo())
+}
+
+func TestEditHistory_Redo_AtEnd_ReturnsNil(t *testing.T) {
+	h := NewEditHistory(10)
+	assert.Nil(t, h.Redo())
+
+	h.Push(EditState{Value: "a"})
+	assert.Nil(t, h.Redo())
+}
+
+func TestEditHistory_Push_ClearsFutureOnNewChange(t *testing.T) {
+	h := NewEditHistory(10)
+	h.Push(EditState{Value: "a"})
+	h.Push(EditState{Value: "ab"})
+	h.Push(EditState{Value: "abc"})
+	h.Undo() // back to "ab"
+	h.Undo() // back to "a"
+
+	h.Push(EditState{Value: "ax"})
+	assert.Nil(t, h.Redo(), "future should be cleared after push")
+	assert.False(t, h.CanRedo())
+}
+
+func TestEditHistory_MaxSize_TruncatesOldest(t *testing.T) {
+	h := NewEditHistory(3)
+	h.Push(EditState{Value: "a"})
+	h.Push(EditState{Value: "b"})
+	h.Push(EditState{Value: "c"})
+	h.Push(EditState{Value: "d"})
+
+	// Should only hold 3 states: b, c, d
+	s := h.Undo()
+	assert.NotNil(t, s)
+	assert.Equal(t, "c", s.Value)
+	s = h.Undo()
+	assert.NotNil(t, s)
+	assert.Equal(t, "b", s.Value)
+	assert.Nil(t, h.Undo(), "oldest should have been truncated")
+}
+
+func TestEditHistory_MaxSize_PreservesNewest(t *testing.T) {
+	h := NewEditHistory(2)
+	h.Push(EditState{Value: "a"})
+	h.Push(EditState{Value: "b"})
+	h.Push(EditState{Value: "c"})
+
+	// Current is "c", can undo to "b", but "a" is gone
+	s := h.Undo()
+	assert.NotNil(t, s)
+	assert.Equal(t, "b", s.Value)
+	assert.Nil(t, h.Undo())
+}
+
+func TestEditHistory_Clear_ResetsStack(t *testing.T) {
+	h := NewEditHistory(10)
+	h.Push(EditState{Value: "a"})
+	h.Push(EditState{Value: "b"})
+	h.Clear()
+	assert.False(t, h.CanUndo())
+	assert.False(t, h.CanRedo())
+	assert.Nil(t, h.Undo())
+}
+
+func TestInput_CtrlMinus_Undo(t *testing.T) {
+	i := NewInput()
+	// Type some text
+	i.value = []string{"hello"}
+	i.cursorX = 5
+	i.pushUndo() // snapshot "hello"
+	i.value = []string{"hello world"}
+	i.cursorX = 11
+
+	// ctrl+- should restore to "hello"
+	i.Update(tea.KeyPressMsg{Code: '-', Mod: tea.ModCtrl})
+	assert.Equal(t, "hello", i.Value())
+	assert.Equal(t, 5, i.cursorX)
+}
+
+func TestInput_CtrlDot_Redo(t *testing.T) {
+	i := NewInput()
+	i.value = []string{"hello"}
+	i.cursorX = 5
+	i.pushUndo()
+	i.value = []string{"hello world"}
+	i.cursorX = 11
+	i.pushUndo()
+
+	i.Update(tea.KeyPressMsg{Code: '-', Mod: tea.ModCtrl}) // undo to "hello"
+	i.Update(tea.KeyPressMsg{Code: '.', Mod: tea.ModCtrl}) // redo to "hello world"
+	assert.Equal(t, "hello world", i.Value())
+	assert.Equal(t, 11, i.cursorX)
+}
+
+func TestInput_Undo_RestoresTextAndCursor(t *testing.T) {
+	i := NewInput()
+	i.value = []string{"line1\nline2"}
+	i.cursorX = 3
+	i.cursorY = 1
+	i.pushUndo()
+
+	i.value = []string{"changed"}
+	i.cursorX = 7
+	i.cursorY = 0
+	i.pushUndo()
+
+	i.Update(tea.KeyPressMsg{Code: '-', Mod: tea.ModCtrl})
+	assert.Equal(t, "line1\nline2", i.Value())
+	assert.Equal(t, 3, i.cursorX)
+	assert.Equal(t, 1, i.cursorY)
+}
+
+func TestInput_Redo_RestoresTextAndCursor(t *testing.T) {
+	i := NewInput()
+	i.value = []string{"first"}
+	i.cursorX = 5
+	i.cursorY = 0
+	i.pushUndo()
+
+	i.value = []string{"second"}
+	i.cursorX = 6
+	i.cursorY = 0
+	i.pushUndo()
+
+	i.Update(tea.KeyPressMsg{Code: '-', Mod: tea.ModCtrl})
+	i.Update(tea.KeyPressMsg{Code: '.', Mod: tea.ModCtrl})
+	assert.Equal(t, "second", i.Value())
+	assert.Equal(t, 6, i.cursorX)
+}
+
+func TestInput_Typing_PushesToHistory(t *testing.T) {
+	i := NewInput()
+	// First keystroke after creation should push to history
+	i.Update(tea.KeyPressMsg{Text: "h"})
+	i.Update(tea.KeyPressMsg{Text: "i"})
+	// After typing "hi", undo should restore to before typing started
+	i.Update(tea.KeyPressMsg{Code: '-', Mod: tea.ModCtrl})
+	assert.Equal(t, "", i.Value(), "undo should restore to before typing started")
+}
+
+func TestInput_Undo_EmptyHistory_NoChange(t *testing.T) {
+	i := NewInput()
+	i.value = []string{"something"}
+	i.cursorX = 9
+	i.Update(tea.KeyPressMsg{Code: '-', Mod: tea.ModCtrl})
+	assert.Equal(t, "something", i.Value(), "undo with empty history should not change value")
 }
 
 // --- Home tests ---
