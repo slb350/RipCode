@@ -220,7 +220,9 @@ func (s *Session) AddTokens(input, output int) {
 
 func generatePrefixedID(prefix string, byteLen int) string {
 	b := make([]byte, byteLen)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("crypto/rand.Read failed: %v", err))
+	}
 	return fmt.Sprintf("%s-%x", prefix, b)
 }
 
