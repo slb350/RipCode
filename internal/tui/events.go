@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/stephenbrandon/ripcode/internal/agent"
+	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 )
 
@@ -75,6 +76,7 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 		a.input.Focus()
 		if a.session != nil {
 			a.statusbar.SetTokens(a.session.Tokens.Input + a.session.Tokens.Output)
+			a.warnOnErr(store.Save(a.session), "session")
 		}
 		dur := time.Since(a.responseStart)
 		modeName := a.agent.Name

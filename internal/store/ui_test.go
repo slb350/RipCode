@@ -31,6 +31,19 @@ func TestUIPrefs_SaveLoad_RoundTrips(t *testing.T) {
 	assert.Equal(t, p.GettingStartedDismissed, loaded.GettingStartedDismissed)
 }
 
+func TestLoadUIPrefs_CorruptedJSON_ReturnsDefaultsAndError(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RIPCODE_DIR", dir)
+	stateDir := filepath.Join(dir, "state")
+	require.NoError(t, os.MkdirAll(stateDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, "ui.json"), []byte("{bad json"), 0o644))
+
+	p, err := LoadUIPrefs()
+	assert.Error(t, err, "corrupted JSON should return an error")
+	assert.NotNil(t, p, "should return usable defaults even on error")
+	assert.False(t, p.GettingStartedDismissed)
+}
+
 func TestUIPrefs_Save_CreatesStateDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("RIPCODE_DIR", dir)

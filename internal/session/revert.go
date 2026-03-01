@@ -10,6 +10,8 @@ type revertPoint struct {
 
 // Revert removes the last user message and everything after it.
 // Returns the user's prompt text for input restoration.
+// Pushes removed messages onto the redo stack (cleared by AddUser).
+// Returns an error if no user message exists to revert.
 func (s *Session) Revert() (string, error) {
 	// Find the last user message
 	lastUser := -1

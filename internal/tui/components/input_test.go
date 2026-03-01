@@ -122,6 +122,29 @@ func TestInput_ReplaceRange_Emoji(t *testing.T) {
 	assert.Equal(t, "@readme.md ", i.Value())
 }
 
+func TestInput_ReplaceRange_BoundaryConditions(t *testing.T) {
+	t.Run("negative start clamped to 0", func(t *testing.T) {
+		i := NewInput()
+		i.SetValue("hello")
+		i.ReplaceRange(-5, 2, "HE")
+		assert.Equal(t, "HEllo", i.Value())
+	})
+
+	t.Run("end beyond length clamped", func(t *testing.T) {
+		i := NewInput()
+		i.SetValue("hello")
+		i.ReplaceRange(3, 100, "p!")
+		assert.Equal(t, "help!", i.Value())
+	})
+
+	t.Run("start > end swapped", func(t *testing.T) {
+		i := NewInput()
+		i.SetValue("hello")
+		i.ReplaceRange(3, 1, "XX")
+		assert.Equal(t, "hXXlo", i.Value())
+	})
+}
+
 // --- Input undo/redo integration tests ---
 
 func TestInput_CtrlMinus_Undo(t *testing.T) {

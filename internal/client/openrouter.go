@@ -285,6 +285,16 @@ func (c *OpenRouter) streamResponse(ctx context.Context, resp *http.Response, ch
 		}
 	}
 
+	// Check for scanner errors (e.g. network disconnect mid-stream).
+	// Discard partial tool calls — they shouldn't be executed from a truncated stream.
+	if err := scanner.Err(); err != nil {
+		ch <- provider.StreamEvent{
+			Type:  provider.EventError,
+			Error: fmt.Errorf("stream read error: %w", err),
+		}
+		return
+	}
+
 	// Emit accumulated tool calls
 	for i := 0; i < len(toolCalls); i++ {
 		acc := toolCalls[i]

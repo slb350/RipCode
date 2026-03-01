@@ -22,7 +22,7 @@ func (a App) handleStashDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			entry := entries[len(entries)-1-a.stashDialogSelect] // displayed newest-first
 			a.input.SetValue(entry.Content)
 			a.stash.Delete(entry.ID)
-			persistStash(a.stash)
+			a.warnOnErr(persistStash(a.stash), "stash")
 		}
 		a.stashDialogOpen = false
 		a.input.Focus()
@@ -44,7 +44,7 @@ func (a App) handleStashDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if a.stashDialogSelect < len(entries) {
 			entry := entries[len(entries)-1-a.stashDialogSelect]
 			a.stash.Delete(entry.ID)
-			persistStash(a.stash)
+			a.warnOnErr(persistStash(a.stash), "stash")
 			remaining := a.stash.List()
 			if a.stashDialogSelect >= len(remaining) && a.stashDialogSelect > 0 {
 				a.stashDialogSelect--

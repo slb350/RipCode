@@ -24,6 +24,9 @@ func loadFileCacheCmd(root string) tea.Cmd {
 	return func() tea.Msg {
 		const maxFiles = 8000
 		files := make([]string, 0, 2048)
+		// Best-effort file collection for @ autocomplete.
+		// Individual entry errors (permission denied, broken symlinks) are
+		// skipped so the cache populates with accessible files.
 		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return nil

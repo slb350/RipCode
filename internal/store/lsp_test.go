@@ -31,6 +31,19 @@ func TestLSPConfig_SaveLoad_RoundTrips(t *testing.T) {
 	assert.Equal(t, cfg.Clients, loaded.Clients)
 }
 
+func TestLoadLSPConfig_CorruptedJSON_ReturnsDefaultsAndError(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RIPCODE_DIR", dir)
+	stateDir := filepath.Join(dir, "state")
+	require.NoError(t, os.MkdirAll(stateDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, "lsp.json"), []byte("{bad json"), 0o644))
+
+	cfg, err := LoadLSPConfig()
+	assert.Error(t, err, "corrupted JSON should return an error")
+	assert.NotNil(t, cfg, "should return usable defaults even on error")
+	assert.Empty(t, cfg.Clients)
+}
+
 func TestLSPConfig_Save_CreatesStateDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("RIPCODE_DIR", dir)

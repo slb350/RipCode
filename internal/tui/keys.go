@@ -102,8 +102,24 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
-	case msg.Mod == tea.ModCtrl && (msg.Code == 'k' || msg.Code == 'p'):
+	case msg.Mod == tea.ModCtrl && msg.Code == 'p':
 		if !a.streaming && a.state == StateSession {
+			a.commandOpen = true
+			a.commandQuery = ""
+			a.commandSelect = 0
+			a.modelDialogOpen = false
+			a.inlineOpen = false
+			a.input.Blur()
+		}
+		return a, nil
+
+	case msg.Mod == tea.ModCtrl && msg.Code == 'k':
+		if !a.streaming && a.state == StateSession {
+			// If input has text, forward Ctrl+K to input for kill-to-end-of-line
+			if a.input.Value() != "" {
+				cmd := a.input.Update(msg)
+				return a, cmd
+			}
 			a.commandOpen = true
 			a.commandQuery = ""
 			a.commandSelect = 0

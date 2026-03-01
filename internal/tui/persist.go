@@ -19,7 +19,7 @@ func loadPromptHistory() *components.PromptHistory {
 	}
 	h.LoadItems(items)
 
-	// Compact on load: if the file grew beyond maxSize, rewrite with only kept entries
+	// Best-effort compaction; if save fails, uncompacted history still works
 	if len(entries) > historyMaxSize {
 		kept := h.Items()
 		compacted := make([]store.HistoryEntry, len(kept))
@@ -43,20 +43,20 @@ func loadPromptStash() *components.PromptStash {
 	return s
 }
 
-func persistStash(s *components.PromptStash) {
+func persistStash(s *components.PromptStash) error {
 	items := s.List()
 	entries := make([]store.StashFileEntry, len(items))
 	for i, item := range items {
 		entries[i] = store.StashFileEntry{ID: item.ID, Content: item.Content}
 	}
-	_ = store.SaveStash(entries)
+	return store.SaveStash(entries)
 }
 
-func persistHistory(h *components.PromptHistory) {
+func persistHistory(h *components.PromptHistory) error {
 	items := h.Items()
 	if len(items) == 0 {
-		return
+		return nil
 	}
 	last := items[len(items)-1]
-	_ = store.AppendHistory(store.HistoryEntry{Prompt: last.Prompt, Mode: last.Mode})
+	return store.AppendHistory(store.HistoryEntry{Prompt: last.Prompt, Mode: last.Mode})
 }

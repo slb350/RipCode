@@ -241,6 +241,23 @@ func TestSaveLoad_PreservesTitle(t *testing.T) {
 	assert.Equal(t, "my project", loaded.Title)
 }
 
+func TestList_CorruptedJSONFile_SkipsAndContinues(t *testing.T) {
+	testDir(t)
+	// Save a valid session
+	s1 := makeTestSession(t)
+	require.NoError(t, Save(s1))
+
+	// Write a corrupted JSON file alongside it
+	dir := SessionsDir()
+	corruptPath := filepath.Join(dir, "corrupted-session.json")
+	require.NoError(t, os.WriteFile(corruptPath, []byte("{not valid json!!!"), 0o644))
+
+	summaries, err := List()
+	require.NoError(t, err, "List should not return error for corrupted files")
+	assert.Len(t, summaries, 1, "should return only the valid session")
+	assert.Equal(t, s1.ID, summaries[0].ID)
+}
+
 func TestSaveLoad_PreservesToolCalls(t *testing.T) {
 	testDir(t)
 	sess := session.New("/tmp/tools")

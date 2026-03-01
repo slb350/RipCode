@@ -135,3 +135,14 @@ func TestModelInfo_IsFree_NonZeroCost(t *testing.T) {
 	}
 	assert.False(t, m.IsFree())
 }
+
+func TestRoleConstants_MatchExpectedValues(t *testing.T) {
+	assert.Equal(t, "system", RoleSystem)
+	assert.Equal(t, "user", RoleUser)
+	assert.Equal(t, "assistant", RoleAssistant)
+	assert.Equal(t, "tool", RoleTool)
+
+	// Verify type alias — Role constants are interchangeable with plain strings
+	msg := Message{Role: RoleUser, Content: "hello"}
+	assert.Equal(t, "user", msg.Role)
+}

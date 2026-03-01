@@ -6,7 +6,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/stephenbrandon/ripcode/internal/agent"
+	"github.com/stephenbrandon/ripcode/internal/session"
+	"github.com/stephenbrandon/ripcode/internal/store"
+	"github.com/stephenbrandon/ripcode/internal/tool"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestApp_ContentDelta_ContinuesListening(t *testing.T) {
@@ -113,6 +117,47 @@ func TestApp_EscCancel_ClearsChannel(t *testing.T) {
 
 	assert.False(t, a.streaming)
 	assert.Nil(t, a.eventCh, "Esc cancel must clear the event channel")
+}
+
+func TestListenForEvents_ChannelClosedUnexpectedly(t *testing.T) {
+	ch := make(chan agent.Event)
+	close(ch) // Close immediately without sending EventDone
+
+	cmd := listenForEvents(ch)
+	msg := cmd()
+	agentMsg, ok := msg.(AgentEventMsg)
+	assert.True(t, ok, "should produce AgentEventMsg")
+	assert.Equal(t, agent.EventDone, agentMsg.Event.Type, "closed channel should produce EventDone")
+}
+
+func TestApp_AgentEventDone_PersistsSession(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	sess := session.New(t.TempDir())
+	sess.AddUser("hello")
+	sess.AddAssistant("world", nil, nil)
+	app.SetSession(sess)
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	ch := make(chan agent.Event, 1)
+	a.streaming = true
+	a.eventCh = ch
+
+	model, _ = a.Update(AgentEventMsg{
+		Event: agent.Event{Type: agent.EventDone},
+	})
+	_ = model.(App)
+
+	// Session should now be on disk
+	loaded, err := store.Load(sess.ID)
+	require.NoError(t, err, "session should have been persisted to disk on EventDone")
+	require.NotNil(t, loaded)
+	assert.Equal(t, sess.ID, loaded.ID)
 }
 
 // --- Modified Files Tracking tests ---

@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -37,7 +38,7 @@ func LoadModelPrefs() (*ModelPrefs, error) {
 	}
 	var p ModelPrefs
 	if err := json.Unmarshal(data, &p); err != nil {
-		return &ModelPrefs{}, nil
+		return &ModelPrefs{}, fmt.Errorf("parse model preferences: %w", err)
 	}
 	return &p, nil
 }
@@ -57,20 +58,16 @@ func (p *ModelPrefs) Save() error {
 
 // AddRecent prepends a model to the recents list, deduplicating and limiting to 10.
 func (p *ModelPrefs) AddRecent(ref ModelRef) {
-	// Check if already at position 0
 	if len(p.Recent) > 0 && p.Recent[0] == ref {
 		return
 	}
-	// Remove existing occurrence
 	filtered := make([]ModelRef, 0, len(p.Recent))
 	for _, r := range p.Recent {
 		if r != ref {
 			filtered = append(filtered, r)
 		}
 	}
-	// Prepend
 	p.Recent = append([]ModelRef{ref}, filtered...)
-	// Limit
 	if len(p.Recent) > maxRecent {
 		p.Recent = p.Recent[:maxRecent]
 	}

@@ -199,6 +199,47 @@ func TestApp_TabCyclesAgent(t *testing.T) {
 	assert.Equal(t, "build", a.agent.Name)
 }
 
+func TestApp_CtrlK_KillsToEndOfLine_WhenInputFocused(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	// Type text and move cursor to middle
+	a.input.SetValue("hello world")
+	a.input.SetCursorOffset(5) // cursor after "hello"
+
+	// Ctrl+K should kill to end of line, not open command palette
+	model, _ = a.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	a = model.(App)
+
+	assert.Equal(t, "hello", a.input.Value(), "Ctrl+K should kill to end of line")
+	assert.False(t, a.commandOpen, "Ctrl+K should not open command palette when input has text")
+}
+
+func TestApp_CtrlK_OpensPalette_WhenInputEmpty(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+	// Input is empty
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	a = model.(App)
+
+	assert.True(t, a.commandOpen, "Ctrl+K should open palette when input is empty")
+}
+
 func TestApp_CommandPalette_OpensWithCtrlK(t *testing.T) {
 	app := NewApp()
 	app.SetProvider(&modelListProvider{})

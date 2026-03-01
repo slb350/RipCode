@@ -464,6 +464,55 @@ func TestListModels_MalformedPricing_Fallback(t *testing.T) {
 	assert.Nil(t, models[0].Pricing, "malformed pricing should result in nil")
 }
 
+func TestStreamResponse_ScannerError_EmitsErrorEvent(t *testing.T) {
+	// Create a server that sends a partial response then closes abruptly
+	// by writing a line that exceeds the default scanner buffer (64KB)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		// Send one valid content chunk
+		fmt.Fprint(w, "data: "+chatChunk("partial", "")+"\n\n")
+		w.(http.Flusher).Flush()
+		// Write a single line exceeding bufio.Scanner's max token size
+		// to force a scanner error
+		huge := "data: " + strings.Repeat("x", 1024*1024) // 1MB line
+		fmt.Fprint(w, huge)
+		w.(http.Flusher).Flush()
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.baseURL = srv.URL
+
+	ch, err := c.Chat(context.Background(), []provider.Message{
+		{Role: "user", Content: "hi"},
+	}, nil)
+	require.NoError(t, err)
+
+	var events []provider.StreamEvent
+	for e := range ch {
+		events = append(events, e)
+	}
+
+	// Should get the content delta, then an error event
+	hasContent := false
+	hasError := false
+	for _, e := range events {
+		if e.Type == provider.EventContentDelta {
+			hasContent = true
+		}
+		if e.Type == provider.EventError {
+			hasError = true
+			assert.Contains(t, e.Error.Error(), "stream read error")
+		}
+	}
+	assert.True(t, hasContent, "should have received partial content")
+	assert.True(t, hasError, "should have received error event from scanner failure")
+	// Should NOT have a finish event since scanner errored
+	for _, e := range events {
+		assert.NotEqual(t, provider.EventFinish, e.Type, "should not emit finish after scanner error")
+	}
+}
+
 func TestOpenRouter_ListModels_APIError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)

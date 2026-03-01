@@ -50,7 +50,11 @@ func (a App) handleForkDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return a, a.ShowToast("Fork failed: "+err.Error(), components.ToastError)
 		}
 		// Save the current session before switching
-		_ = store.Save(a.session)
+		if err := store.Save(a.session); err != nil {
+			a.forkDialogOpen = false
+			a.input.Focus()
+			return a, a.ShowToast("Fork failed: could not save session", components.ToastError)
+		}
 		// Switch to forked session
 		a.session = forked
 		a.rebuildChatFromSession()

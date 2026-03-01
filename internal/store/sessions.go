@@ -203,11 +203,15 @@ func List() ([]SessionSummary, error) {
 		id := strings.TrimSuffix(entry.Name(), ".json")
 		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
 		if err != nil {
+			// Intentional skip: unreadable session files (permissions, race
+			// conditions) are skipped so the rest of the listing still works.
 			continue
 		}
 
 		var f sessionFile
 		if err := json.Unmarshal(data, &f); err != nil {
+			// Intentional skip: corrupted session files are skipped rather
+			// than failing the entire listing operation.
 			continue
 		}
 

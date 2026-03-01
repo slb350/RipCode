@@ -84,7 +84,11 @@ func (a App) handleSessionsDeleteConfirm(msg tea.KeyPressMsg) (tea.Model, tea.Cm
 		filtered := a.filteredSessions()
 		if a.sessionsDialogSelect < len(filtered) {
 			entry := filtered[a.sessionsDialogSelect]
-			_ = store.Delete(entry.ID)
+			if err := store.Delete(entry.ID); err != nil {
+				a.sessionsDialogConfirm = false
+				a.toasts.Show("Failed to delete session", components.ToastError, 3*time.Second)
+				return a, nil
+			}
 			// Remove from cached entries
 			for i, e := range a.sessionsDialogEntries {
 				if e.ID == entry.ID {
@@ -132,6 +136,7 @@ func (a App) resumeSession(id string) (tea.Model, tea.Cmd) {
 	}
 
 	a.session = loaded
+	a.session.SetSystemPrompt(a.agent.SystemPrompt)
 	a.sessionsDialogOpen = false
 	a.input.Focus()
 

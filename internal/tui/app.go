@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -154,14 +155,31 @@ type App struct {
 
 	// Modified files tracking
 	modifiedFiles []string
+
+	// Startup warnings (e.g. corrupted config files)
+	startupWarnings      []string
+	startupWarningsShown bool
 }
 
 // NewApp creates the initial application model.
 func NewApp() App {
-	prefs, _ := store.LoadModelPrefs()
-	mcpCfg, _ := store.LoadMCPConfig()
-	lspCfg, _ := store.LoadLSPConfig()
-	uiPrefs, _ := store.LoadUIPrefs()
+	var warnings []string
+	prefs, err := store.LoadModelPrefs()
+	if err != nil {
+		warnings = append(warnings, "model preferences corrupted, using defaults")
+	}
+	mcpCfg, err := store.LoadMCPConfig()
+	if err != nil {
+		warnings = append(warnings, "MCP config corrupted, using defaults")
+	}
+	lspCfg, err := store.LoadLSPConfig()
+	if err != nil {
+		warnings = append(warnings, "LSP config corrupted, using defaults")
+	}
+	uiPrefs, err := store.LoadUIPrefs()
+	if err != nil {
+		warnings = append(warnings, "UI preferences corrupted, using defaults")
+	}
 
 	footer := components.NewSessionFooter()
 	if mcpCfg != nil {
@@ -172,21 +190,22 @@ func NewApp() App {
 	}
 
 	a := App{
-		chat:          components.NewChat(),
-		input:         components.NewInput(),
-		statusbar:     components.NewStatusBar(),
-		footer:        footer,
-		toolpanel:     components.NewToolPanel(),
-		home:          components.NewHome(),
-		state:         StateHome,
-		maxSteps:      100,
-		promptHistory: loadPromptHistory(),
-		toasts:        components.NewToastManager(),
-		stash:         loadPromptStash(),
-		modelPrefs:    prefs,
-		mcpConfig:     mcpCfg,
-		lspConfig:     lspCfg,
-		uiPrefs:       uiPrefs,
+		chat:            components.NewChat(),
+		input:           components.NewInput(),
+		statusbar:       components.NewStatusBar(),
+		footer:          footer,
+		toolpanel:       components.NewToolPanel(),
+		home:            components.NewHome(),
+		state:           StateHome,
+		maxSteps:        100,
+		promptHistory:   loadPromptHistory(),
+		toasts:          components.NewToastManager(),
+		stash:           loadPromptStash(),
+		modelPrefs:      prefs,
+		mcpConfig:       mcpCfg,
+		lspConfig:       lspCfg,
+		uiPrefs:         uiPrefs,
+		startupWarnings: warnings,
 	}
 	a.initRegistry()
 	return a
@@ -268,6 +287,14 @@ func (a *App) SetMaxSteps(n int) {
 	a.maxSteps = n
 }
 
+// warnOnErr shows a toast warning if err is non-nil. Used for non-fatal
+// save/persist failures where the operation can continue with stale state.
+func (a *App) warnOnErr(err error, what string) {
+	if err != nil {
+		a.toasts.Show("Failed to save "+what, components.ToastWarning, 3*time.Second)
+	}
+}
+
 // ShowToast displays a toast notification and returns a dismiss command.
 func (a *App) ShowToast(msg string, variant components.ToastVariant) tea.Cmd {
 	id := a.toasts.Show(msg, variant, 3*time.Second)
@@ -319,6 +346,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.height = msg.Height
 		a.ready = true
 		a.layout()
+		if len(a.startupWarnings) > 0 && !a.startupWarningsShown {
+			a.startupWarningsShown = true
+			combined := strings.Join(a.startupWarnings, "; ")
+			if len(combined) > 120 {
+				combined = combined[:117] + "..."
+			}
+			return a, a.ShowToast(combined, components.ToastWarning)
+		}
 		return a, nil
 
 	case tea.KeyPressMsg:

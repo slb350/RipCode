@@ -117,6 +117,33 @@ func TestApp_InlineFileAutocomplete_InsertsMention(t *testing.T) {
 	assert.Equal(t, "@main.go ", a.input.Value())
 }
 
+func TestUpdateInlineSuggestions_CursorBoundary(t *testing.T) {
+	t.Run("cursor at 0 with empty input", func(t *testing.T) {
+		app := NewApp()
+		app.SetSession(session.New(t.TempDir()))
+		app.SetAgent(agent.BuildAgent())
+		app.state = StateSession
+
+		app.input.SetValue("")
+		cmd := app.updateInlineSuggestions()
+		assert.Nil(t, cmd)
+		assert.False(t, app.inlineOpen)
+	})
+
+	t.Run("cursor at end of input", func(t *testing.T) {
+		app := NewApp()
+		app.SetSession(session.New(t.TempDir()))
+		app.SetAgent(agent.BuildAgent())
+		app.state = StateSession
+
+		app.input.SetValue("hello")
+		// Cursor should be at end by default
+		cmd := app.updateInlineSuggestions()
+		assert.Nil(t, cmd)
+		assert.False(t, app.inlineOpen, "plain text should not open inline suggestions")
+	})
+}
+
 func TestApp_InlineFileAutocomplete_MultibytePrefixReplacement(t *testing.T) {
 	workDir := t.TempDir()
 	err := os.WriteFile(filepath.Join(workDir, "main.go"), []byte("package main"), 0o644)

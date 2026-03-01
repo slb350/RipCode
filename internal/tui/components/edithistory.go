@@ -7,7 +7,7 @@ type EditState struct {
 	CursorY int
 }
 
-// EditHistory is a fixed-size undo/redo stack.
+// EditHistory is a bounded undo/redo buffer.
 type EditHistory struct {
 	states  []EditState
 	current int // index of the "current" state; -1 means empty

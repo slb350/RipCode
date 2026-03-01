@@ -44,7 +44,7 @@ func (a *App) switchModel(modelID string) bool {
 			ModelID:    modelID,
 		}
 		a.modelPrefs.AddRecent(ref)
-		_ = a.modelPrefs.Save()
+		a.warnOnErr(a.modelPrefs.Save(), "model recents")
 	}
 	// Clear variant if new model doesn't support it
 	if a.activeVariant != "" {

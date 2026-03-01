@@ -22,7 +22,7 @@ type pickerItem struct {
 // renderPickerList renders a windowed selection list with "> " marker.
 // header is the title line, items are the display items, selected is the
 // highlighted index, and maxRows is the visible window size.
-// Returns empty-state text if items is empty.
+// Returns a "no matches" message if items is empty.
 func renderPickerList(header string, items []pickerItem, selected, maxRows int) string {
 	if len(items) == 0 {
 		return header + "\n  no matches"

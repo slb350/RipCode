@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -36,7 +37,7 @@ func LoadMCPConfig() (*MCPConfig, error) {
 	}
 	var c MCPConfig
 	if err := json.Unmarshal(data, &c); err != nil {
-		return &MCPConfig{}, nil
+		return &MCPConfig{}, fmt.Errorf("parse MCP config: %w", err)
 	}
 	return &c, nil
 }

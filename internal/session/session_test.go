@@ -561,6 +561,39 @@ func TestFork_PreservesMessageMeta(t *testing.T) {
 	assert.Equal(t, "build", forked.Messages[1].Meta.Agent)
 }
 
+func TestFork_BoundaryConditions(t *testing.T) {
+	t.Run("fork at index 0 with single message", func(t *testing.T) {
+		s := New("/tmp")
+		s.AddUser("only message")
+
+		forked, err := s.Fork(0)
+		require.NoError(t, err)
+		assert.Len(t, forked.Messages, 1)
+		assert.Equal(t, "only message", forked.Messages[0].Message.Content)
+	})
+
+	t.Run("fork at last valid index", func(t *testing.T) {
+		s := New("/tmp")
+		s.AddUser("q1")
+		s.AddAssistant("a1", nil, nil)
+		s.AddUser("q2")
+		s.AddAssistant("a2", nil, nil)
+
+		forked, err := s.Fork(len(s.Messages) - 1)
+		require.NoError(t, err)
+		assert.Len(t, forked.Messages, 4)
+	})
+
+	t.Run("fork at len(Messages) returns error", func(t *testing.T) {
+		s := New("/tmp")
+		s.AddUser("q1")
+		s.AddAssistant("a1", nil, nil)
+
+		_, err := s.Fork(len(s.Messages))
+		assert.Error(t, err, "index == len(Messages) should be out of range")
+	})
+}
+
 func TestFork_DoesNotMutateOriginal(t *testing.T) {
 	s := New("/tmp")
 	s.AddUser("q1")

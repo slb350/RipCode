@@ -31,6 +31,19 @@ func TestMCPConfig_SaveLoad_RoundTrips(t *testing.T) {
 	assert.Equal(t, cfg.Servers, loaded.Servers)
 }
 
+func TestLoadMCPConfig_CorruptedJSON_ReturnsDefaultsAndError(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RIPCODE_DIR", dir)
+	stateDir := filepath.Join(dir, "state")
+	require.NoError(t, os.MkdirAll(stateDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, "mcp.json"), []byte("{bad json"), 0o644))
+
+	cfg, err := LoadMCPConfig()
+	assert.Error(t, err, "corrupted JSON should return an error")
+	assert.NotNil(t, cfg, "should return usable defaults even on error")
+	assert.Empty(t, cfg.Servers)
+}
+
 func TestMCPConfig_Save_CreatesStateDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("RIPCODE_DIR", dir)

@@ -148,7 +148,7 @@ func (a App) handleModelDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		selected := models[sel]
 		ref := store.ModelRef{ProviderID: selected.ProviderName(), ModelID: selected.ID}
 		isFav := a.modelPrefs.ToggleFavorite(ref)
-		_ = a.modelPrefs.Save()
+		a.warnOnErr(a.modelPrefs.Save(), "favorites")
 		// Re-sort and find the same model
 		newModels := a.filteredModelsDialog()
 		for i, m := range newModels {
@@ -408,7 +408,7 @@ func (a App) handleVariantCycle() (tea.Model, tea.Cmd) {
 	a.activeVariant = next
 	if a.modelPrefs != nil {
 		a.modelPrefs.SetVariant(a.fullModelID, next)
-		_ = a.modelPrefs.Save()
+		a.warnOnErr(a.modelPrefs.Save(), "variant")
 	}
 	if next == "" {
 		a.statusbar.SetVariantBadge("")

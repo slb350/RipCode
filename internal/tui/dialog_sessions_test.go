@@ -6,9 +6,13 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/stephenbrandon/ripcode/internal/agent"
+	"github.com/stephenbrandon/ripcode/internal/session"
 	"github.com/stephenbrandon/ripcode/internal/store"
+	"github.com/stephenbrandon/ripcode/internal/tool"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestApp_SessionsDialog_OpensWithSlashSessions(t *testing.T) {
@@ -173,6 +177,38 @@ func TestApp_SessionsDialog_RenderShowsTimeFooter(t *testing.T) {
 	rendered := a.renderSessionsDialog()
 	assert.Contains(t, rendered, "5 msgs")
 	assert.Contains(t, rendered, "/tmp")
+}
+
+func TestApp_ResumeSession_ReappliesSystemPrompt(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RIPCODE_DIR", dir)
+
+	// Create and save a session
+	sess := session.New(t.TempDir())
+	sess.AddUser("hello")
+	sess.AddAssistant("world", nil, nil)
+	require.NoError(t, store.Save(sess))
+
+	// Create app manually (don't use makeSessionApp which overrides RIPCODE_DIR)
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	// Resume the saved session
+	model, _ = a.resumeSession(sess.ID)
+	a = model.(App)
+
+	// The loaded session should have the system prompt reapplied
+	require.Equal(t, sess.ID, a.session.ID, "should have switched to loaded session")
+	history := a.session.History()
+	require.NotEmpty(t, history)
+	assert.Equal(t, "system", history[0].Role, "resumed session should have system prompt")
+	assert.NotEmpty(t, history[0].Content)
 }
 
 func TestSessionDateGroup_Today(t *testing.T) {

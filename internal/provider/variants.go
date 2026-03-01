@@ -11,10 +11,9 @@ func VariantsFor(modelID string) []string {
 	return KnownVariants[modelID]
 }
 
-// CycleVariant returns the next variant for a model, cycling through the list.
-// If current is empty, returns the first variant.
-// If current is the last variant, returns empty string (no variant).
-// If the model has no variants, returns empty string.
+// CycleVariant advances to the next variant: none → first → ... → last → none.
+// Does not wrap; returns empty string after the last variant or if the model
+// has no variants.
 func CycleVariant(modelID, current string) string {
 	variants := VariantsFor(modelID)
 	if len(variants) == 0 {

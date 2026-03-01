@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -35,7 +36,7 @@ func LoadLSPConfig() (*LSPConfig, error) {
 	}
 	var c LSPConfig
 	if err := json.Unmarshal(data, &c); err != nil {
-		return &LSPConfig{}, nil
+		return &LSPConfig{}, fmt.Errorf("parse LSP config: %w", err)
 	}
 	return &c, nil
 }

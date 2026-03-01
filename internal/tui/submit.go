@@ -28,7 +28,7 @@ func (a App) handleSubmit(input string) (tea.Model, tea.Cmd) {
 		mode = "shell"
 	}
 	a.promptHistory.PushWithMode(input, mode)
-	persistHistory(a.promptHistory)
+	a.warnOnErr(persistHistory(a.promptHistory), "history")
 
 	// Shell mode: ! prefix executes bash directly
 	if a.shellMode && strings.HasPrefix(strings.TrimSpace(input), "!") {
@@ -111,7 +111,10 @@ func (a App) handleSlashCommand(input string) (App, tea.Cmd, bool) {
 		model, cmd := a.handleModelsCommand(input)
 		return model.(App), cmd, true
 	case "agent":
-		return a.handleAgentCommand(input, parts[1:]), nil, true
+		if len(parts) > 1 {
+			return a.handleAgentCommand(input, parts[1:]), nil, true
+		}
+		// No args: fall through to registry handler which opens the picker
 	case "model":
 		if len(parts) == 1 {
 			model, cmd := a.handleModelsCommand("/models")

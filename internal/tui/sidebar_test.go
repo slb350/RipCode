@@ -310,6 +310,15 @@ func TestApp_GettingStarted_HiddenWhenHasSessions(t *testing.T) {
 	assert.NotContains(t, sidebar, "Getting Started")
 }
 
+func TestPanelRectFromRendered_ZeroDimensions(t *testing.T) {
+	a := makeSidebarApp(t)
+	x, y, w, h := a.panelRectFromRendered("")
+	assert.Equal(t, 1, w, "width should be clamped to at least 1")
+	assert.Equal(t, 1, h, "height should be clamped to at least 1")
+	assert.GreaterOrEqual(t, x, 0)
+	assert.GreaterOrEqual(t, y, 0)
+}
+
 func TestApp_Sidebar_ShowsTodoFromTool(t *testing.T) {
 	a := makeSidebarApp(t)
 

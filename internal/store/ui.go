@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -29,7 +30,7 @@ func LoadUIPrefs() (*UIPrefs, error) {
 	}
 	var p UIPrefs
 	if err := json.Unmarshal(data, &p); err != nil {
-		return &UIPrefs{}, nil
+		return &UIPrefs{}, fmt.Errorf("parse UI preferences: %w", err)
 	}
 	return &p, nil
 }

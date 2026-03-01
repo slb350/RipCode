@@ -293,7 +293,7 @@ func (i *Input) Update(msg tea.Msg) tea.Cmd {
 				i.cursorX = 0
 			}
 
-		// Deletion: to line end (only when NOT in command palette context)
+		// Deletion: to line end
 		case msg.Code == 'k' && msg.Mod == tea.ModCtrl:
 			runes := []rune(i.value[i.cursorY])
 			if i.cursorX < len(runes) {

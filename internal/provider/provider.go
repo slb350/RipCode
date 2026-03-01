@@ -5,9 +5,20 @@ import (
 	"strings"
 )
 
+// Role is a type alias for message roles, providing named constants
+// without breaking existing string comparisons.
+type Role = string
+
+const (
+	RoleSystem    Role = "system"
+	RoleUser      Role = "user"
+	RoleAssistant Role = "assistant"
+	RoleTool      Role = "tool"
+)
+
 // Message represents a single message in a conversation.
 type Message struct {
-	Role       string // "system", "user", "assistant", "tool"
+	Role       Role // RoleSystem, RoleUser, RoleAssistant, or RoleTool
 	Content    string
 	ToolCalls  []ToolCall // present on assistant messages with tool invocations
 	ToolCallID string     // present on tool result messages

@@ -432,7 +432,7 @@ func (a *App) initRegistry() {
 				return a.ShowToast("Nothing to stash", components.ToastWarning)
 			}
 			a.stash.Push(content)
-			persistStash(a.stash)
+			a.warnOnErr(persistStash(a.stash), "stash")
 			a.input.Reset()
 			return a.ShowToast("Stashed draft", components.ToastSuccess)
 		},
@@ -447,7 +447,7 @@ func (a *App) initRegistry() {
 			if !ok {
 				return a.ShowToast("Stash is empty", components.ToastWarning)
 			}
-			persistStash(a.stash)
+			a.warnOnErr(persistStash(a.stash), "stash")
 			a.input.SetValue(entry.Content)
 			return a.ShowToast("Restored from stash", components.ToastSuccess)
 		},

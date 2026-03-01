@@ -370,6 +370,28 @@ func TestModelDialog_RecentsSection_ShownAfterFavorites(t *testing.T) {
 	}
 }
 
+func TestModelDialog_EmptyCache_NavigationSafe(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modelsCache = nil
+	a.modelsLoaded = true
+	a = a.openModelDialog("")
+
+	// Up/down with empty cache should not panic
+	model, cmd := a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	a = model.(App)
+	assert.Nil(t, cmd)
+
+	model, cmd = a.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	a = model.(App)
+	assert.Nil(t, cmd)
+
+	// Enter with empty cache should close dialog
+	model, cmd = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+	assert.False(t, a.modelDialogOpen)
+	assert.Nil(t, cmd)
+}
+
 func TestApp_F2_CyclesRecentModel_Forward(t *testing.T) {
 	a := makeSessionApp(t)
 	a.fullModelID = "anthropic/claude-4"

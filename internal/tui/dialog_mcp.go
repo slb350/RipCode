@@ -38,7 +38,7 @@ func (a App) handleMCPDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if a.mcpConfig != nil && a.mcpDialogSelect < serverCount {
 			srv := a.mcpConfig.Servers[a.mcpDialogSelect]
 			newState := a.mcpConfig.ToggleEnabled(srv.Name)
-			_ = a.mcpConfig.Save()
+			a.warnOnErr(a.mcpConfig.Save(), "MCP config")
 			a.footer.SetMCPCount(a.mcpConfig.CountEnabled())
 			label := "disabled"
 			if newState {

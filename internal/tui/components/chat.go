@@ -122,7 +122,8 @@ func (c Chat) ScrollPos() int { return c.scrollPos }
 // SetScrollPos sets the scroll position directly.
 func (c *Chat) SetScrollPos(pos int) { c.scrollPos = max(0, pos) }
 
-// NextUserMessage jumps scroll to the next user message entry after current view.
+// NextUserMessage jumps scroll to the next user message entry after current view
+// (uses 2-line-per-entry approximation).
 func (c *Chat) NextUserMessage() {
 	linePos := 0
 	for _, entry := range c.entries {
@@ -135,7 +136,8 @@ func (c *Chat) NextUserMessage() {
 	}
 }
 
-// PrevUserMessage jumps scroll to the previous user message entry before current view.
+// PrevUserMessage jumps scroll to the previous user message entry before current view
+// (uses 2-line-per-entry approximation).
 func (c *Chat) PrevUserMessage() {
 	linePos := 0
 	lastUser := -1

@@ -52,13 +52,13 @@ func (a App) handleSidebarOverlayKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		idx := int(msg.Code - '1')
 		if a.uiPrefs != nil && idx < len(sidebarSectionKeys) {
 			a.uiPrefs.ToggleCollapsed(sidebarSectionKeys[idx])
-			_ = a.uiPrefs.Save()
+			a.warnOnErr(a.uiPrefs.Save(), "preferences")
 		}
 		return a, nil
 	case msg.Code == 'd' && msg.Mod == 0:
 		if a.uiPrefs != nil {
 			a.uiPrefs.DismissGettingStarted()
-			_ = a.uiPrefs.Save()
+			a.warnOnErr(a.uiPrefs.Save(), "preferences")
 		}
 		return a, nil
 	default:
@@ -155,7 +155,7 @@ func (a App) renderSidebar() string {
 
 	var lines []string
 
-	// Session header (not collapsible)
+	// Session header
 	headerTitle := "Session"
 	if a.session != nil {
 		headerTitle = shortSessionTitle(a.session.ID)
@@ -183,7 +183,7 @@ func (a App) renderSidebar() string {
 		lines = append(lines, "")
 	}
 
-	// Context section (collapsible)
+	// Context section
 	tokens := 0
 	if a.session != nil {
 		tokens = a.session.Tokens.Input + a.session.Tokens.Output
@@ -215,7 +215,7 @@ func (a App) renderSidebar() string {
 	contextContent = append(contextContent, muted.Render(fmt.Sprintf("%d messages", msgCount)))
 	lines = append(lines, a.renderSidebarSection("Context", sectionContext, msgCount, contextContent)...)
 
-	// MCP section (collapsible)
+	// MCP section
 	if a.mcpConfig != nil && len(a.mcpConfig.Servers) > 0 {
 		var mcpContent []string
 		for _, srv := range a.mcpConfig.Servers {
@@ -224,7 +224,7 @@ func (a App) renderSidebar() string {
 		lines = append(lines, a.renderSidebarSection("MCP", sectionMCP, len(a.mcpConfig.Servers), mcpContent)...)
 	}
 
-	// LSP section (collapsible)
+	// LSP section
 	if a.lspConfig != nil && len(a.lspConfig.Clients) > 0 {
 		var lspContent []string
 		for _, cl := range a.lspConfig.Clients {
@@ -233,7 +233,7 @@ func (a App) renderSidebar() string {
 		lines = append(lines, a.renderSidebarSection("LSP", sectionLSP, len(a.lspConfig.Clients), lspContent)...)
 	}
 
-	// Todo section (collapsible)
+	// Todo section
 	if a.todoTool != nil {
 		items := a.todoTool.Items()
 		if len(items) > 0 {
@@ -252,7 +252,7 @@ func (a App) renderSidebar() string {
 		}
 	}
 
-	// Modified files section (collapsible)
+	// Modified files section
 	if len(a.modifiedFiles) > 0 {
 		var modContent []string
 		for _, f := range a.modifiedFiles {
@@ -261,7 +261,7 @@ func (a App) renderSidebar() string {
 		lines = append(lines, a.renderSidebarSection("Modified", sectionModified, len(a.modifiedFiles), modContent)...)
 	}
 
-	// Tools section (collapsible)
+	// Tools section
 	events := a.toolpanel.Events()
 	successCount := 0
 	errorCount := 0

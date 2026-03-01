@@ -293,6 +293,22 @@ func TestApp_AgentSlashCommand_SwitchesMode(t *testing.T) {
 	assert.Contains(t, a.View().Content, `Agent switched to "plan".`)
 }
 
+func TestApp_AgentSlashCommand_NoArgs_OpensDialog(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/agent"})
+	a = model.(App)
+
+	assert.True(t, a.agentDialogOpen, "/agent with no args should open agent picker dialog")
+}
+
 func TestApp_ClearCommand_ResetsSession(t *testing.T) {
 	workDir := t.TempDir()
 	app := NewApp()
