@@ -123,3 +123,19 @@ func TestGrep_PathTraversalBlocked(t *testing.T) {
 	result := g.Execute(ctx, `{"pattern":"TODO","path":"`+outside+`"}`)
 	assert.Error(t, result.Error)
 }
+
+func TestGrep_SkipErrors_ReportsCount(t *testing.T) {
+	g := NewGrepTool()
+	ctx := newTestCtx(t)
+	require.NoError(t, os.WriteFile(filepath.Join(ctx.WorkDir, "ok.go"), []byte("TODO fix\n"), 0644))
+	badDir := filepath.Join(ctx.WorkDir, "noperm")
+	require.NoError(t, os.MkdirAll(badDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(badDir, "hidden.go"), []byte("TODO hidden\n"), 0644))
+	require.NoError(t, os.Chmod(badDir, 0000))
+	t.Cleanup(func() { os.Chmod(badDir, 0755) })
+
+	result := g.Execute(ctx, `{"pattern":"TODO","path":"`+ctx.WorkDir+`"}`)
+	require.NoError(t, result.Error)
+	assert.Contains(t, result.Output, "ok.go")
+	assert.Contains(t, result.Output, "skipped due to errors")
+}

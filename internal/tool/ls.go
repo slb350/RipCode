@@ -64,6 +64,7 @@ func (l *LsTool) Execute(ctx Context, argsJSON string) Result {
 
 	var sb strings.Builder
 	count := 0
+	skipped := 0
 
 	for _, entry := range entries {
 		name := entry.Name()
@@ -80,6 +81,7 @@ func (l *LsTool) Execute(ctx Context, argsJSON string) Result {
 
 		info, err := entry.Info()
 		if err != nil {
+			skipped++
 			continue
 		}
 
@@ -94,7 +96,9 @@ func (l *LsTool) Execute(ctx Context, argsJSON string) Result {
 		count++
 	}
 
-	if count == 0 {
+	sb.WriteString(skippedNote(skipped, "entries"))
+
+	if count == 0 && skipped == 0 {
 		return Result{
 			Output: fmt.Sprintf("(empty directory: %s)", dir),
 			Title:  dir,

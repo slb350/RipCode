@@ -162,6 +162,10 @@ func TestApp_ShellMode_Submit_AddsToHistory(t *testing.T) {
 	model, _ = a.Update(components.InputSubmitMsg{Value: "!echo test"})
 	a = model.(App)
 
+	// Shell result clears streaming and refocuses input
+	model, _ = a.Update(ShellResultMsg{Command: "echo test", Output: "test"})
+	a = model.(App)
+
 	// Up arrow should recall "!echo test"
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	a = model.(App)
@@ -577,6 +581,43 @@ func TestApp_ModifiedFiles_ClearedOnNewSession(t *testing.T) {
 	cmd.Handler(&a)
 
 	assert.Empty(t, a.modifiedFiles)
+}
+
+func TestApp_ShellSubmit_SetsCancelAndStreaming(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+	a.shellMode = true
+
+	model, cmd := a.Update(components.InputSubmitMsg{Value: "!echo hello"})
+	a = model.(App)
+	assert.True(t, a.streaming, "shell submit should set streaming")
+	assert.NotNil(t, a.cancel, "shell submit should set cancel function")
+	assert.NotNil(t, cmd, "should return async command")
+}
+
+func TestApp_ShellResult_ClearsStreaming(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	app.streaming = true
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.streaming = true
+
+	model, _ = a.Update(ShellResultMsg{Command: "echo hello", Output: "hello"})
+	a = model.(App)
+	assert.False(t, a.streaming, "shell result should clear streaming state")
 }
 
 func TestApp_Submit_SetsReasoningEffort(t *testing.T) {

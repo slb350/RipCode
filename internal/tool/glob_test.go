@@ -97,3 +97,20 @@ func TestGlob_PathTraversalBlocked(t *testing.T) {
 	result := g.Execute(ctx, `{"pattern":"*","path":"`+outside+`"}`)
 	assert.Error(t, result.Error)
 }
+
+func TestGlob_SkipErrors_ReportsCount(t *testing.T) {
+	g := NewGlobTool()
+	ctx := newTestCtx(t)
+	// Create a readable file and an unreadable subdirectory
+	require.NoError(t, os.WriteFile(filepath.Join(ctx.WorkDir, "ok.go"), []byte("go"), 0644))
+	badDir := filepath.Join(ctx.WorkDir, "noperm")
+	require.NoError(t, os.MkdirAll(badDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(badDir, "hidden.go"), []byte("go"), 0644))
+	require.NoError(t, os.Chmod(badDir, 0000))
+	t.Cleanup(func() { os.Chmod(badDir, 0755) })
+
+	result := g.Execute(ctx, `{"pattern":"**/*.go","path":"`+ctx.WorkDir+`"}`)
+	require.NoError(t, result.Error)
+	assert.Contains(t, result.Output, "ok.go")
+	assert.Contains(t, result.Output, "skipped due to errors")
+}

@@ -51,7 +51,7 @@ func (s *Session) AddUser(content string) *MessageRecord {
 	rec := MessageRecord{
 		ID: generateMessageID(),
 		Message: provider.Message{
-			Role:    "user",
+			Role:    provider.RoleUser,
 			Content: content,
 		},
 		CreatedAt: time.Now(),
@@ -66,7 +66,7 @@ func (s *Session) AddAssistant(content string, toolCalls []provider.ToolCall, me
 	rec := MessageRecord{
 		ID: generateMessageID(),
 		Message: provider.Message{
-			Role:      "assistant",
+			Role:      provider.RoleAssistant,
 			Content:   content,
 			ToolCalls: toolCalls,
 		},
@@ -83,7 +83,7 @@ func (s *Session) AddToolResult(callID, content string) *MessageRecord {
 	rec := MessageRecord{
 		ID: generateMessageID(),
 		Message: provider.Message{
-			Role:       "tool",
+			Role:       provider.RoleTool,
 			Content:    content,
 			ToolCallID: callID,
 		},
@@ -107,7 +107,7 @@ func (s *Session) History() []provider.Message {
 
 	if s.systemPrompt != "" {
 		msgs[0] = provider.Message{
-			Role:    "system",
+			Role:    provider.RoleSystem,
 			Content: s.systemPrompt,
 		}
 	}
@@ -234,6 +234,8 @@ func (s *Session) AddTokens(input, output int) {
 	s.Tokens.Output += output
 }
 
+// generatePrefixedID generates a random ID with the given prefix. Panics if
+// crypto/rand fails, which indicates a catastrophic system issue (no entropy source).
 func generatePrefixedID(prefix string, byteLen int) string {
 	b := make([]byte, byteLen)
 	if _, err := rand.Read(b); err != nil {

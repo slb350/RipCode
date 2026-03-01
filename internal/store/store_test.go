@@ -40,6 +40,13 @@ func TestDir_ReturnsRipcodeDir(t *testing.T) {
 	assert.Equal(t, dir, Dir())
 }
 
+func TestDir_EmptyHome_FallsBackToRelative(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", "")
+	t.Setenv("HOME", "")
+	d := Dir()
+	assert.Equal(t, ".ripcode", d, "should fall back to relative .ripcode when HOME is empty")
+}
+
 func TestSessionsDir_ReturnsSessionsSubdir(t *testing.T) {
 	dir := testDir(t)
 	assert.Equal(t, filepath.Join(dir, "sessions"), SessionsDir())

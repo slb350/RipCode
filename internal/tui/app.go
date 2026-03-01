@@ -325,6 +325,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case SessionsLoadedMsg:
+		if msg.Err != nil {
+			a.sessionsDialog.loaded = true
+			return a, a.ShowToast("Failed to load sessions", components.ToastError)
+		}
 		a.sessionsDialog.entries = msg.Sessions
 		a.sessionsDialog.loaded = true
 		return a, nil
@@ -334,6 +338,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case ShellResultMsg:
+		a.setStreaming(false)
+		a.input.Focus()
 		if msg.Error != "" {
 			a.chat.AddEntry(components.ChatEntry{Role: "error", Content: msg.Error})
 			toastCmd := a.ShowToast("Command failed", components.ToastError)

@@ -114,3 +114,34 @@ func TestMCPConfig_ByName_NotFound(t *testing.T) {
 	}
 	assert.Nil(t, cfg.ByName("missing"))
 }
+
+func TestMCPServer_Valid_WithCommand(t *testing.T) {
+	s := MCPServer{Name: "test", Command: "echo hello"}
+	assert.NoError(t, s.Valid())
+}
+
+func TestMCPServer_Valid_WithURL(t *testing.T) {
+	s := MCPServer{Name: "test", URL: "http://localhost:8080"}
+	assert.NoError(t, s.Valid())
+}
+
+func TestMCPServer_Valid_EmptyName(t *testing.T) {
+	s := MCPServer{Command: "echo"}
+	err := s.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "name")
+}
+
+func TestMCPServer_Valid_NeitherCommandNorURL(t *testing.T) {
+	s := MCPServer{Name: "test"}
+	err := s.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "command or url")
+}
+
+func TestMCPServer_Valid_BothCommandAndURL(t *testing.T) {
+	s := MCPServer{Name: "test", Command: "echo", URL: "http://localhost"}
+	err := s.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "both")
+}

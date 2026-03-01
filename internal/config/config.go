@@ -97,7 +97,10 @@ func envLookup(key string, dotenv map[string]string) string {
 func SaveAPIKey(dir, apiKey string) error {
 	envPath := filepath.Join(dir, ".env")
 
-	existing, _ := godotenv.Read(envPath)
+	existing, err := godotenv.Read(envPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read existing .env: %w", err)
+	}
 	if existing == nil {
 		existing = make(map[string]string)
 	}

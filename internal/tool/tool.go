@@ -2,9 +2,27 @@ package tool
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/stephenbrandon/ripcode/internal/provider"
 )
+
+// skipDirs contains directory names to skip during file traversal.
+var skipDirs = map[string]bool{
+	".git":         true,
+	"node_modules": true,
+	".next":        true,
+	"__pycache__":  true,
+	".venv":        true,
+}
+
+// skippedNote returns a formatted skip message for tool output, or "" if none.
+func skippedNote(count int, noun string) string {
+	if count == 0 {
+		return ""
+	}
+	return fmt.Sprintf("\n(%d %s skipped due to errors)", count, noun)
+}
 
 // Context carries execution context for tool invocations.
 type Context struct {

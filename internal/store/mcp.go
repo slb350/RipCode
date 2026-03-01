@@ -17,6 +17,20 @@ type MCPServer struct {
 	Enabled bool   `json:"enabled"`
 }
 
+// Valid returns an error if the server configuration is invalid.
+func (s MCPServer) Valid() error {
+	if s.Name == "" {
+		return fmt.Errorf("server name is required")
+	}
+	if s.Command == "" && s.URL == "" {
+		return fmt.Errorf("server %q requires command or url", s.Name)
+	}
+	if s.Command != "" && s.URL != "" {
+		return fmt.Errorf("server %q cannot have both command and url", s.Name)
+	}
+	return nil
+}
+
 // MCPConfig holds MCP server configurations.
 type MCPConfig struct {
 	Servers []MCPServer `json:"servers"`

@@ -100,9 +100,12 @@ type ToolDef struct {
 
 // Provider is the interface for LLM backends.
 type Provider interface {
-	// Chat sends messages and streams the response as events.
+	// Chat sends messages and streams the response as events on the returned channel.
+	// The channel is closed when the stream ends (either successfully or on error).
+	// Callers must drain the channel to avoid goroutine leaks.
+	// Implementations should respect context cancellation and close the channel promptly.
 	Chat(ctx context.Context, msgs []Message, tools []ToolDef) (<-chan StreamEvent, error)
-	// Name returns the provider identifier.
+	// Name returns the provider identifier (e.g., "openrouter").
 	Name() string
 }
 

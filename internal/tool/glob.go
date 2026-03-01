@@ -11,15 +11,6 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
-// skipDirs contains directory names to skip during glob traversal.
-var skipDirs = map[string]bool{
-	".git":         true,
-	"node_modules": true,
-	".next":        true,
-	"__pycache__":  true,
-	".venv":        true,
-}
-
 // GlobTool finds files matching a pattern.
 type GlobTool struct{}
 
@@ -72,9 +63,11 @@ func (g *GlobTool) Execute(ctx Context, argsJSON string) Result {
 	}
 
 	var matches []string
+	skipped := 0
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil // skip errors
+			skipped++
+			return nil
 		}
 
 		if d.IsDir() {
@@ -118,6 +111,7 @@ func (g *GlobTool) Execute(ctx Context, argsJSON string) Result {
 		sb.WriteByte('\n')
 	}
 	sb.WriteString(fmt.Sprintf("\n%d files matched", len(matches)))
+	sb.WriteString(skippedNote(skipped, "paths"))
 
 	return Result{
 		Output: sb.String(),

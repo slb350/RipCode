@@ -504,3 +504,38 @@ func TestApp_VariantCycle_ClearsReasoningEffort(t *testing.T) {
 	p := a.provider.(*modelListProvider)
 	assert.Equal(t, "", p.reasoningEffort, "cycling past last variant should clear reasoning effort")
 }
+
+func TestModelDialog_FavToggle_NilModelPrefs(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modelPrefs = nil // Force nil modelPrefs
+	a.modelsCache = []provider.ModelInfo{
+		{ID: "anthropic/claude-4", Name: "Claude 4"},
+	}
+	a.modelsLoaded = true
+	a = a.openModelDialog("")
+	// Should not panic with nil modelPrefs
+	model, cmd := a.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	a = model.(App)
+	assert.True(t, a.modelDialog.open, "dialog should remain open")
+	assert.Nil(t, cmd, "should return nil when modelPrefs is nil")
+}
+
+func TestSwitchModel_LoadsSavedVariant(t *testing.T) {
+	a := makeSessionApp(t)
+	// Save a variant for model B
+	a.modelPrefs.SetVariant("anthropic/claude-sonnet-4-thinking", "high")
+	a.fullModelID = "openai/gpt-4o"
+	a.activeVariant = ""
+	// Switch to model B which has a saved variant
+	a.switchModel("anthropic/claude-sonnet-4-thinking")
+	assert.Equal(t, "high", a.activeVariant, "should load saved variant on model switch")
+}
+
+func TestSwitchModel_ClearsVariant_NoVariantsModel(t *testing.T) {
+	a := makeSessionApp(t)
+	a.fullModelID = "anthropic/claude-sonnet-4-thinking"
+	a.activeVariant = "high"
+	// Switch to model with no variants
+	a.switchModel("openai/gpt-4o")
+	assert.Equal(t, "", a.activeVariant, "should clear variant for non-thinking model")
+}

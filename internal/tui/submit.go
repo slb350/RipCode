@@ -82,18 +82,24 @@ func (a App) handleShellSubmit(input string) (tea.Model, tea.Cmd) {
 
 	a.chat.AddEntry(components.ChatEntry{Role: "user", Content: "! " + cmd})
 
-	// Execute async via tea.Cmd
+	// Execute async via tea.Cmd with cancellable context
 	shellCmd := cmd
 	workDir := ""
 	if a.session != nil {
 		workDir = a.session.WorkDir
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	a.cancel = cancel
+	a.setStreaming(true)
+	a.input.Blur()
+
 	return a, func() tea.Msg {
+		defer cancel()
 		bashTool := tool.NewBashTool()
 		argsJSON := fmt.Sprintf(`{"command":%q}`, shellCmd)
 		result := bashTool.Execute(tool.Context{
 			WorkDir: workDir,
-			Abort:   context.Background(),
+			Abort:   ctx,
 		}, argsJSON)
 		if result.Error != nil {
 			return ShellResultMsg{Command: shellCmd, Error: result.Error.Error()}

@@ -77,9 +77,11 @@ func (g *GrepTool) Execute(ctx Context, argsJSON string) Result {
 
 	var sb strings.Builder
 	fileCount := 0
+	skipped := 0
 
 	walkErr := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
+			skipped++
 			return nil
 		}
 
@@ -138,7 +140,7 @@ func (g *GrepTool) Execute(ctx Context, argsJSON string) Result {
 
 	if sb.Len() == 0 {
 		return Result{
-			Output: fmt.Sprintf("no matches for pattern %q in %s", args.Pattern, root),
+			Output: fmt.Sprintf("no matches for pattern %q in %s", args.Pattern, root) + skippedNote(skipped, "paths"),
 			Title:  args.Pattern,
 		}
 	}
@@ -146,6 +148,7 @@ func (g *GrepTool) Execute(ctx Context, argsJSON string) Result {
 	if fileCount >= maxGrepFiles {
 		sb.WriteString(fmt.Sprintf("\n[results limited to %d files]", maxGrepFiles))
 	}
+	sb.WriteString(skippedNote(skipped, "paths"))
 
 	return Result{
 		Output: sb.String(),

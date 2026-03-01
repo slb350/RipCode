@@ -140,6 +140,9 @@ func (a App) handleModelDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case msg.Mod == tea.ModCtrl && msg.Code == 'f':
+		if a.modelPrefs == nil {
+			return a, nil
+		}
 		models := a.filteredModelsDialog()
 		if len(models) == 0 {
 			return a, nil
@@ -405,19 +408,13 @@ func (a App) handleVariantCycle() (tea.Model, tea.Cmd) {
 		return a, a.ShowToast("No variants for this model", components.ToastWarning)
 	}
 	next := provider.CycleVariant(a.fullModelID, a.activeVariant)
-	a.activeVariant = next
-	if rs, ok := a.provider.(provider.ReasoningEffortSetter); ok {
-		rs.SetReasoningEffort(next)
-	}
+	a.applyVariant(next)
 	if a.modelPrefs != nil {
 		a.modelPrefs.SetVariant(a.fullModelID, next)
 		a.warnOnErr(a.modelPrefs.Save(), "variant")
 	}
 	if next == "" {
-		a.statusbar.SetVariantBadge("")
 		return a, a.ShowToast("Variant: none", components.ToastInfo)
 	}
-	badge := "[thinking:" + next + "]"
-	a.statusbar.SetVariantBadge(badge)
 	return a, a.ShowToast("Variant: "+next, components.ToastInfo)
 }

@@ -111,6 +111,16 @@ type stashDialogState struct {
 	pendingContent string // content to stash (captured before input reset)
 }
 
+// applyVariant updates activeVariant, the status bar badge, and the provider's
+// reasoning effort in one place.
+func (a *App) applyVariant(variant string) {
+	a.activeVariant = variant
+	a.statusbar.SetVariantBadge(provider.VariantBadge(variant))
+	if rs, ok := a.provider.(provider.ReasoningEffortSetter); ok {
+		rs.SetReasoningEffort(variant)
+	}
+}
+
 // switchModel attempts to switch to the given model ID via the provider.
 // Returns true on success, false on error. Adds appropriate chat entries.
 func (a *App) switchModel(modelID string) bool {
@@ -143,13 +153,12 @@ func (a *App) switchModel(modelID string) bool {
 		a.modelPrefs.AddRecent(ref)
 		a.warnOnErr(a.modelPrefs.Save(), "model recents")
 	}
-	// Clear variant if new model doesn't support it
-	if a.activeVariant != "" {
-		variants := provider.VariantsFor(modelID)
-		if len(variants) == 0 {
-			a.activeVariant = ""
-			a.statusbar.SetVariantBadge("")
-		}
+	// Update variant for new model
+	variants := provider.VariantsFor(modelID)
+	if len(variants) == 0 {
+		a.applyVariant("")
+	} else if a.modelPrefs != nil {
+		a.applyVariant(a.modelPrefs.GetVariant(modelID))
 	}
 	a.chat.AddEntry(components.ChatEntry{
 		Role:    "system",

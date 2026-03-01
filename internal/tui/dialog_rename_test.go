@@ -5,8 +5,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestApp_RenameDialog_OpensWithSlashRename(t *testing.T) {
@@ -121,4 +123,22 @@ func TestApp_RenameDialog_ShowsSuccessToast(t *testing.T) {
 	toast := a.toasts.Current()
 	assert.NotNil(t, toast)
 	assert.Contains(t, toast.Message, "Renamed")
+}
+
+func TestApp_RenameDialog_PersistsToDisk(t *testing.T) {
+	app := makeSessionApp(t)
+	sessID := app.session.ID
+	model, _ := app.Update(components.InputSubmitMsg{Value: "/rename"})
+	a := model.(App)
+	model, _ = a.Update(tea.KeyPressMsg{Text: "m"})
+	a = model.(App)
+	model, _ = a.Update(tea.KeyPressMsg{Text: "y"})
+	a = model.(App)
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	_ = model.(App)
+
+	// Load from disk and verify title was persisted
+	loaded, err := store.Load(sessID)
+	require.NoError(t, err, "session should be persisted to disk on rename")
+	assert.Equal(t, "my", loaded.Title, "renamed title should be persisted")
 }

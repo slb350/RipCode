@@ -206,6 +206,50 @@ func TestApp_ModifiedFiles_TracksEditEvent(t *testing.T) {
 	assert.Contains(t, a.modifiedFiles, "/tmp/bar.go")
 }
 
+func TestApp_ModifiedFiles_FailedWrite_NotTracked(t *testing.T) {
+	app := NewApp()
+	app.state = StateSession
+	ch := make(chan agent.Event, 1)
+	app.streaming = true
+	app.eventCh = ch
+
+	model, _ := app.Update(AgentEventMsg{
+		Event: agent.Event{
+			Type: agent.EventToolEnd,
+			Tool: &agent.ToolEvent{
+				ID:    "1",
+				Name:  "write",
+				Args:  `{"file_path":"/tmp/fail.go","content":"package main"}`,
+				Error: "permission denied",
+			},
+		},
+	})
+	a := model.(App)
+	assert.Empty(t, a.modifiedFiles, "failed write should not be tracked")
+}
+
+func TestApp_ModifiedFiles_FailedEdit_NotTracked(t *testing.T) {
+	app := NewApp()
+	app.state = StateSession
+	ch := make(chan agent.Event, 1)
+	app.streaming = true
+	app.eventCh = ch
+
+	model, _ := app.Update(AgentEventMsg{
+		Event: agent.Event{
+			Type: agent.EventToolEnd,
+			Tool: &agent.ToolEvent{
+				ID:    "1",
+				Name:  "edit",
+				Args:  `{"file_path":"/tmp/fail.go","old_string":"a","new_string":"b"}`,
+				Error: "no match found",
+			},
+		},
+	})
+	a := model.(App)
+	assert.Empty(t, a.modifiedFiles, "failed edit should not be tracked")
+}
+
 func TestApp_ModifiedFiles_Deduplicates(t *testing.T) {
 	app := NewApp()
 	app.state = StateSession

@@ -58,7 +58,7 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 				Output: event.Tool.Output,
 				Error:  event.Tool.Error,
 			})
-			if event.Tool.Name == "write" || event.Tool.Name == "edit" {
+			if (event.Tool.Name == "write" || event.Tool.Name == "edit") && event.Tool.Error == "" {
 				var parsed struct {
 					FilePath string `json:"file_path"`
 				}

@@ -53,6 +53,7 @@ func main() {
 	app.SetSession(sess)
 	app.SetAgent(ag)
 	app.SetModel(shortModel(cfg.Model))
+	app.SetFullModelID(cfg.Model)
 	app.SetMaxSteps(cfg.MaxSteps)
 
 	p := tea.NewProgram(app)

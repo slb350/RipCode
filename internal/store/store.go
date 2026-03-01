@@ -7,11 +7,15 @@ import (
 
 // Dir returns the ripcode data directory.
 // Uses RIPCODE_DIR env var if set, otherwise ~/.ripcode.
+// Falls back to ".ripcode" in the current directory if HOME cannot be resolved.
 func Dir() string {
 	if dir := os.Getenv("RIPCODE_DIR"); dir != "" {
 		return dir
 	}
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ".ripcode"
+	}
 	return filepath.Join(home, ".ripcode")
 }
 

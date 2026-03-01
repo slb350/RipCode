@@ -22,14 +22,16 @@ func loadPromptHistory() (*components.PromptHistory, error) {
 	}
 	h.LoadItems(items)
 
-	// Best-effort compaction; if save fails, uncompacted history still works
+	// Compact if over limit; return error so caller can warn
 	if len(entries) > historyMaxSize {
 		kept := h.Items()
 		compacted := make([]store.HistoryEntry, len(kept))
 		for i, item := range kept {
 			compacted[i] = store.HistoryEntry{Prompt: item.Prompt, Mode: item.Mode}
 		}
-		_ = store.SaveHistory(compacted)
+		if err := store.SaveHistory(compacted); err != nil {
+			return h, err
+		}
 	}
 	return h, nil
 }

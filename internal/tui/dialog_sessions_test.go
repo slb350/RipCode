@@ -335,3 +335,18 @@ func TestSessionDateGroup_OlderDate(t *testing.T) {
 	result := sessionDateGroup(older, today)
 	assert.Contains(t, result, older.Format("Jan 2"))
 }
+
+func TestApp_SessionsLoadedMsg_WithError(t *testing.T) {
+	app := makeSessionApp(t)
+	model, _ := app.Update(components.InputSubmitMsg{Value: "/sessions"})
+	a := model.(App)
+	assert.True(t, a.sessionsDialog.open)
+	// Send error
+	model, cmd := a.Update(SessionsLoadedMsg{Err: assert.AnError})
+	a = model.(App)
+	assert.True(t, a.sessionsDialog.loaded, "loaded should still be set")
+	assert.Empty(t, a.sessionsDialog.entries, "entries should remain empty on error")
+	assert.NotNil(t, cmd, "should return toast cmd for error")
+	toast := a.toasts.Current()
+	assert.NotNil(t, toast, "should show error toast")
+}

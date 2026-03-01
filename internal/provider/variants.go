@@ -11,6 +11,14 @@ func VariantsFor(modelID string) []string {
 	return KnownVariants[modelID]
 }
 
+// VariantBadge returns the status bar badge for a variant, or "" if empty.
+func VariantBadge(variant string) string {
+	if variant == "" {
+		return ""
+	}
+	return "[thinking:" + variant + "]"
+}
+
 // CycleVariant cycles through variants: none -> first -> ... -> last -> none.
 // Returns empty string to disable the variant, then first variant to re-enable.
 // If the model has no variants, always returns empty string.

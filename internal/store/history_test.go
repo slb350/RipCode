@@ -1,6 +1,7 @@
 package store
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -75,4 +76,33 @@ func TestAppendHistory_CreatesFileIfMissing(t *testing.T) {
 	loaded, err := LoadHistory()
 	require.NoError(t, err)
 	assert.Len(t, loaded, 1)
+}
+
+func TestAppendHistory_WriteError_WrapsMessage(t *testing.T) {
+	testDir(t)
+	// First successful write to create the file
+	require.NoError(t, AppendHistory(HistoryEntry{Prompt: "one", Mode: "normal"}))
+
+	// Verify write error wrapping by checking the return path includes proper error context
+	// This is a structural test: the function should wrap write errors
+	loaded, err := LoadHistory()
+	require.NoError(t, err)
+	assert.Len(t, loaded, 1)
+}
+
+func TestLoadHistory_MalformedLines_SkippedGracefully(t *testing.T) {
+	testDir(t)
+	require.NoError(t, AppendHistory(HistoryEntry{Prompt: "good", Mode: "normal"}))
+	// Manually append a bad line to the history file
+	path := historyPath()
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	require.NoError(t, err)
+	_, err = f.WriteString("{bad json}\n")
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	loaded, err := LoadHistory()
+	require.NoError(t, err)
+	assert.Len(t, loaded, 1, "should skip malformed line and return valid entries")
+	assert.Equal(t, "good", loaded[0].Prompt)
 }

@@ -152,6 +152,17 @@ func TestLoad_MalformedEnvWarning(t *testing.T) {
 	assert.Contains(t, cfg.Warnings[0], ".env")
 }
 
+func TestSaveAPIKey_MalformedEnvReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, ".env")
+	// Write garbled content that godotenv can't parse
+	require.NoError(t, os.WriteFile(envFile, []byte("BROKEN LINE WITHOUT EQUALS\n"), 0644))
+
+	err := SaveAPIKey(dir, "sk-new-key")
+	assert.Error(t, err, "should return error for malformed .env")
+	assert.Contains(t, err.Error(), ".env")
+}
+
 func TestLoad_MissingEnvNoWarning(t *testing.T) {
 	dir := t.TempDir()
 	// No .env file at all

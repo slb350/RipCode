@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 )
 
@@ -27,6 +28,7 @@ func (a App) handleRenameDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if a.session != nil {
 			a.session.Title = a.renameDialog.value
 			a.statusbar.SetTitle(a.renameDialog.value)
+			a.warnOnErr(store.Save(a.session), "session")
 		}
 		id := a.toasts.Show(fmt.Sprintf("Renamed to \"%s\"", a.renameDialog.value), components.ToastSuccess, 3*time.Second)
 		return a, func() tea.Msg {

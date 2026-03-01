@@ -97,6 +97,12 @@ func AppendHistory(entry HistoryEntry) error {
 		return fmt.Errorf("marshal history entry: %w", err)
 	}
 	data = append(data, '\n')
-	_, err = f.Write(data)
-	return err
+	n, err := f.Write(data)
+	if err != nil {
+		return fmt.Errorf("write history entry: %w", err)
+	}
+	if n != len(data) {
+		return fmt.Errorf("partial write to history: wrote %d of %d bytes", n, len(data))
+	}
+	return nil
 }
