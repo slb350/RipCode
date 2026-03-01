@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -44,6 +45,8 @@ type App struct {
 	model         string
 	maxSteps      int
 	streaming     bool
+	modelsCache   []provider.ModelInfo
+	modelsLoaded  bool
 	responseStart time.Time
 	cancel        context.CancelFunc
 	eventCh       <-chan agent.Event
@@ -123,6 +126,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case components.InputSubmitMsg:
 		return a.handleSubmit(msg.Value)
 
+	case ModelsLoadedMsg:
+		return a.handleModelsLoaded(msg)
+
 	case AgentEventMsg:
 		return a.handleAgentEvent(msg.Event)
 
@@ -182,6 +188,11 @@ func (a App) handleSubmit(input string) (tea.Model, tea.Cmd) {
 		a.state = StateSession
 	}
 
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "/models" || strings.HasPrefix(trimmed, "/models ") {
+		return a.handleModelsCommand(trimmed)
+	}
+
 	if a.provider == nil || a.registry == nil || a.session == nil {
 		a.chat.AddEntry(components.ChatEntry{
 			Role:    "error",
@@ -203,6 +214,147 @@ func (a App) handleSubmit(input string) (tea.Model, tea.Cmd) {
 	a.eventCh = loop.Run(ctx, input)
 
 	return a, listenForEvents(a.eventCh)
+}
+
+func (a App) handleModelsCommand(input string) (tea.Model, tea.Cmd) {
+	a.chat.AddEntry(components.ChatEntry{Role: "user", Content: input})
+
+	if a.provider == nil {
+		a.chat.AddEntry(components.ChatEntry{
+			Role:    "error",
+			Content: "Not configured — missing provider",
+		})
+		return a, nil
+	}
+
+	query := parseModelsQuery(input)
+
+	// Cache hit — display synchronously, no HTTP call.
+	if a.modelsLoaded {
+		return a.displayModels(a.modelsCache, query), nil
+	}
+
+	// Cache miss — show spinner, fetch async.
+	a.statusbar.SetSpinning(true)
+	a.input.Blur()
+	return a, loadModelsCmd(a.provider, query)
+}
+
+func (a App) handleModelsLoaded(msg ModelsLoadedMsg) (tea.Model, tea.Cmd) {
+	a.statusbar.SetSpinning(false)
+	a.input.Focus()
+
+	if msg.Err != nil {
+		a.chat.AddEntry(components.ChatEntry{
+			Role:    "error",
+			Content: msg.Err.Error(),
+		})
+		return a, nil
+	}
+
+	a.modelsCache = msg.Models
+	a.modelsLoaded = true
+	return a.displayModels(msg.Models, msg.Query), nil
+}
+
+// displayModels renders filtered model results into the chat.
+func (a App) displayModels(models []provider.ModelInfo, query string) App {
+	filtered := filterModels(models, query)
+	if len(filtered) == 0 {
+		msg := "No models found."
+		if query != "" {
+			msg = fmt.Sprintf("No models found for %q.", query)
+		}
+		a.chat.AddEntry(components.ChatEntry{
+			Role:    "system",
+			Content: msg,
+		})
+		return a
+	}
+
+	const maxDisplay = 120
+	lines := make([]string, 0, min(len(filtered), maxDisplay)+2)
+	if query == "" {
+		lines = append(lines, fmt.Sprintf("Available models: %d total (showing up to %d)", len(filtered), maxDisplay))
+	} else {
+		lines = append(lines, fmt.Sprintf("Filtered models for %q: %d matches (showing up to %d)", query, len(filtered), maxDisplay))
+	}
+
+	display := filtered
+	if len(display) > maxDisplay {
+		display = display[:maxDisplay]
+	}
+	for _, m := range display {
+		lines = append(lines, modelLine(m))
+	}
+	if len(filtered) > maxDisplay {
+		lines = append(lines, fmt.Sprintf("... %d more matches not shown", len(filtered)-maxDisplay))
+	}
+
+	a.chat.AddEntry(components.ChatEntry{
+		Role:    "system",
+		Content: strings.Join(lines, "\n"),
+	})
+	return a
+}
+
+// loadModelsCmd returns a Cmd that fetches models from the provider in a goroutine.
+func loadModelsCmd(p provider.Provider, query string) tea.Cmd {
+	return func() tea.Msg {
+		lister, ok := p.(provider.ModelLister)
+		if !ok {
+			return ModelsLoadedMsg{
+				Err:   fmt.Errorf("provider %q does not support model listing", p.Name()),
+				Query: query,
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		models, err := lister.ListModels(ctx)
+		if err != nil {
+			return ModelsLoadedMsg{
+				Err:   fmt.Errorf("list models: %w", err),
+				Query: query,
+			}
+		}
+
+		return ModelsLoadedMsg{
+			Models: models,
+			Query:  query,
+		}
+	}
+}
+
+func parseModelsQuery(input string) string {
+	parts := strings.Fields(input)
+	if len(parts) <= 1 {
+		return ""
+	}
+	return strings.Join(parts[1:], " ")
+}
+
+func filterModels(models []provider.ModelInfo, query string) []provider.ModelInfo {
+	if query == "" {
+		return models
+	}
+
+	q := strings.ToLower(query)
+	out := make([]provider.ModelInfo, 0, len(models))
+	for _, m := range models {
+		if strings.Contains(strings.ToLower(m.ID), q) || strings.Contains(strings.ToLower(m.Name), q) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func modelLine(m provider.ModelInfo) string {
+	if m.Name == "" || m.Name == m.ID {
+		return m.ID
+	}
+	return m.ID + " - " + m.Name
 }
 
 func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {

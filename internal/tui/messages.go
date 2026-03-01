@@ -1,6 +1,9 @@
 package tui
 
-import "github.com/stephenbrandon/ripcode/internal/agent"
+import (
+	"github.com/stephenbrandon/ripcode/internal/agent"
+	"github.com/stephenbrandon/ripcode/internal/provider"
+)
 
 // AgentEventMsg wraps an agent loop event for the TUI.
 type AgentEventMsg struct {
@@ -10,4 +13,11 @@ type AgentEventMsg struct {
 // ModeChangeMsg signals a mode change.
 type ModeChangeMsg struct {
 	Mode agent.Mode
+}
+
+// ModelsLoadedMsg carries the result of an async model list fetch.
+type ModelsLoadedMsg struct {
+	Models []provider.ModelInfo
+	Err    error
+	Query  string
 }

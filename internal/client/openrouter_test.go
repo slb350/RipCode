@@ -349,3 +349,40 @@ func TestOpenRouter_SendsToolResults(t *testing.T) {
 	assert.Equal(t, "tool", toolMsg["role"])
 	assert.Equal(t, "call_1", toolMsg["tool_call_id"])
 }
+
+func TestOpenRouter_ListModels(t *testing.T) {
+	body := `{"data":[{"id":"anthropic/claude-sonnet-4","name":"Claude Sonnet 4"},{"id":"openai/gpt-4o","name":"GPT-4o"}]}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.modelsURL = srv.URL
+
+	models, err := c.ListModels(context.Background())
+	require.NoError(t, err)
+	require.Len(t, models, 2)
+
+	assert.Equal(t, "anthropic/claude-sonnet-4", models[0].ID)
+	assert.Equal(t, "Claude Sonnet 4", models[0].Name)
+	assert.Equal(t, "openai/gpt-4o", models[1].ID)
+}
+
+func TestOpenRouter_ListModels_APIError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		fmt.Fprint(w, `{"error":"unavailable"}`)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.modelsURL = srv.URL
+
+	_, err := c.ListModels(context.Background())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "503")
+}

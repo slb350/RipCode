@@ -1,13 +1,35 @@
 package tui
 
 import (
+	"context"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/stephenbrandon/ripcode/internal/agent"
+	"github.com/stephenbrandon/ripcode/internal/provider"
 	"github.com/stephenbrandon/ripcode/internal/session"
+	"github.com/stephenbrandon/ripcode/internal/tool"
+	"github.com/stephenbrandon/ripcode/internal/tui/components"
 	"github.com/stretchr/testify/assert"
 )
+
+type modelListProvider struct {
+	models []provider.ModelInfo
+	calls  int
+}
+
+func (m *modelListProvider) Name() string { return "mock" }
+
+func (m *modelListProvider) Chat(_ context.Context, _ []provider.Message, _ []provider.ToolDef) (<-chan provider.StreamEvent, error) {
+	ch := make(chan provider.StreamEvent)
+	close(ch)
+	return ch, nil
+}
+
+func (m *modelListProvider) ListModels(_ context.Context) ([]provider.ModelInfo, error) {
+	m.calls++
+	return m.models, nil
+}
 
 func TestNewApp(t *testing.T) {
 	app := NewApp()
@@ -192,4 +214,73 @@ func TestApp_EscCancel_ClearsChannel(t *testing.T) {
 
 	assert.False(t, a.streaming)
 	assert.Nil(t, a.eventCh, "Esc cancel must clear the event channel")
+}
+
+func TestApp_ModelsCommand_AsyncFetchAndCache(t *testing.T) {
+	p := &modelListProvider{
+		models: []provider.ModelInfo{
+			{ID: "anthropic/claude-sonnet-4", Name: "Claude Sonnet 4"},
+			{ID: "openai/gpt-4o", Name: "GPT-4o"},
+		},
+	}
+
+	app := NewApp()
+	app.SetProvider(p)
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+	app.SetModel("glm-5")
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	a := model.(App)
+
+	// First /models — cache miss, should return a Cmd (async fetch).
+	model, cmd := a.Update(components.InputSubmitMsg{Value: "/models"})
+	a = model.(App)
+	assert.NotNil(t, cmd, "cache miss must return a fetch command")
+	assert.Equal(t, 0, p.calls, "provider should not be called synchronously")
+
+	// Execute the command to simulate the async fetch completing.
+	msg := cmd()
+	loadedMsg, ok := msg.(ModelsLoadedMsg)
+	assert.True(t, ok, "cmd must produce ModelsLoadedMsg")
+	assert.Nil(t, loadedMsg.Err)
+	assert.Len(t, loadedMsg.Models, 2)
+	assert.Equal(t, 1, p.calls, "provider called once by the async cmd")
+
+	// Feed the message back into Update.
+	model, cmd = a.Update(loadedMsg)
+	a = model.(App)
+	assert.Nil(t, cmd, "loaded message should not produce another cmd")
+	assert.True(t, a.modelsLoaded, "cache should be populated")
+	view := a.View()
+	assert.Contains(t, view.Content, "Available models")
+	assert.Contains(t, view.Content, "anthropic/claude-sonnet-4")
+	assert.Contains(t, view.Content, "openai/gpt-4o")
+
+	// Second /models claude — cache hit, should NOT produce a Cmd.
+	model, cmd = a.Update(components.InputSubmitMsg{Value: "/models claude"})
+	a = model.(App)
+	assert.Nil(t, cmd, "cache hit must not produce a command")
+	assert.Equal(t, 1, p.calls, "provider should not be called again")
+	view = a.View()
+	assert.Contains(t, view.Content, "Filtered models")
+	assert.Contains(t, view.Content, "anthropic/claude-sonnet-4")
+}
+
+func TestApp_ModelsCommand_PrefixMatchRejectsInvalid(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	a := model.(App)
+
+	// "/modelsxyz" should NOT route to models handler — it should go
+	// through normal submit, which adds a user chat entry and starts streaming.
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/modelsxyz"})
+	a = model.(App)
+	assert.True(t, a.streaming, "/modelsxyz must not route to models handler")
 }

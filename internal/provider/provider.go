@@ -44,6 +44,12 @@ type Metadata struct {
 	FinishReason string // "stop", "tool_calls", "length"
 }
 
+// ModelInfo represents a model entry available from a provider.
+type ModelInfo struct {
+	ID   string
+	Name string
+}
+
 // ToolDef describes a tool for the LLM's tool-use schema.
 type ToolDef struct {
 	Name        string
@@ -57,4 +63,9 @@ type Provider interface {
 	Chat(ctx context.Context, msgs []Message, tools []ToolDef) (<-chan StreamEvent, error)
 	// Name returns the provider identifier.
 	Name() string
+}
+
+// ModelLister is implemented by providers that can enumerate available models.
+type ModelLister interface {
+	ListModels(ctx context.Context) ([]ModelInfo, error)
 }

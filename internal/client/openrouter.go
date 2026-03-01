@@ -6,19 +6,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/stephenbrandon/ripcode/internal/provider"
 )
 
 const defaultBaseURL = "https://openrouter.ai/api/v1/chat/completions"
+const defaultModelsURL = "https://openrouter.ai/api/v1/models"
 
 // OpenRouter implements provider.Provider using the OpenRouter API.
 type OpenRouter struct {
 	apiKey     string
 	model      string
 	baseURL    string
+	modelsURL  string
 	httpClient *http.Client
 }
 
@@ -28,11 +32,63 @@ func NewOpenRouter(apiKey, model string) *OpenRouter {
 		apiKey:     apiKey,
 		model:      model,
 		baseURL:    defaultBaseURL,
+		modelsURL:  defaultModelsURL,
 		httpClient: http.DefaultClient,
 	}
 }
 
 func (c *OpenRouter) Name() string { return "openrouter" }
+
+// ListModels fetches the available models from OpenRouter.
+func (c *OpenRouter) ListModels(ctx context.Context) ([]provider.ModelInfo, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.modelsURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			return nil, fmt.Errorf("openrouter API error: %d", resp.StatusCode)
+		}
+		return nil, fmt.Errorf("openrouter API error: %d: %s", resp.StatusCode, msg)
+	}
+
+	var parsed apiModelsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, fmt.Errorf("decode models response: %w", err)
+	}
+
+	seen := make(map[string]bool, len(parsed.Data))
+	models := make([]provider.ModelInfo, 0, len(parsed.Data))
+	for _, m := range parsed.Data {
+		if m.ID == "" || seen[m.ID] {
+			continue
+		}
+		seen[m.ID] = true
+		name := strings.TrimSpace(m.Name)
+		if name == "" {
+			name = m.ID
+		}
+		models = append(models, provider.ModelInfo{
+			ID:   m.ID,
+			Name: name,
+		})
+	}
+
+	sort.Slice(models, func(i, j int) bool {
+		return models[i].ID < models[j].ID
+	})
+	return models, nil
+}
 
 // Chat sends messages to the OpenRouter API and streams response events.
 func (c *OpenRouter) Chat(ctx context.Context, msgs []provider.Message, tools []provider.ToolDef) (<-chan provider.StreamEvent, error) {
@@ -287,4 +343,13 @@ type apiPartialFunc struct {
 type apiUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
+}
+
+type apiModelsResponse struct {
+	Data []apiModel `json:"data"`
+}
+
+type apiModel struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
