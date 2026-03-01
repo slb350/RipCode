@@ -216,6 +216,51 @@ func TestOpenRouter_HandlesAPIError(t *testing.T) {
 	}, nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "401")
+	assert.Contains(t, err.Error(), "Invalid API key")
+}
+
+func TestOpenRouter_ChatErrorIncludesBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"error":{"message":"model not found","code":400}}`)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "bad-model")
+	c.baseURL = srv.URL
+
+	_, err := c.Chat(context.Background(), []provider.Message{
+		{Role: "user", Content: "hi"},
+	}, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "400")
+	assert.Contains(t, err.Error(), "model not found")
+}
+
+func TestOpenRouter_ChatErrorEmptyBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.baseURL = srv.URL
+
+	_, err := c.Chat(context.Background(), []provider.Message{
+		{Role: "user", Content: "hi"},
+	}, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "500")
+}
+
+func TestOpenRouter_SetModelRejectsEmpty(t *testing.T) {
+	c := NewOpenRouter("test-key", "original-model")
+	c.SetModel("")
+
+	c.mu.RLock()
+	model := c.model
+	c.mu.RUnlock()
+	assert.Equal(t, "original-model", model, "empty model should be rejected")
 }
 
 func TestOpenRouter_ContextCancellation(t *testing.T) {

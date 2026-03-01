@@ -45,6 +45,9 @@ func (c *OpenRouter) Name() string { return "openrouter" }
 // SetModel updates the model used for chat completions.
 // Safe to call concurrently with Chat/buildRequest.
 func (c *OpenRouter) SetModel(model string) {
+	if model == "" {
+		return
+	}
 	c.mu.Lock()
 	c.model = model
 	c.mu.Unlock()
@@ -134,8 +137,13 @@ func (c *OpenRouter) Chat(ctx context.Context, msgs []provider.Message, tools []
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		resp.Body.Close()
-		return nil, fmt.Errorf("openrouter API error: %d", resp.StatusCode)
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			return nil, fmt.Errorf("openrouter API error: %d", resp.StatusCode)
+		}
+		return nil, fmt.Errorf("openrouter API error: %d: %s", resp.StatusCode, msg)
 	}
 
 	ch := make(chan provider.StreamEvent, 64)
@@ -218,6 +226,16 @@ func (c *OpenRouter) streamResponse(ctx context.Context, resp *http.Response, ch
 	var meta provider.Metadata
 	meta.Model = currentModel
 
+	// send emits an event on ch, returning false if the context was cancelled.
+	send := func(evt provider.StreamEvent) bool {
+		select {
+		case ch <- evt:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		select {
@@ -237,10 +255,10 @@ func (c *OpenRouter) streamResponse(ctx context.Context, resp *http.Response, ch
 
 		var chunk apiChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			ch <- provider.StreamEvent{
+			send(provider.StreamEvent{
 				Type:  provider.EventError,
 				Error: fmt.Errorf("parse SSE chunk: %w", err),
-			}
+			})
 			return
 		}
 
@@ -257,9 +275,11 @@ func (c *OpenRouter) streamResponse(ctx context.Context, resp *http.Response, ch
 
 		// Content delta
 		if choice.Delta.Content != "" {
-			ch <- provider.StreamEvent{
+			if !send(provider.StreamEvent{
 				Type:    provider.EventContentDelta,
 				Content: choice.Delta.Content,
+			}) {
+				return
 			}
 		}
 
@@ -288,31 +308,33 @@ func (c *OpenRouter) streamResponse(ctx context.Context, resp *http.Response, ch
 	// Check for scanner errors (e.g. network disconnect mid-stream).
 	// Discard partial tool calls — they shouldn't be executed from a truncated stream.
 	if err := scanner.Err(); err != nil {
-		ch <- provider.StreamEvent{
+		send(provider.StreamEvent{
 			Type:  provider.EventError,
 			Error: fmt.Errorf("stream read error: %w", err),
-		}
+		})
 		return
 	}
 
 	// Emit accumulated tool calls
 	for i := 0; i < len(toolCalls); i++ {
 		acc := toolCalls[i]
-		ch <- provider.StreamEvent{
+		if !send(provider.StreamEvent{
 			Type: provider.EventToolCall,
 			ToolCall: &provider.ToolCall{
 				ID:   acc.id,
 				Name: acc.name,
 				Args: acc.args.String(),
 			},
+		}) {
+			return
 		}
 	}
 
 	// Emit finish
-	ch <- provider.StreamEvent{
+	send(provider.StreamEvent{
 		Type: provider.EventFinish,
 		Meta: &meta,
-	}
+	})
 }
 
 // --- API types ---
