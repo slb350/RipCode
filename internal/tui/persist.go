@@ -7,11 +7,14 @@ import (
 
 const historyMaxSize = 200
 
-func loadPromptHistory() *components.PromptHistory {
+func loadPromptHistory() (*components.PromptHistory, error) {
 	h := components.NewPromptHistory(historyMaxSize)
 	entries, err := store.LoadHistory()
-	if err != nil || len(entries) == 0 {
-		return h
+	if err != nil {
+		return h, err
+	}
+	if len(entries) == 0 {
+		return h, nil
 	}
 	items := make([]components.HistoryItem, len(entries))
 	for i, e := range entries {
@@ -28,19 +31,22 @@ func loadPromptHistory() *components.PromptHistory {
 		}
 		_ = store.SaveHistory(compacted)
 	}
-	return h
+	return h, nil
 }
 
-func loadPromptStash() *components.PromptStash {
+func loadPromptStash() (*components.PromptStash, error) {
 	s := components.NewPromptStash()
 	entries, err := store.LoadStash()
-	if err != nil || len(entries) == 0 {
-		return s
+	if err != nil {
+		return s, err
+	}
+	if len(entries) == 0 {
+		return s, nil
 	}
 	for _, e := range entries {
 		s.PushWithID(e.ID, e.Content)
 	}
-	return s
+	return s, nil
 }
 
 func persistStash(s *components.PromptStash) error {

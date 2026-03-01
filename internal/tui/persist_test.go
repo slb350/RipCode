@@ -143,7 +143,8 @@ func TestLoadPromptHistory_Compaction_WritesCorrectData(t *testing.T) {
 	require.NoError(t, store.SaveHistory(entries))
 
 	// Load triggers compaction
-	h := loadPromptHistory()
+	h, err := loadPromptHistory()
+	require.NoError(t, err)
 	assert.NotNil(t, h)
 	items := h.Items()
 	assert.LessOrEqual(t, len(items), historyMaxSize)
@@ -156,11 +157,13 @@ func TestLoadPromptHistory_Compaction_WritesCorrectData(t *testing.T) {
 
 func TestPersistStash_RoundTrips(t *testing.T) {
 	t.Setenv("RIPCODE_DIR", t.TempDir())
-	s := loadPromptStash()
+	s, err := loadPromptStash()
+	require.NoError(t, err)
 	s.Push("test content")
 	require.NoError(t, persistStash(s))
 
-	reloaded := loadPromptStash()
+	reloaded, err := loadPromptStash()
+	require.NoError(t, err)
 	items := reloaded.List()
 	require.Len(t, items, 1)
 	assert.Equal(t, "test content", items[0].Content)
@@ -168,7 +171,8 @@ func TestPersistStash_RoundTrips(t *testing.T) {
 
 func TestPersistHistory_RoundTrips(t *testing.T) {
 	t.Setenv("RIPCODE_DIR", t.TempDir())
-	h := loadPromptHistory()
+	h, err := loadPromptHistory()
+	require.NoError(t, err)
 	h.Push("test prompt")
 	require.NoError(t, persistHistory(h))
 
@@ -187,7 +191,7 @@ func TestPersistStash_WriteFailure_ReturnsError(t *testing.T) {
 	require.NoError(t, os.Chmod(stateDir, 0o444))
 	defer os.Chmod(stateDir, 0o755)
 
-	s := loadPromptStash()
+	s, _ := loadPromptStash()
 	s.Push("test content")
 	err := persistStash(s)
 	// On macOS/Linux non-root this should fail; skip assertion if we're root
@@ -204,10 +208,56 @@ func TestPersistHistory_AppendFailure_ReturnsError(t *testing.T) {
 	require.NoError(t, os.Chmod(stateDir, 0o444))
 	defer os.Chmod(stateDir, 0o755)
 
-	h := loadPromptHistory()
+	h, _ := loadPromptHistory()
 	h.Push("test prompt")
 	err := persistHistory(h)
 	if err != nil {
 		assert.Error(t, err)
 	}
+}
+
+func TestLoadPromptHistory_JSONL_SkipsMalformedLines(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RIPCODE_DIR", dir)
+	stateDir := filepath.Join(dir, "state")
+	require.NoError(t, os.MkdirAll(stateDir, 0o755))
+	// JSONL format: one JSON object per line. Malformed lines are skipped, not errors.
+	content := "{garbage}\n" + `{"prompt":"valid","mode":"normal"}` + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, "prompt-history.jsonl"), []byte(content), 0o644))
+
+	h, err := loadPromptHistory()
+	require.NoError(t, err, "JSONL format skips bad lines without error")
+	assert.NotNil(t, h)
+	items := h.Items()
+	assert.Len(t, items, 1)
+	assert.Equal(t, "valid", items[0].Prompt)
+}
+
+func TestLoadPromptStash_CorruptedReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RIPCODE_DIR", dir)
+	stateDir := filepath.Join(dir, "state")
+	require.NoError(t, os.MkdirAll(stateDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, "stash.json"), []byte("{garbage"), 0o644))
+
+	s, err := loadPromptStash()
+	assert.Error(t, err, "corrupted stash should return error")
+	assert.NotNil(t, s, "should still return usable empty stash")
+}
+
+func TestNewApp_CorruptedStashShowsWarning(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RIPCODE_DIR", dir)
+	stateDir := filepath.Join(dir, "state")
+	require.NoError(t, os.MkdirAll(stateDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, "stash.json"), []byte("{bad"), 0o644))
+
+	app := NewApp()
+	found := false
+	for _, w := range app.startupWarnings {
+		if w == "prompt stash corrupted, using defaults" {
+			found = true
+		}
+	}
+	assert.True(t, found, "should include stash warning, got: %v", app.startupWarnings)
 }

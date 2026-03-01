@@ -136,3 +136,28 @@ func TestSaveAPIKey_CreatesEnvFile_WhenMissing(t *testing.T) {
 	loaded, _ := godotenv.Read(filepath.Join(dir, ".env"))
 	assert.Equal(t, "sk-brand-new", loaded["OPENROUTER_API_KEY"])
 }
+
+func TestLoad_MalformedEnvWarning(t *testing.T) {
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, ".env")
+	// Write malformed .env (no = separator)
+	require.NoError(t, os.WriteFile(envFile, []byte("BROKEN LINE WITHOUT EQUALS\n"), 0644))
+
+	// Need API key from env var since .env is broken
+	t.Setenv("OPENROUTER_API_KEY", "test-key")
+
+	cfg, err := LoadFrom(dir)
+	require.NoError(t, err)
+	assert.NotEmpty(t, cfg.Warnings, "should have warning for malformed .env")
+	assert.Contains(t, cfg.Warnings[0], ".env")
+}
+
+func TestLoad_MissingEnvNoWarning(t *testing.T) {
+	dir := t.TempDir()
+	// No .env file at all
+	t.Setenv("OPENROUTER_API_KEY", "test-key")
+
+	cfg, err := LoadFrom(dir)
+	require.NoError(t, err)
+	assert.Empty(t, cfg.Warnings, "missing .env should not produce warning")
+}

@@ -189,6 +189,15 @@ func NewApp() App {
 		footer.SetLSPCount(lspCfg.CountEnabled())
 	}
 
+	history, err := loadPromptHistory()
+	if err != nil {
+		warnings = append(warnings, "prompt history corrupted, using defaults")
+	}
+	stash, err := loadPromptStash()
+	if err != nil {
+		warnings = append(warnings, "prompt stash corrupted, using defaults")
+	}
+
 	a := App{
 		chat:            components.NewChat(),
 		input:           components.NewInput(),
@@ -198,9 +207,9 @@ func NewApp() App {
 		home:            components.NewHome(),
 		state:           StateHome,
 		maxSteps:        100,
-		promptHistory:   loadPromptHistory(),
+		promptHistory:   history,
 		toasts:          components.NewToastManager(),
-		stash:           loadPromptStash(),
+		stash:           stash,
 		modelPrefs:      prefs,
 		mcpConfig:       mcpCfg,
 		lspConfig:       lspCfg,
