@@ -26,3 +26,8 @@ type ModelsLoadedMsg struct {
 type FileCacheLoadedMsg struct {
 	Files []string
 }
+
+// ToastDismissMsg is sent after a toast's timer expires.
+type ToastDismissMsg struct {
+	ID int64
+}

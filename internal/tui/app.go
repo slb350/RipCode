@@ -75,6 +75,7 @@ type App struct {
 	cancel            context.CancelFunc
 	eventCh           <-chan agent.Event
 	promptHistory     *components.PromptHistory
+	toasts            components.ToastManager
 }
 
 type commandEntry struct {
@@ -146,6 +147,7 @@ func NewApp() App {
 		state:         StateHome,
 		maxSteps:      100,
 		promptHistory: components.NewPromptHistory(200),
+		toasts:        components.NewToastManager(),
 	}
 }
 
@@ -195,6 +197,15 @@ func (a *App) SetMaxSteps(n int) {
 	a.maxSteps = n
 }
 
+// ShowToast displays a toast notification and returns a dismiss command.
+func (a *App) ShowToast(msg string, variant components.ToastVariant) tea.Cmd {
+	id := a.toasts.Show(msg, variant, 3*time.Second)
+	return func() tea.Msg {
+		time.Sleep(3 * time.Second)
+		return ToastDismissMsg{ID: id}
+	}
+}
+
 // setStreaming updates the streaming state and keeps statusbar/footer in sync.
 func (a *App) setStreaming(streaming bool) {
 	a.streaming = streaming
@@ -230,6 +241,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.fileCache = msg.Files
 		a.fileCacheLoaded = true
 		a.fileCacheLoading = false
+		return a, nil
+
+	case ToastDismissMsg:
+		a.toasts.Dismiss(msg.ID)
 		return a, nil
 
 	case AgentEventMsg:
@@ -1705,6 +1720,11 @@ func (a App) renderSessionView() string {
 	var sb strings.Builder
 	sb.WriteString(a.statusbar.View())
 	sb.WriteByte('\n')
+	toastView := a.toasts.View()
+	if toastView != "" {
+		sb.WriteString(toastView)
+		sb.WriteByte('\n')
+	}
 	sb.WriteString(a.chat.View())
 	sb.WriteByte('\n')
 	if a.modelDialogOpen {

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/stephenbrandon/ripcode/internal/agent"
@@ -290,6 +291,66 @@ func TestApp_HistoryNavigation_SavesAndRestoresDraft(t *testing.T) {
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	a = model.(App)
 	assert.Equal(t, "draft text", a.input.Value())
+}
+
+func TestApp_ShowToast_AddsToToastManager(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	cmd := a.ShowToast("Test toast", components.ToastInfo)
+	assert.NotNil(t, cmd, "ShowToast should return a dismiss command")
+	assert.NotNil(t, a.toasts.Current())
+	assert.Equal(t, "Test toast", a.toasts.Current().Message)
+
+	view := a.View()
+	assert.Contains(t, view.Content, "Test toast")
+}
+
+func TestApp_ToastDismissMsg_DismissesMatchingID(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	id := a.toasts.Show("temp", components.ToastInfo, 3*time.Second)
+	assert.NotNil(t, a.toasts.Current())
+
+	model, _ = a.Update(ToastDismissMsg{ID: id})
+	a = model.(App)
+	assert.Nil(t, a.toasts.Current(), "matching dismiss should clear toast")
+}
+
+func TestApp_ToastDismissMsg_IgnoresMismatchedID(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	a.toasts.Show("first", components.ToastInfo, 3*time.Second)
+	id2 := a.toasts.Show("second", components.ToastWarning, 3*time.Second)
+
+	// Try to dismiss with stale ID
+	model, _ = a.Update(ToastDismissMsg{ID: id2 - 1})
+	a = model.(App)
+	assert.NotNil(t, a.toasts.Current(), "stale ID should not dismiss")
+	assert.Equal(t, "second", a.toasts.Current().Message)
 }
 
 func TestApp_ContentDelta_ContinuesListening(t *testing.T) {
