@@ -115,3 +115,9 @@ type ModelLister interface {
 type ModelSetter interface {
 	SetModel(model string)
 }
+
+// ReasoningEffortSetter is implemented by providers that support thinking budget variants.
+// Effort values: "low", "medium", "high" or "" to disable.
+type ReasoningEffortSetter interface {
+	SetReasoningEffort(effort string)
+}

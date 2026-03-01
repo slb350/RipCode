@@ -137,6 +137,8 @@ func (a App) resumeSession(id string) (tea.Model, tea.Cmd) {
 
 	a.session = loaded
 	a.session.SetSystemPrompt(a.agent.SystemPrompt)
+	a.home.SetWorkDir(loaded.WorkDir)
+	a.footer.SetWorkDir(loaded.WorkDir)
 	a.sessionsDialog.open = false
 	a.input.Focus()
 

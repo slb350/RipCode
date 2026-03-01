@@ -102,6 +102,14 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case msg.Mod == tea.ModCtrl && msg.Code == 's':
+		if !a.streaming && a.state == StateSession {
+			if cmd := a.cmdRegistry.Get("stash"); cmd != nil && cmd.Handler != nil {
+				return a, cmd.Handler(&a)
+			}
+		}
+		return a, nil
+
 	case msg.Mod == tea.ModCtrl && msg.Code == 'p':
 		if !a.streaming && a.state == StateSession {
 			a.commandPalette.open = true

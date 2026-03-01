@@ -21,12 +21,13 @@ const defaultModelsURL = "https://openrouter.ai/api/v1/models"
 
 // OpenRouter implements provider.Provider using the OpenRouter API.
 type OpenRouter struct {
-	mu         sync.RWMutex
-	apiKey     string
-	model      string
-	baseURL    string
-	modelsURL  string
-	httpClient *http.Client
+	mu              sync.RWMutex
+	apiKey          string
+	model           string
+	reasoningEffort string
+	baseURL         string
+	modelsURL       string
+	httpClient      *http.Client
 }
 
 // NewOpenRouter creates a new OpenRouter client.
@@ -50,6 +51,14 @@ func (c *OpenRouter) SetModel(model string) {
 	}
 	c.mu.Lock()
 	c.model = model
+	c.mu.Unlock()
+}
+
+// SetReasoningEffort sets the reasoning effort level for thinking models.
+// Effort values: "low", "medium", "high" or "" to disable.
+func (c *OpenRouter) SetReasoningEffort(effort string) {
+	c.mu.Lock()
+	c.reasoningEffort = effort
 	c.mu.Unlock()
 }
 
@@ -155,6 +164,7 @@ func (c *OpenRouter) Chat(ctx context.Context, msgs []provider.Message, tools []
 func (c *OpenRouter) buildRequest(msgs []provider.Message, tools []provider.ToolDef) ([]byte, error) {
 	c.mu.RLock()
 	model := c.model
+	effort := c.reasoningEffort
 	c.mu.RUnlock()
 
 	apiMsgs := make([]apiMessage, 0, len(msgs))
@@ -186,6 +196,10 @@ func (c *OpenRouter) buildRequest(msgs []provider.Message, tools []provider.Tool
 		Model:    model,
 		Messages: apiMsgs,
 		Stream:   true,
+	}
+
+	if effort != "" {
+		req.Reasoning = &apiReasoning{Effort: effort}
 	}
 
 	if len(tools) > 0 {
@@ -340,10 +354,15 @@ func (c *OpenRouter) streamResponse(ctx context.Context, resp *http.Response, ch
 // --- API types ---
 
 type apiRequest struct {
-	Model    string       `json:"model"`
-	Messages []apiMessage `json:"messages"`
-	Stream   bool         `json:"stream"`
-	Tools    []apiTool    `json:"tools,omitempty"`
+	Model     string        `json:"model"`
+	Messages  []apiMessage  `json:"messages"`
+	Stream    bool          `json:"stream"`
+	Tools     []apiTool     `json:"tools,omitempty"`
+	Reasoning *apiReasoning `json:"reasoning,omitempty"`
+}
+
+type apiReasoning struct {
+	Effort string `json:"effort"`
 }
 
 type apiMessage struct {

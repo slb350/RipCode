@@ -406,6 +406,9 @@ func (a App) handleVariantCycle() (tea.Model, tea.Cmd) {
 	}
 	next := provider.CycleVariant(a.fullModelID, a.activeVariant)
 	a.activeVariant = next
+	if rs, ok := a.provider.(provider.ReasoningEffortSetter); ok {
+		rs.SetReasoningEffort(next)
+	}
 	if a.modelPrefs != nil {
 		a.modelPrefs.SetVariant(a.fullModelID, next)
 		a.warnOnErr(a.modelPrefs.Save(), "variant")

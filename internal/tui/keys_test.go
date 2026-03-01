@@ -10,6 +10,7 @@ import (
 	"github.com/stephenbrandon/ripcode/internal/tool"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestApp_EscQuits_InHome(t *testing.T) {
@@ -256,6 +257,24 @@ func TestApp_CommandPalette_OpensWithCtrlK(t *testing.T) {
 
 	assert.True(t, a.commandPalette.open)
 	assert.Contains(t, a.View().Content, "Commands (Ctrl+P/Ctrl+K")
+}
+
+func TestApp_CtrlS_StashesInput(t *testing.T) {
+	a := makeSessionApp(t)
+	a.input.SetValue("my draft text")
+	model, _ := a.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	a = model.(App)
+	assert.Empty(t, a.input.Value(), "input should be cleared after stash")
+	list := a.stash.List()
+	require.Len(t, list, 1)
+	assert.Equal(t, "my draft text", list[0].Content)
+}
+
+func TestApp_CtrlS_EmptyInput_ShowsWarning(t *testing.T) {
+	a := makeSessionApp(t)
+	a.input.SetValue("")
+	_, cmd := a.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	assert.NotNil(t, cmd, "should return toast cmd for warning")
 }
 
 func TestApp_CommandPalette_OpensWithCtrlP(t *testing.T) {

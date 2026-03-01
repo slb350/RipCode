@@ -619,3 +619,44 @@ func TestOpenRouter_ConcurrentSetModelAndChat(t *testing.T) {
 		<-done
 	}
 }
+
+func TestOpenRouter_ImplementsReasoningEffortSetter(t *testing.T) {
+	var _ provider.ReasoningEffortSetter = &OpenRouter{}
+}
+
+func TestOpenRouter_SetReasoningEffort(t *testing.T) {
+	c := NewOpenRouter("key", "model")
+	c.SetReasoningEffort("high")
+	c.mu.RLock()
+	assert.Equal(t, "high", c.reasoningEffort)
+	c.mu.RUnlock()
+}
+
+func TestOpenRouter_ReasoningEffortInRequest(t *testing.T) {
+	c := NewOpenRouter("key", "model")
+	c.SetReasoningEffort("low")
+
+	msgs := []provider.Message{{Role: provider.RoleUser, Content: "hello"}}
+	body, err := c.buildRequest(msgs, nil)
+	require.NoError(t, err)
+
+	var req map[string]any
+	require.NoError(t, json.Unmarshal(body, &req))
+	reasoning, ok := req["reasoning"].(map[string]any)
+	require.True(t, ok, "request should have reasoning field")
+	assert.Equal(t, "low", reasoning["effort"])
+}
+
+func TestOpenRouter_ReasoningEffortEmpty_OmitsField(t *testing.T) {
+	c := NewOpenRouter("key", "model")
+	// No SetReasoningEffort call — effort is empty
+
+	msgs := []provider.Message{{Role: provider.RoleUser, Content: "hello"}}
+	body, err := c.buildRequest(msgs, nil)
+	require.NoError(t, err)
+
+	var req map[string]any
+	require.NoError(t, json.Unmarshal(body, &req))
+	_, ok := req["reasoning"]
+	assert.False(t, ok, "request should not have reasoning field when effort is empty")
+}

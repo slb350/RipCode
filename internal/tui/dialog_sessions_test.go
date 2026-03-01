@@ -258,6 +258,63 @@ func TestApp_SessionsDialog_DeleteConfirm_Enter_DeletesSession(t *testing.T) {
 	assert.Error(t, err, "session file should be deleted from disk")
 }
 
+func TestApp_SessionsDialog_ReloadsOnReopen(t *testing.T) {
+	app := makeSessionApp(t)
+	// First open
+	model, _ := app.Update(components.InputSubmitMsg{Value: "/sessions"})
+	a := model.(App)
+	model, _ = a.Update(SessionsLoadedMsg{Sessions: []store.SessionSummary{
+		{ID: "s1", Title: "first"},
+	}})
+	a = model.(App)
+	assert.True(t, a.sessionsDialog.loaded)
+	assert.Len(t, a.sessionsDialog.entries, 1)
+
+	// Close
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	a = model.(App)
+	assert.False(t, a.sessionsDialog.open)
+
+	// Reopen — loaded should be reset so data is refreshed
+	model, cmd := a.Update(components.InputSubmitMsg{Value: "/sessions"})
+	a = model.(App)
+	assert.True(t, a.sessionsDialog.open)
+	assert.False(t, a.sessionsDialog.loaded, "loaded should be false to trigger reload")
+	assert.NotNil(t, cmd, "should return loadSessions cmd")
+}
+
+func TestApp_ResumeSession_UpdatesFooterWorkDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RIPCODE_DIR", dir)
+
+	// Create and save a session with a specific work dir
+	workDir := t.TempDir()
+	sess := session.New(workDir)
+	sess.AddUser("hello")
+	sess.AddAssistant("world", nil, nil)
+	require.NoError(t, store.Save(sess))
+
+	// Create app with a different work dir
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	originalDir := t.TempDir()
+	app.SetSession(session.New(originalDir))
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	// Resume the saved session
+	model, _ = a.resumeSession(sess.ID)
+	a = model.(App)
+
+	// Footer should show the resumed session's work dir, not the original
+	view := a.View()
+	assert.Contains(t, view.Content, workDir, "footer should show resumed session's work dir")
+	assert.NotContains(t, view.Content, originalDir, "footer should not show original work dir")
+}
+
 func TestSessionDateGroup_Today(t *testing.T) {
 	now := time.Now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())

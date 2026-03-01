@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/stephenbrandon/ripcode/internal/agent"
+	"github.com/stephenbrandon/ripcode/internal/provider"
 	"github.com/stephenbrandon/ripcode/internal/tool"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 )
@@ -55,6 +56,10 @@ func (a App) handleSubmit(input string) (tea.Model, tea.Cmd) {
 	a.setStreaming(true)
 	a.responseStart = time.Now()
 	a.input.Blur()
+
+	if rs, ok := a.provider.(provider.ReasoningEffortSetter); ok {
+		rs.SetReasoningEffort(a.activeVariant)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancel = cancel

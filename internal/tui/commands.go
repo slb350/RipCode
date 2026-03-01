@@ -282,10 +282,8 @@ func (a *App) initRegistry() {
 			a.sessionsDialog.query = ""
 			a.sessionsDialog.selected = 0
 			a.sessionsDialog.confirm = false
-			if !a.sessionsDialog.loaded {
-				return a.loadSessions()
-			}
-			return nil
+			a.sessionsDialog.loaded = false
+			return a.loadSessions()
 		},
 	})
 
@@ -420,7 +418,7 @@ func (a *App) initRegistry() {
 	r.Register(Command{
 		Name: "stash", Category: CategorySession,
 		Title: "Stash", Description: "Save current input draft",
-		Execute: true,
+		Keybind: "Ctrl+S", Execute: true,
 		Handler: func(a *App) tea.Cmd {
 			content := a.input.Value()
 			// Also check stashPendingContent for when invoked via slash command

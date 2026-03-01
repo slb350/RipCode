@@ -578,3 +578,22 @@ func TestApp_ModifiedFiles_ClearedOnNewSession(t *testing.T) {
 
 	assert.Empty(t, a.modifiedFiles)
 }
+
+func TestApp_Submit_SetsReasoningEffort(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.activeVariant = "high"
+
+	// Submit a normal prompt (will start streaming)
+	model, _ = a.Update(components.InputSubmitMsg{Value: "hello"})
+	a = model.(App)
+
+	p := a.provider.(*modelListProvider)
+	assert.Equal(t, "high", p.reasoningEffort, "submit should set reasoning effort before dispatching loop")
+}

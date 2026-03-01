@@ -483,3 +483,24 @@ func TestApp_Variant_PersistsAcrossSessions(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "low", loaded.GetVariant("anthropic/claude-sonnet-4-thinking"))
 }
+
+func TestApp_VariantCycle_SetsReasoningEffort(t *testing.T) {
+	a := makeSessionApp(t)
+	a.fullModelID = "anthropic/claude-sonnet-4-thinking"
+	model, _ := a.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+	a = model.(App)
+	p := a.provider.(*modelListProvider)
+	assert.Equal(t, "low", p.reasoningEffort, "variant cycle should set reasoning effort on provider")
+}
+
+func TestApp_VariantCycle_ClearsReasoningEffort(t *testing.T) {
+	a := makeSessionApp(t)
+	a.fullModelID = "anthropic/claude-sonnet-4-thinking"
+	// Cycle through low, medium, high, then back to none
+	for i := 0; i < 4; i++ {
+		m, _ := a.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+		a = m.(App)
+	}
+	p := a.provider.(*modelListProvider)
+	assert.Equal(t, "", p.reasoningEffort, "cycling past last variant should clear reasoning effort")
+}

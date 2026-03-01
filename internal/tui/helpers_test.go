@@ -15,9 +15,10 @@ import (
 )
 
 type modelListProvider struct {
-	models []provider.ModelInfo
-	calls  int
-	model  string
+	models          []provider.ModelInfo
+	calls           int
+	model           string
+	reasoningEffort string
 }
 
 func (m *modelListProvider) Name() string { return "mock" }
@@ -35,6 +36,10 @@ func (m *modelListProvider) ListModels(_ context.Context) ([]provider.ModelInfo,
 
 func (m *modelListProvider) SetModel(model string) {
 	m.model = model
+}
+
+func (m *modelListProvider) SetReasoningEffort(effort string) {
+	m.reasoningEffort = effort
 }
 
 func makeSessionApp(t *testing.T) App {
