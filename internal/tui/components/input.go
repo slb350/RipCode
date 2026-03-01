@@ -72,6 +72,50 @@ func (i *Input) applyState(s *EditState) {
 	i.cursorY = s.CursorY
 }
 
+// isWordChar returns true for letters, digits, and underscores.
+func isWordChar(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+		(r >= '0' && r <= '9') || r == '_'
+}
+
+// findWordLeft returns the cursor position after moving one word left.
+func (i *Input) findWordLeft() int {
+	runes := []rune(i.value[i.cursorY])
+	pos := i.cursorX
+	if pos <= 0 {
+		return 0
+	}
+	// Skip non-word characters.
+	for pos > 0 && !isWordChar(runes[pos-1]) {
+		pos--
+	}
+	// Skip word characters.
+	for pos > 0 && isWordChar(runes[pos-1]) {
+		pos--
+	}
+	return pos
+}
+
+// findWordRight returns the cursor position after moving one word right.
+// Emacs-style: skip non-word chars, then skip word chars (stop at end of word).
+func (i *Input) findWordRight() int {
+	runes := []rune(i.value[i.cursorY])
+	pos := i.cursorX
+	lineLen := len(runes)
+	if pos >= lineLen {
+		return lineLen
+	}
+	// Skip non-word characters.
+	for pos < lineLen && !isWordChar(runes[pos]) {
+		pos++
+	}
+	// Skip word characters.
+	for pos < lineLen && isWordChar(runes[pos]) {
+		pos++
+	}
+	return pos
+}
+
 // SetSize updates the input dimensions.
 func (i *Input) SetSize(width, height int) {
 	i.width = width
@@ -210,6 +254,73 @@ func (i *Input) Update(msg tea.Msg) tea.Cmd {
 				i.lastOp = opOther
 			}
 			return nil
+
+		// Navigation: line start/end
+		case msg.Code == 'a' && msg.Mod == tea.ModCtrl,
+			msg.Code == tea.KeyHome && msg.Mod == 0:
+			i.cursorX = 0
+
+		case msg.Code == 'e' && msg.Mod == tea.ModCtrl,
+			msg.Code == tea.KeyEnd && msg.Mod == 0:
+			i.cursorX = utf8.RuneCountInString(i.value[i.cursorY])
+
+		// Navigation: word motions
+		case (msg.Code == tea.KeyLeft && msg.Mod == tea.ModCtrl) ||
+			(msg.Code == 'b' && msg.Mod == tea.ModAlt):
+			i.cursorX = i.findWordLeft()
+
+		case (msg.Code == tea.KeyRight && msg.Mod == tea.ModCtrl) ||
+			(msg.Code == 'f' && msg.Mod == tea.ModAlt):
+			i.cursorX = i.findWordRight()
+
+		// Deletion: to line start
+		case msg.Code == 'u' && msg.Mod == tea.ModCtrl:
+			if i.cursorX > 0 {
+				i.pushUndo()
+				i.lastOp = opOther
+				runes := []rune(i.value[i.cursorY])
+				i.value[i.cursorY] = string(runes[i.cursorX:])
+				i.cursorX = 0
+			}
+
+		// Deletion: to line end (only when NOT in command palette context)
+		case msg.Code == 'k' && msg.Mod == tea.ModCtrl:
+			runes := []rune(i.value[i.cursorY])
+			if i.cursorX < len(runes) {
+				i.pushUndo()
+				i.lastOp = opOther
+				i.value[i.cursorY] = string(runes[:i.cursorX])
+			}
+
+		// Deletion: word left
+		case msg.Code == 'w' && msg.Mod == tea.ModCtrl:
+			if i.cursorX > 0 {
+				i.pushUndo()
+				i.lastOp = opOther
+				newX := i.findWordLeft()
+				runes := []rune(i.value[i.cursorY])
+				i.value[i.cursorY] = string(runes[:newX]) + string(runes[i.cursorX:])
+				i.cursorX = newX
+			}
+
+		// Deletion: word right
+		case msg.Code == 'd' && msg.Mod == tea.ModAlt:
+			runes := []rune(i.value[i.cursorY])
+			if i.cursorX < len(runes) {
+				i.pushUndo()
+				i.lastOp = opOther
+				newEnd := i.findWordRight()
+				i.value[i.cursorY] = string(runes[:i.cursorX]) + string(runes[newEnd:])
+			}
+
+		// Deletion: char right
+		case msg.Code == 'd' && msg.Mod == tea.ModCtrl:
+			runes := []rune(i.value[i.cursorY])
+			if i.cursorX < len(runes) {
+				i.pushUndo()
+				i.lastOp = opOther
+				i.value[i.cursorY] = string(runes[:i.cursorX]) + string(runes[i.cursorX+1:])
+			}
 
 		case msg.Code == tea.KeyEnter && msg.Mod == 0:
 			val := i.Value()

@@ -111,10 +111,45 @@ func TestApp_EscQuits_InHome(t *testing.T) {
 	assert.NotNil(t, cmd)
 }
 
-func TestApp_CtrlCQuits(t *testing.T) {
+func TestApp_CtrlCQuits_WhenInputEmpty(t *testing.T) {
 	app := NewApp()
 	_, cmd := app.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
-	assert.NotNil(t, cmd)
+	assert.NotNil(t, cmd, "ctrl+c with empty input should quit")
+}
+
+func TestApp_CtrlC_ClearsInputWhenNonEmpty(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+	a.input.SetValue("some text")
+
+	model, cmd := a.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	a = model.(App)
+
+	assert.Nil(t, cmd, "ctrl+c with non-empty input should not quit")
+	assert.Equal(t, "", a.input.Value(), "ctrl+c should clear input")
+}
+
+func TestApp_CtrlC_QuitsWhenInputEmpty(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+	// Input is empty
+
+	_, cmd := a.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	assert.NotNil(t, cmd, "ctrl+c with empty input should quit")
 }
 
 func TestApp_ContentDelta_ContinuesListening(t *testing.T) {

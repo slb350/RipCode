@@ -261,6 +261,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Mod == tea.ModCtrl && msg.Code == 'c':
+		if a.state == StateSession && !a.streaming && a.input.Value() != "" {
+			a.input.Reset()
+			return a, nil
+		}
 		return a, tea.Quit
 
 	case a.modelDialogOpen:

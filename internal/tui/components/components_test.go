@@ -457,6 +457,169 @@ func TestInput_Undo_EmptyHistory_NoChange(t *testing.T) {
 	assert.Equal(t, "something", i.Value(), "undo with empty history should not change value")
 }
 
+// --- Advanced Input Keybinding tests ---
+
+func TestInput_CtrlA_MoveToLineStart(t *testing.T) {
+	i := NewInput()
+	i.value = []string{"hello world"}
+	i.cursorX = 7
+	i.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	assert.Equal(t, 0, i.cursorX)
+}
+
+func TestInput_CtrlE_MoveToLineEnd(t *testing.T) {
+	i := NewInput()
+	i.value = []string{"hello world"}
+	i.cursorX = 3
+	i.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+	assert.Equal(t, 11, i.cursorX)
+}
+
+func TestInput_Home_MoveToLineStart(t *testing.T) {
+	i := NewInput()
+	i.value = []string{"hello"}
+	i.cursorX = 3
+	i.Update(tea.KeyPressMsg{Code: tea.KeyHome})
+	assert.Equal(t, 0, i.cursorX)
+}
+
+func TestInput_End_MoveToLineEnd(t *testing.T) {
+	i := NewInput()
+	i.value = []string{"hello"}
+	i.cursorX = 1
+	i.Update(tea.KeyPressMsg{Code: tea.KeyEnd})
+	assert.Equal(t, 5, i.cursorX)
+}
+
+func TestInput_CtrlLeft_MoveWordLeft(t *testing.T) {
+	i := NewInput()
+	i.value = []string{"hello world"}
+	i.cursorX = 11
+	i.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModCtrl})
+	assert.Equal(t, 6, i.cursorX) // start of "world"
+}
+
+func TestInput_CtrlRight_MoveWordRight(t *testing.T) {
+	i := NewInput()
+	i.value = []string{"hello world"}
+	i.cursorX = 0
+	i.Update(tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModCtrl})
+	assert.Equal(t, 5, i.cursorX) // end of "hello"
+}
+
+func TestInput_AltB_MoveWordLeft(t *testing.T) {
+	i := NewInput()
+	i.value = []string{"hello world"}
+	i.cursorX = 11
+	i.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModAlt})
+	assert.Equal(t, 6, i.cursorX)
+}
+
+func TestInput_AltF_MoveWordRight(t *testing.T) {
+	i := NewInput()
+	i.value = []string{"hello world"}
+	i.cursorX = 0
+	i.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModAlt})
+	assert.Equal(t, 5, i.cursorX)
+}
+
+func TestInput_CtrlU_DeleteToLineStart(t *testing.T) {
+	i := NewInput()
+	i.value = []string{"hello world"}
+	i.cursorX = 5
+	i.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	assert.Equal(t, " world", i.Value())
+	assert.Equal(t, 0, i.cursorX)
+}
+
+func TestInput_CtrlK_DeleteToLineEnd(t *testing.T) {
+	i := NewInput()
+	i.value = []string{"hello world"}
+	i.cursorX = 5
+	i.Update(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	assert.Equal(t, "hello", i.Value())
+	assert.Equal(t, 5, i.cursorX)
+}
+
+func TestInput_CtrlW_DeleteWordLeft(t *testing.T) {
+	i := NewInput()
+	i.value = []string{"hello world"}
+	i.cursorX = 11
+	i.Update(tea.KeyPressMsg{Code: 'w', Mod: tea.ModCtrl})
+	assert.Equal(t, "hello ", i.Value())
+	assert.Equal(t, 6, i.cursorX)
+}
+
+func TestInput_AltD_DeleteWordRight(t *testing.T) {
+	i := NewInput()
+	i.value = []string{"hello world"}
+	i.cursorX = 6
+	i.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModAlt})
+	assert.Equal(t, "hello ", i.Value())
+	assert.Equal(t, 6, i.cursorX)
+}
+
+func TestInput_CtrlD_DeleteCharRight(t *testing.T) {
+	i := NewInput()
+	i.value = []string{"hello"}
+	i.cursorX = 2
+	i.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	assert.Equal(t, "helo", i.Value())
+	assert.Equal(t, 2, i.cursorX)
+}
+
+func TestInput_CtrlD_AtEndOfLine_DoesNothing(t *testing.T) {
+	i := NewInput()
+	i.value = []string{"hello"}
+	i.cursorX = 5
+	i.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	assert.Equal(t, "hello", i.Value())
+	assert.Equal(t, 5, i.cursorX)
+}
+
+func TestInput_CtrlLeft_AtInputStart_StaysAtStart(t *testing.T) {
+	i := NewInput()
+	i.value = []string{"hello"}
+	i.cursorX = 0
+	i.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModCtrl})
+	assert.Equal(t, 0, i.cursorX)
+}
+
+func TestInput_CtrlRight_AtInputEnd_StaysAtEnd(t *testing.T) {
+	i := NewInput()
+	i.value = []string{"hello"}
+	i.cursorX = 5
+	i.Update(tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModCtrl})
+	assert.Equal(t, 5, i.cursorX)
+}
+
+func TestInput_CtrlW_OnEmptyInput_DoesNothing(t *testing.T) {
+	i := NewInput()
+	i.Update(tea.KeyPressMsg{Code: 'w', Mod: tea.ModCtrl})
+	assert.Equal(t, "", i.Value())
+	assert.Equal(t, 0, i.cursorX)
+}
+
+func TestInput_CtrlA_OnEmptyLine_StaysAtZero(t *testing.T) {
+	i := NewInput()
+	i.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	assert.Equal(t, 0, i.cursorX)
+}
+
+func TestInput_WordMotion_SkipsPunctuation(t *testing.T) {
+	i := NewInput()
+	i.value = []string{"hello.world foo"}
+	i.cursorX = 0
+
+	// ctrl+right should skip to end of "hello" (stops at boundary)
+	i.Update(tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModCtrl})
+	assert.Equal(t, 5, i.cursorX) // end of "hello"
+
+	// Again — skip past punctuation to end of "world"
+	i.Update(tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModCtrl})
+	assert.Equal(t, 11, i.cursorX) // end of "world"
+}
+
 // --- Home tests ---
 
 func TestHome_RendersLogo(t *testing.T) {
