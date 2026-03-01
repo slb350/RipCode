@@ -8,6 +8,7 @@ import (
 
 	"github.com/stephenbrandon/ripcode/internal/agent"
 	"github.com/stephenbrandon/ripcode/internal/session"
+	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tool"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 	"github.com/stretchr/testify/assert"
@@ -568,6 +569,40 @@ func TestApp_UndoCommand_AddsRevertMarkerToChat(t *testing.T) {
 	}
 	assert.True(t, found, "should have revert marker in chat")
 	_ = entriesBefore // used for reference
+}
+
+func TestApp_UndoCommand_PersistsSession(t *testing.T) {
+	a := makeSessionAppWithHistory(t)
+	require.NoError(t, store.Save(a.session))
+	sessID := a.session.ID
+
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/undo"})
+	a = model.(App)
+	require.Len(t, a.session.Records(), 2)
+
+	loaded, err := store.Load(sessID)
+	require.NoError(t, err)
+	assert.Len(t, loaded.Records(), 2, "undo should be persisted to disk")
+}
+
+func TestApp_RedoCommand_PersistsSession(t *testing.T) {
+	a := makeSessionAppWithHistory(t)
+	require.NoError(t, store.Save(a.session))
+	sessID := a.session.ID
+
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/undo"})
+	a = model.(App)
+	require.Len(t, a.session.Records(), 2)
+	// Simulate app state where undo was already persisted.
+	require.NoError(t, store.Save(a.session))
+
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/redo"})
+	a = model.(App)
+	require.Len(t, a.session.Records(), 4)
+
+	loaded, err := store.Load(sessID)
+	require.NoError(t, err)
+	assert.Len(t, loaded.Records(), 4, "redo should be persisted to disk")
 }
 
 // --- Modified files cleared on /new ---

@@ -88,7 +88,7 @@ func (e *EditTool) Execute(ctx Context, argsJSON string) Result {
 		if !ok {
 			return Result{Error: fmt.Errorf("no match found for old_string in %s", validated)}
 		}
-		if err := os.WriteFile(validated, []byte(newContent), perm); err != nil {
+		if err := writeNoFollow(validated, []byte(newContent), os.O_WRONLY|os.O_TRUNC, perm); err != nil {
 			return Result{Error: fmt.Errorf("write file: %w", err)}
 		}
 		return Result{
@@ -103,7 +103,7 @@ func (e *EditTool) Execute(ctx Context, argsJSON string) Result {
 
 	newContent := strings.Replace(content, args.OldString, args.NewString, 1)
 
-	if err := os.WriteFile(validated, []byte(newContent), perm); err != nil {
+	if err := writeNoFollow(validated, []byte(newContent), os.O_WRONLY|os.O_TRUNC, perm); err != nil {
 		return Result{Error: fmt.Errorf("write file: %w", err)}
 	}
 
@@ -111,6 +111,20 @@ func (e *EditTool) Execute(ctx Context, argsJSON string) Result {
 		Output: fmt.Sprintf("Edited %s", validated),
 		Title:  validated,
 	}
+}
+
+// writeNoFollow writes data to a file using OpenNoFollow to reject symlinks.
+// flags controls the open mode (e.g. O_CREATE for new files, O_TRUNC for overwrites).
+func writeNoFollow(path string, data []byte, flags int, perm os.FileMode) error {
+	f, err := OpenNoFollow(path, flags, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // whitespaceFlexibleReplace normalizes leading whitespace (tabs → spaces)

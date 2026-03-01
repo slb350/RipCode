@@ -36,6 +36,9 @@ func (r MessageRecord) Valid() error {
 	if err := r.Message.Valid(); err != nil {
 		return fmt.Errorf("message record %s: %w", r.ID, err)
 	}
+	if r.Meta != nil && r.Message.Role != provider.RoleAssistant {
+		return fmt.Errorf("message record %s: Meta only valid on assistant messages, got role %q", r.ID, r.Message.Role)
+	}
 	return nil
 }
 

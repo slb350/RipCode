@@ -97,6 +97,9 @@ func (b *BashTool) Execute(ctx Context, argsJSON string) Result {
 		return Result{Error: fmt.Errorf("command is required")}
 	}
 
+	// Strip null bytes — they cause exec failures and could be used to bypass checks
+	args.Command = strings.ReplaceAll(args.Command, "\x00", "")
+
 	if err := checkBlocked(args.Command); err != nil {
 		return Result{Error: err}
 	}
@@ -162,9 +165,11 @@ func checkBlocked(cmd string) error {
 	return nil
 }
 
-// normalizeCommand strips backslash escapes, collapses whitespace, and
-// lowercases for blocklist matching.
+// normalizeCommand strips null bytes, backslash escapes, collapses whitespace,
+// and lowercases for blocklist matching.
 func normalizeCommand(cmd string) string {
+	// Strip null bytes — defense-in-depth against injection via embedded NUL
+	cmd = strings.ReplaceAll(cmd, "\x00", "")
 	// Remove backslash escapes (e.g. r\m → rm)
 	cmd = strings.ReplaceAll(cmd, "\\", "")
 	// Replace tabs with spaces

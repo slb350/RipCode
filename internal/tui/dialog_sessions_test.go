@@ -361,6 +361,38 @@ func TestApp_ResumeSession_UpdatesFooterWorkDir(t *testing.T) {
 	assert.NotContains(t, view.Content, originalDir, "footer should not show original work dir")
 }
 
+func TestApp_ResumeSession_ResetsFileCache(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RIPCODE_DIR", dir)
+
+	workDir := t.TempDir()
+	sess := session.New(workDir)
+	sess.AddUser("hello")
+	sess.AddAssistant("world", nil, nil)
+	require.NoError(t, store.Save(sess))
+
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	// Simulate stale cache from previous session.
+	a.fileCacheLoaded = true
+	a.fileCacheLoading = true
+	a.fileCache = []string{"old/path.go"}
+
+	model, _ = a.resumeSession(sess.ID)
+	a = model.(App)
+
+	assert.False(t, a.fileCacheLoaded, "resume should invalidate old file cache")
+	assert.False(t, a.fileCacheLoading, "resume should clear stale loading flag")
+	assert.Empty(t, a.fileCache, "resume should clear stale cached paths")
+}
+
 func TestSessionDateGroup_Today(t *testing.T) {
 	now := time.Now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())

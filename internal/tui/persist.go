@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+
 	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 )
@@ -9,29 +11,31 @@ const historyMaxSize = 200
 
 func loadPromptHistory() (*components.PromptHistory, error) {
 	h := components.NewPromptHistory(historyMaxSize)
-	entries, _, err := store.LoadHistory()
+	entries, skipped, err := store.LoadHistory()
 	if err != nil {
 		return h, err
 	}
-	if len(entries) == 0 {
-		return h, nil
-	}
-	items := make([]components.HistoryItem, len(entries))
-	for i, e := range entries {
-		items[i] = components.HistoryItem{Prompt: e.Prompt, Mode: e.Mode}
-	}
-	h.LoadItems(items)
+	if len(entries) > 0 {
+		items := make([]components.HistoryItem, len(entries))
+		for i, e := range entries {
+			items[i] = components.HistoryItem{Prompt: e.Prompt, Mode: e.Mode}
+		}
+		h.LoadItems(items)
 
-	// Compact if over limit; return error so caller can warn
-	if len(entries) > historyMaxSize {
-		kept := h.Items()
-		compacted := make([]store.HistoryEntry, len(kept))
-		for i, item := range kept {
-			compacted[i] = store.HistoryEntry{Prompt: item.Prompt, Mode: item.Mode}
+		// Compact if over limit; return error so caller can warn
+		if len(entries) > historyMaxSize {
+			kept := h.Items()
+			compacted := make([]store.HistoryEntry, len(kept))
+			for i, item := range kept {
+				compacted[i] = store.HistoryEntry{Prompt: item.Prompt, Mode: item.Mode}
+			}
+			if err := store.SaveHistory(compacted); err != nil {
+				return h, err
+			}
 		}
-		if err := store.SaveHistory(compacted); err != nil {
-			return h, err
-		}
+	}
+	if skipped > 0 {
+		return h, fmt.Errorf("%d malformed history entries skipped", skipped)
 	}
 	return h, nil
 }

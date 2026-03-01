@@ -114,14 +114,16 @@ func NewApp() App {
 	if err != nil {
 		warnings = append(warnings, fmt.Sprintf("model preferences: %v, using defaults", err))
 	}
-	mcpCfg, err := store.LoadMCPConfig()
+	mcpCfg, mcpWarns, err := store.LoadMCPConfig()
 	if err != nil {
 		warnings = append(warnings, fmt.Sprintf("MCP config: %v, using defaults", err))
 	}
-	lspCfg, err := store.LoadLSPConfig()
+	warnings = append(warnings, mcpWarns...)
+	lspCfg, lspWarns, err := store.LoadLSPConfig()
 	if err != nil {
 		warnings = append(warnings, fmt.Sprintf("LSP config: %v, using defaults", err))
 	}
+	warnings = append(warnings, lspWarns...)
 	uiPrefs, err := store.LoadUIPrefs()
 	if err != nil {
 		warnings = append(warnings, fmt.Sprintf("UI preferences: %v, using defaults", err))
@@ -256,6 +258,14 @@ func (a *App) warnOnErr(err error, what string) {
 func (a *App) ShowToast(msg string, variant components.ToastVariant) tea.Cmd {
 	id := a.toasts.Show(msg, variant, 3*time.Second)
 	return toastDismissCmd(id)
+}
+
+// resetFileCache invalidates the @-mention file cache so it will be
+// reloaded on the next inline completion trigger.
+func (a *App) resetFileCache() {
+	a.fileCache = nil
+	a.fileCacheLoaded = false
+	a.fileCacheLoading = false
 }
 
 // setStreaming updates the streaming state and keeps statusbar/footer in sync.

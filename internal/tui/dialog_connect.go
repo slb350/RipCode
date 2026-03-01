@@ -37,7 +37,7 @@ func (a App) handleConnectDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.connectDialog.open = false
 		a.connectDialog.input = ""
 		a.input.Focus()
-		return a, a.ShowToast("API key saved", components.ToastSuccess)
+		return a, a.ShowToast("API key saved. Restart ripcode to apply it.", components.ToastInfo)
 
 	case msg.Code == tea.KeyBackspace:
 		a.connectDialog.input = backspaceRune(a.connectDialog.input)

@@ -33,18 +33,20 @@ const mcpConfigFile = "mcp.json"
 
 // LoadMCPConfig reads MCP configuration from disk.
 // Returns empty config if the file does not exist.
-// Logs warnings for any invalid server entries found in the file.
-func LoadMCPConfig() (*MCPConfig, error) {
+// Returns warnings for any invalid server entries found in the file.
+func LoadMCPConfig() (*MCPConfig, []string, error) {
 	cfg, err := loadState[MCPConfig](mcpConfigFile, "MCP config")
 	if err != nil {
-		return cfg, err
+		return cfg, nil, err
 	}
+	var warnings []string
 	for _, s := range cfg.Servers {
 		if verr := s.Valid(); verr != nil {
 			LogError("MCP config: invalid server", verr)
+			warnings = append(warnings, fmt.Sprintf("MCP server %q: %v", s.Name, verr))
 		}
 	}
-	return cfg, nil
+	return cfg, warnings, nil
 }
 
 // Save writes MCP configuration to disk.

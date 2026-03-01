@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -663,6 +664,56 @@ func TestSession_ConcurrentReadWrite(t *testing.T) {
 	assert.True(t, s.Len() > 0)
 }
 
+func TestSession_ConcurrentRevertAndAdd(t *testing.T) {
+	// Verify there are no data races when reverting and adding concurrently.
+	// Run with -race to detect issues.
+	s := New("/tmp")
+
+	// Pre-populate with 20 user+assistant pairs
+	for i := 0; i < 20; i++ {
+		s.AddUser(fmt.Sprintf("q%d", i))
+		s.AddAssistant(fmt.Sprintf("a%d", i), nil, nil)
+	}
+
+	done := make(chan struct{})
+
+	// Goroutine doing Reverts
+	go func() {
+		defer func() { done <- struct{}{} }()
+		for i := 0; i < 10; i++ {
+			if s.CanUndo() {
+				s.Revert()
+			}
+		}
+	}()
+
+	// Goroutine doing AddUser
+	go func() {
+		defer func() { done <- struct{}{} }()
+		for i := 0; i < 10; i++ {
+			s.AddUser(fmt.Sprintf("concurrent-%d", i))
+		}
+	}()
+
+	// Goroutine doing reads
+	go func() {
+		defer func() { done <- struct{}{} }()
+		for i := 0; i < 20; i++ {
+			_ = s.Records()
+			_ = s.History()
+			_ = s.CanUndo()
+			_ = s.CanRedo()
+		}
+	}()
+
+	<-done
+	<-done
+	<-done
+
+	// Session should still be in a valid state
+	assert.True(t, s.Len() >= 0)
+}
+
 func TestFork_DoesNotMutateOriginal(t *testing.T) {
 	s := New("/tmp")
 	s.AddUser("q1")
@@ -707,6 +758,28 @@ func TestMessageRecord_Valid_InvalidRole(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 	assert.Error(t, rec.Valid())
+}
+
+func TestMessageRecord_Valid_MetaOnNonAssistant(t *testing.T) {
+	rec := MessageRecord{
+		ID:        "msg-001",
+		Message:   provider.Message{Role: provider.RoleUser, Content: "hello"},
+		CreatedAt: time.Now(),
+		Meta:      &AssistantMeta{Model: "test"},
+	}
+	err := rec.Valid()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Meta only valid on assistant")
+}
+
+func TestMessageRecord_Valid_MetaOnAssistant_OK(t *testing.T) {
+	rec := MessageRecord{
+		ID:        "msg-001",
+		Message:   provider.Message{Role: provider.RoleAssistant, Content: "response"},
+		CreatedAt: time.Now(),
+		Meta:      &AssistantMeta{Model: "test"},
+	}
+	assert.NoError(t, rec.Valid())
 }
 
 func TestLoadRecord_ValidRecord_Succeeds(t *testing.T) {

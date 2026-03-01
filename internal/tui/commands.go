@@ -10,6 +10,7 @@ import (
 	"github.com/atotto/clipboard"
 
 	"github.com/stephenbrandon/ripcode/internal/provider"
+	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 )
 
@@ -397,6 +398,7 @@ func (a *App) initRegistry() {
 				Content: "--- reverted ---",
 			})
 			a.input.SetValue(prompt)
+			a.warnOnErr(store.Save(a.session), "session")
 			return a.ShowToast("Reverted last exchange", components.ToastInfo)
 		},
 	})
@@ -413,6 +415,7 @@ func (a *App) initRegistry() {
 				return a.ShowToast("Nothing to redo", components.ToastWarning)
 			}
 			a.rebuildChatFromSession()
+			a.warnOnErr(store.Save(a.session), "session")
 			return a.ShowToast("Restored exchange", components.ToastInfo)
 		},
 	})

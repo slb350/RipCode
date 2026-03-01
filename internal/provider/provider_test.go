@@ -137,6 +137,11 @@ func TestModelInfo_IsFree_NonZeroCost(t *testing.T) {
 	assert.False(t, m.IsFree())
 }
 
+func TestModelInfo_IsFree_PricingUnknown(t *testing.T) {
+	m := ModelInfo{ID: "test/model", PricingUnknown: true}
+	assert.False(t, m.IsFree(), "unknown pricing should not be reported as free")
+}
+
 func TestRole_Valid_KnownRoles(t *testing.T) {
 	assert.True(t, RoleSystem.Valid())
 	assert.True(t, RoleUser.Valid())

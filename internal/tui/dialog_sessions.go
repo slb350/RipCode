@@ -137,6 +137,8 @@ func (a App) resumeSession(id string) (tea.Model, tea.Cmd) {
 	a.session.SetSystemPrompt(a.agent.SystemPrompt)
 	a.home.SetWorkDir(loaded.WorkDir)
 	a.footer.SetWorkDir(loaded.WorkDir)
+	// Session workdir changed; invalidate stale @-mention cache.
+	a.resetFileCache()
 	a.sessionsDialog.open = false
 	a.input.Focus()
 

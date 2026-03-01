@@ -507,6 +507,8 @@ func TestListModels_MalformedPricing_Fallback(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, models, 1)
 	assert.Nil(t, models[0].Pricing, "malformed pricing should result in nil")
+	assert.True(t, models[0].PricingUnknown, "malformed pricing should set PricingUnknown")
+	assert.False(t, models[0].IsFree(), "unknown pricing should not report as free")
 }
 
 func TestStreamResponse_ScannerError_EmitsErrorEvent(t *testing.T) {
@@ -556,6 +558,48 @@ func TestStreamResponse_ScannerError_EmitsErrorEvent(t *testing.T) {
 	for _, e := range events {
 		assert.NotEqual(t, provider.EventFinish, e.Type, "should not emit finish after scanner error")
 	}
+}
+
+func TestOpenRouter_StreamClosesWithoutDone(t *testing.T) {
+	// Server sends one content chunk then closes the connection without [DONE].
+	// Verify the content delta is received and the stream ends gracefully
+	// (with a finish event since scanner.Err() is nil on clean EOF).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: "+chatChunk("partial content", "")+"\n\n")
+		// Close without sending [DONE]
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.baseURL = srv.URL
+
+	ch, err := c.Chat(context.Background(), []provider.Message{
+		{Role: "user", Content: "hi"},
+	}, nil)
+	require.NoError(t, err)
+
+	var events []provider.StreamEvent
+	for e := range ch {
+		events = append(events, e)
+	}
+
+	// Should get the content delta
+	hasContent := false
+	hasFinish := false
+	for _, e := range events {
+		if e.Type == provider.EventContentDelta {
+			hasContent = true
+			assert.Equal(t, "partial content", e.Content)
+		}
+		if e.Type == provider.EventFinish {
+			hasFinish = true
+		}
+	}
+	assert.True(t, hasContent, "should have received content delta")
+	// When scanner hits clean EOF (no error), streamResponse falls through
+	// to emit tool calls and finish event
+	assert.True(t, hasFinish, "should still emit finish event on clean close")
 }
 
 func TestOpenRouter_ListModels_APIError(t *testing.T) {

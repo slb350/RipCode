@@ -61,16 +61,8 @@ func (w *WriteTool) Execute(ctx Context, argsJSON string) Result {
 		return Result{Error: fmt.Errorf("create directories: %w", err)}
 	}
 
-	f, err := OpenNoFollow(validated, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
-	if err != nil {
-		return Result{Error: fmt.Errorf("open file: %w", err)}
-	}
-	if _, err := f.Write([]byte(args.Content)); err != nil {
-		f.Close()
+	if err := writeNoFollow(validated, []byte(args.Content), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644); err != nil {
 		return Result{Error: fmt.Errorf("write file: %w", err)}
-	}
-	if err := f.Close(); err != nil {
-		return Result{Error: fmt.Errorf("close file: %w", err)}
 	}
 
 	return Result{

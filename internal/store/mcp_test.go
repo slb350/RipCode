@@ -11,8 +11,9 @@ import (
 
 func TestMCPConfig_LoadEmpty_ReturnsEmpty(t *testing.T) {
 	t.Setenv("RIPCODE_DIR", t.TempDir())
-	cfg, err := LoadMCPConfig()
+	cfg, warns, err := LoadMCPConfig()
 	require.NoError(t, err)
+	assert.Empty(t, warns)
 	assert.Empty(t, cfg.Servers)
 }
 
@@ -26,8 +27,9 @@ func TestMCPConfig_SaveLoad_RoundTrips(t *testing.T) {
 	}
 	require.NoError(t, cfg.Save())
 
-	loaded, err := LoadMCPConfig()
+	loaded, warns, err := LoadMCPConfig()
 	require.NoError(t, err)
+	assert.Empty(t, warns)
 	assert.Equal(t, cfg.Servers, loaded.Servers)
 }
 
@@ -38,8 +40,9 @@ func TestLoadMCPConfig_CorruptedJSON_ReturnsDefaultsAndError(t *testing.T) {
 	require.NoError(t, os.MkdirAll(stateDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(stateDir, "mcp.json"), []byte("{bad json"), 0o644))
 
-	cfg, err := LoadMCPConfig()
+	cfg, warns, err := LoadMCPConfig()
 	assert.Error(t, err, "corrupted JSON should return an error")
+	assert.Empty(t, warns)
 	assert.NotNil(t, cfg, "should return usable defaults even on error")
 	assert.Empty(t, cfg.Servers)
 }
@@ -54,8 +57,9 @@ func TestLoadMCPConfig_ReadError_ReturnsDefaultsAndError(t *testing.T) {
 	require.NoError(t, os.Chmod(filePath, 0o000))
 	t.Cleanup(func() { os.Chmod(filePath, 0o644) })
 
-	cfg, err := LoadMCPConfig()
+	cfg, warns, err := LoadMCPConfig()
 	assert.Error(t, err, "unreadable file should return an error")
+	assert.Empty(t, warns)
 	assert.NotNil(t, cfg, "should return usable defaults even on read error")
 	assert.Empty(t, cfg.Servers)
 }
@@ -157,9 +161,12 @@ func TestLoadMCPConfig_InvalidServers_LogsWarning(t *testing.T) {
 	}
 	require.NoError(t, cfg.Save())
 
-	loaded, err := LoadMCPConfig()
+	loaded, warns, err := LoadMCPConfig()
 	require.NoError(t, err, "invalid entries should not prevent loading")
 	assert.Len(t, loaded.Servers, 3, "all entries still loaded")
+	assert.Len(t, warns, 2, "should return warnings for invalid entries")
+	assert.Contains(t, warns[0], "name is required")
+	assert.Contains(t, warns[1], "both")
 
 	logData, readErr := os.ReadFile(filepath.Join(dir, "state", "errors.log"))
 	require.NoError(t, readErr)

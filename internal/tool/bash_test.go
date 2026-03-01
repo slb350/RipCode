@@ -280,6 +280,27 @@ func TestBash_MidExecutionCancellation(t *testing.T) {
 	}
 }
 
+func TestBash_NullByteInCommand(t *testing.T) {
+	b := NewBashTool()
+	ctx := newTestCtx(t)
+
+	// Null bytes should be stripped by normalizeCommand, so the command
+	// resolves to "echo hello" and executes normally.
+	result := b.Execute(ctx, `{"command":"echo\u0000 hello"}`)
+	require.NoError(t, result.Error)
+	assert.Contains(t, result.Output, "hello")
+}
+
+func TestBash_NullByteInBlockedCommand(t *testing.T) {
+	b := NewBashTool()
+	ctx := newTestCtx(t)
+
+	// Null bytes embedded in a dangerous command should not bypass blocklist
+	result := b.Execute(ctx, `{"command":"r\u0000m -rf /"}`)
+	assert.Error(t, result.Error)
+	assert.Contains(t, result.Error.Error(), "blocked")
+}
+
 func TestBash_Parameters(t *testing.T) {
 	b := NewBashTool()
 	params := b.Parameters()

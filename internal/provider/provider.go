@@ -157,11 +157,12 @@ type ModelPricing struct {
 
 // ModelInfo represents a model entry available from a provider.
 type ModelInfo struct {
-	ID            string
-	Name          string
-	Description   string
-	ContextLength int
-	Pricing       *ModelPricing
+	ID             string
+	Name           string
+	Description    string
+	ContextLength  int
+	Pricing        *ModelPricing
+	PricingUnknown bool // true when API pricing couldn't be parsed
 }
 
 // ProviderName extracts the provider prefix from the model ID.
@@ -174,8 +175,12 @@ func (m ModelInfo) ProviderName() string {
 	return m.ID
 }
 
-// IsFree returns true if the model has no pricing or zero cost.
+// IsFree returns true if the model has no pricing and pricing is not unknown,
+// or if pricing is explicitly zero.
 func (m ModelInfo) IsFree() bool {
+	if m.PricingUnknown {
+		return false
+	}
 	if m.Pricing == nil {
 		return true
 	}

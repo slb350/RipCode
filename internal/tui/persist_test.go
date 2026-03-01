@@ -238,12 +238,14 @@ func TestLoadPromptHistory_JSONL_SkipsMalformedLines(t *testing.T) {
 	t.Setenv("RIPCODE_DIR", dir)
 	stateDir := filepath.Join(dir, "state")
 	require.NoError(t, os.MkdirAll(stateDir, 0o755))
-	// JSONL format: one JSON object per line. Malformed lines are skipped, not errors.
+	// JSONL format: one JSON object per line. Malformed lines are skipped
+	// and surfaced as a warning error with the count.
 	content := "{garbage}\n" + `{"prompt":"valid","mode":"normal"}` + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(stateDir, "prompt-history.jsonl"), []byte(content), 0o644))
 
 	h, err := loadPromptHistory()
-	require.NoError(t, err, "JSONL format skips bad lines without error")
+	require.Error(t, err, "skipped entries should be surfaced as warning")
+	assert.Contains(t, err.Error(), "1 malformed history entries skipped")
 	assert.NotNil(t, h)
 	items := h.Items()
 	assert.Len(t, items, 1)

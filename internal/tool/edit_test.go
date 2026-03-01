@@ -177,6 +177,32 @@ func TestEdit_SymlinkWithinWorkDir_Blocked(t *testing.T) {
 	assert.Equal(t, "original content", string(data))
 }
 
+func TestEdit_SymlinkWrite_Blocked(t *testing.T) {
+	// Verify that the write path (not just the read path) rejects symlinks.
+	// This catches TOCTOU issues where a symlink is swapped in after the
+	// read-open succeeds but before the write-open.
+	e := NewEditTool()
+	ctx := newTestCtx(t)
+
+	// Create a real file and a symlink pointing to it, both within workdir.
+	target := filepath.Join(ctx.WorkDir, "target.txt")
+	require.NoError(t, os.WriteFile(target, []byte("original content"), 0644))
+
+	link := filepath.Join(ctx.WorkDir, "link.txt")
+	require.NoError(t, os.Symlink(target, link))
+
+	// The edit tool should reject the symlink on the read-open,
+	// never reaching the write path.
+	result := e.Execute(ctx, `{"file_path":"`+link+`","old_string":"original","new_string":"modified"}`)
+	assert.Error(t, result.Error)
+	assert.Contains(t, result.Error.Error(), "symlink")
+
+	// Target file should be unchanged.
+	data, err := os.ReadFile(target)
+	require.NoError(t, err)
+	assert.Equal(t, "original content", string(data))
+}
+
 func TestEdit_MapNormPos_TabBoundary(t *testing.T) {
 	orig := "\thello"
 	norm := normalizeWhitespace(orig)

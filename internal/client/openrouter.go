@@ -122,6 +122,8 @@ func (c *OpenRouter) ListModels(ctx context.Context) ([]provider.ModelInfo, erro
 					PromptPerMillion:     prompt,
 					CompletionPerMillion: completion,
 				}
+			} else {
+				info.PricingUnknown = true
 			}
 		}
 		models = append(models, info)
