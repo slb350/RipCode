@@ -82,6 +82,54 @@ func TestBash_BlockedCommands(t *testing.T) {
 	}
 }
 
+func TestBash_BlockedCommandVariants(t *testing.T) {
+	b := NewBashTool()
+	ctx := newTestCtx(t)
+
+	variants := []string{
+		// Flag reordering
+		`{"command":"rm -f -r /"}`,
+		`{"command":"rm -r -f /"}`,
+		// Extra whitespace
+		`{"command":"rm  -rf  /"}`,
+		// Backslash escapes in command
+		`{"command":"r\\m -rf /"}`,
+		// sudo with extra spaces
+		`{"command":"sudo   rm something"}`,
+		// Tab characters
+		`{"command":"sudo\trm something"}`,
+		// Fork bomb
+		`{"command":":(){ :|:& };:"}`,
+		// chmod 777 root
+		`{"command":"chmod -R 777 /"}`,
+	}
+
+	for _, args := range variants {
+		result := b.Execute(ctx, args)
+		assert.Error(t, result.Error, "should block: %s", args)
+		assert.Contains(t, result.Error.Error(), "blocked", "should block: %s", args)
+	}
+}
+
+func TestBash_AllowedCommands(t *testing.T) {
+	b := NewBashTool()
+	ctx := newTestCtx(t)
+
+	// Commands that look similar but are safe
+	allowed := []string{
+		`{"command":"ls /"}`,
+		`{"command":"rm file.txt"}`,
+	}
+
+	for _, args := range allowed {
+		result := b.Execute(ctx, args)
+		// These should not be blocked (may error for other reasons but not "blocked")
+		if result.Error != nil {
+			assert.NotContains(t, result.Error.Error(), "blocked", "should not block: %s", args)
+		}
+	}
+}
+
 func TestBash_InvalidJSON(t *testing.T) {
 	b := NewBashTool()
 	ctx := newTestCtx(t)

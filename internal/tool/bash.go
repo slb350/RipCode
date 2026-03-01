@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -15,18 +16,26 @@ const MaxOutputBytes = 50 * 1024 // 50 KB
 
 const defaultTimeout = 2 * time.Minute
 
-// blockedPatterns contains command prefixes/patterns that are never allowed.
-var blockedPatterns = []string{
-	"rm -rf /",
-	"rm -rf /*",
-	"sudo rm",
-	"sudo dd",
-	"mkfs",
-	"dd if=/dev/zero of=/dev/sd",
-	"dd if=/dev/zero of=/dev/nvm",
-	":(){ :|:& };:",
-	"> /dev/sd",
-	"chmod -R 777 /",
+// blockedPatterns contains regex patterns for commands that are never allowed.
+// These are defense-in-depth — not a security sandbox.
+var blockedPatterns = []*regexp.Regexp{
+	// rm with -r and -f flags in any order, targeting root
+	regexp.MustCompile(`\brm\s+(-[a-z]*r[a-z]*\s+)*-[a-z]*f[a-z]*\s+/`),
+	regexp.MustCompile(`\brm\s+(-[a-z]*f[a-z]*\s+)*-[a-z]*r[a-z]*\s+/`),
+	regexp.MustCompile(`\brm\s+-rf\s+/`),
+	// sudo rm / sudo dd
+	regexp.MustCompile(`\bsudo\s+rm\b`),
+	regexp.MustCompile(`\bsudo\s+dd\b`),
+	// mkfs variants
+	regexp.MustCompile(`\bmkfs\b`),
+	// dd to block devices
+	regexp.MustCompile(`\bdd\s+.*of=/dev/(sd|nvm)`),
+	// Fork bomb
+	regexp.MustCompile(`:\(\)\s*\{.*\|.*&.*\}\s*;`),
+	// Write to block devices
+	regexp.MustCompile(`>\s*/dev/sd`),
+	// chmod 777 root
+	regexp.MustCompile(`\bchmod\s+(-[a-zA-Z]*\s+)*777\s+/`),
 }
 
 // BashTool executes shell commands.
@@ -130,13 +139,26 @@ func (b *BashTool) Execute(ctx Context, argsJSON string) Result {
 
 // checkBlocked returns an error if the command matches a blocked pattern.
 func checkBlocked(cmd string) error {
-	lower := strings.ToLower(strings.TrimSpace(cmd))
+	normalized := normalizeCommand(cmd)
 	for _, pattern := range blockedPatterns {
-		if strings.Contains(lower, pattern) {
-			return fmt.Errorf("blocked: command matches dangerous pattern %q", pattern)
+		if pattern.MatchString(normalized) {
+			return fmt.Errorf("blocked: command matches dangerous pattern %q", pattern.String())
 		}
 	}
 	return nil
+}
+
+// normalizeCommand strips backslash escapes, collapses whitespace, and
+// lowercases for blocklist matching.
+func normalizeCommand(cmd string) string {
+	// Remove backslash escapes (e.g. r\m → rm)
+	cmd = strings.ReplaceAll(cmd, "\\", "")
+	// Replace tabs with spaces
+	cmd = strings.ReplaceAll(cmd, "\t", " ")
+	// Collapse multiple spaces
+	parts := strings.Fields(cmd)
+	cmd = strings.Join(parts, " ")
+	return strings.ToLower(strings.TrimSpace(cmd))
 }
 
 // truncate shortens output to maxBytes, appending a notice if truncated.
