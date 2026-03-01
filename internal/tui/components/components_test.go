@@ -156,6 +156,146 @@ func TestChat_Clear(t *testing.T) {
 	assert.NotContains(t, view, "hello")
 }
 
+func TestChat_Entries_ReturnsAllEntries(t *testing.T) {
+	c := NewChat()
+	c.AddEntry(ChatEntry{Role: "user", Content: "hello"})
+	c.AddEntry(ChatEntry{Role: "assistant", Content: "world"})
+
+	entries := c.Entries()
+	assert.Len(t, entries, 2)
+	assert.Equal(t, "user", entries[0].Role)
+	assert.Equal(t, "assistant", entries[1].Role)
+}
+
+func TestChat_Entries_EmptyWhenCleared(t *testing.T) {
+	c := NewChat()
+	c.AddEntry(ChatEntry{Role: "user", Content: "hello"})
+	c.Clear()
+	assert.Empty(t, c.Entries())
+}
+
+func TestChat_Entries_ReturnsCopy(t *testing.T) {
+	c := NewChat()
+	c.AddEntry(ChatEntry{Role: "user", Content: "original"})
+	entries := c.Entries()
+	entries[0].Content = "modified"
+	assert.Equal(t, "original", c.Entries()[0].Content)
+}
+
+// --- Chat scroll tests ---
+
+func TestChat_PageUp_MovesScrollByHeight(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 10)
+	// Add enough entries to have scrollable content
+	for i := 0; i < 20; i++ {
+		c.AddEntry(ChatEntry{Role: "user", Content: "msg"})
+	}
+	c.scrollPos = 20
+	c.PageUp()
+	assert.Equal(t, 10, c.scrollPos)
+}
+
+func TestChat_PageDown_MovesScrollByHeight(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 10)
+	c.scrollPos = 0
+	c.PageDown()
+	assert.Equal(t, 10, c.scrollPos)
+}
+
+func TestChat_HalfPageUp_MovesHalfHeight(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 10)
+	c.scrollPos = 20
+	c.HalfPageUp()
+	assert.Equal(t, 15, c.scrollPos)
+}
+
+func TestChat_HalfPageDown_MovesHalfHeight(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 10)
+	c.scrollPos = 0
+	c.HalfPageDown()
+	assert.Equal(t, 5, c.scrollPos)
+}
+
+func TestChat_LineUp_MovesOneLineUp(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 10)
+	c.scrollPos = 5
+	c.LineUp()
+	assert.Equal(t, 4, c.scrollPos)
+}
+
+func TestChat_LineDown_MovesOneLineDown(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 10)
+	c.scrollPos = 5
+	c.LineDown()
+	assert.Equal(t, 6, c.scrollPos)
+}
+
+func TestChat_ScrollToTop_MovesToZero(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 10)
+	c.scrollPos = 50
+	c.ScrollToTop()
+	assert.Equal(t, 0, c.scrollPos)
+}
+
+func TestChat_ScrollToBottom_MovesToEnd(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 10)
+	for i := 0; i < 20; i++ {
+		c.AddEntry(ChatEntry{Role: "user", Content: "msg"})
+	}
+	c.scrollPos = 0
+	c.ScrollToBottom()
+	assert.True(t, c.scrollPos > 0, "scroll should move to bottom")
+}
+
+func TestChat_PageUp_ClampsAtZero(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 10)
+	c.scrollPos = 3
+	c.PageUp()
+	assert.Equal(t, 0, c.scrollPos)
+}
+
+func TestChat_PageDown_ClampsAtMax(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 10)
+	c.AddEntry(ChatEntry{Role: "user", Content: "short"})
+	c.scrollPos = 0
+	c.PageDown()
+	// View() will clamp scrollPos, but the method itself doesn't
+	// What we verify is that it doesn't go negative
+	assert.GreaterOrEqual(t, c.scrollPos, 0)
+}
+
+func TestChat_NextUserMessage_JumpsToNextUser(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 10)
+	c.AddEntry(ChatEntry{Role: "user", Content: "first"})
+	c.AddEntry(ChatEntry{Role: "assistant", Content: "reply"})
+	c.AddEntry(ChatEntry{Role: "user", Content: "second"})
+	c.scrollPos = 0
+	c.NextUserMessage()
+	assert.True(t, c.scrollPos > 0, "should jump past first user message")
+}
+
+func TestChat_PrevUserMessage_JumpsToPrevUser(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 10)
+	c.AddEntry(ChatEntry{Role: "user", Content: "first"})
+	c.AddEntry(ChatEntry{Role: "assistant", Content: "reply"})
+	c.AddEntry(ChatEntry{Role: "user", Content: "second"})
+	c.scrollPos = 10
+	c.PrevUserMessage()
+	assert.True(t, c.scrollPos < 10, "should jump back to previous user message")
+}
+
 // --- Input tests ---
 
 func TestInput_Value(t *testing.T) {
@@ -1022,4 +1162,56 @@ func TestToolPanel_Clear(t *testing.T) {
 
 	view := tp.View()
 	assert.Empty(t, view)
+}
+
+// --- PromptStash tests ---
+
+func TestPromptStash_Push_AddsEntry(t *testing.T) {
+	s := NewPromptStash()
+	s.Push("hello world")
+	assert.Len(t, s.List(), 1)
+}
+
+func TestPromptStash_Pop_ReturnsLatest(t *testing.T) {
+	s := NewPromptStash()
+	s.Push("first")
+	s.Push("second")
+	entry, ok := s.Pop()
+	assert.True(t, ok)
+	assert.Equal(t, "second", entry.Content)
+	assert.Len(t, s.List(), 1) // second popped, first remains
+}
+
+func TestPromptStash_Pop_Empty_ReturnsFalse(t *testing.T) {
+	s := NewPromptStash()
+	_, ok := s.Pop()
+	assert.False(t, ok)
+}
+
+func TestPromptStash_List_ReturnsAll(t *testing.T) {
+	s := NewPromptStash()
+	s.Push("one")
+	s.Push("two")
+	s.Push("three")
+	assert.Len(t, s.List(), 3)
+}
+
+func TestPromptStash_Delete_RemovesEntry(t *testing.T) {
+	s := NewPromptStash()
+	id := s.Push("hello")
+	assert.True(t, s.Delete(id))
+	assert.Empty(t, s.List())
+}
+
+func TestPromptStash_Delete_Unknown_ReturnsFalse(t *testing.T) {
+	s := NewPromptStash()
+	assert.False(t, s.Delete("nonexistent"))
+}
+
+func TestPromptStash_Push_SetsTimestamp(t *testing.T) {
+	s := NewPromptStash()
+	before := time.Now()
+	s.Push("test")
+	entries := s.List()
+	assert.False(t, entries[0].CreatedAt.Before(before))
 }

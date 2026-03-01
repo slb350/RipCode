@@ -3,6 +3,7 @@ package tui
 import (
 	"github.com/stephenbrandon/ripcode/internal/agent"
 	"github.com/stephenbrandon/ripcode/internal/provider"
+	"github.com/stephenbrandon/ripcode/internal/store"
 )
 
 // AgentEventMsg wraps an agent loop event for the TUI.
@@ -37,4 +38,10 @@ type ShellResultMsg struct {
 	Command string
 	Output  string
 	Error   string
+}
+
+// SessionsLoadedMsg carries the result of an async session list fetch.
+type SessionsLoadedMsg struct {
+	Sessions []store.SessionSummary
+	Err      error
 }

@@ -298,10 +298,16 @@ func TestLoop_SessionUpdated(t *testing.T) {
 
 	// Session should have user + assistant messages
 	assert.Len(t, sess.Messages, 2)
-	assert.Equal(t, "user", sess.Messages[0].Role)
-	assert.Equal(t, "test input", sess.Messages[0].Content)
-	assert.Equal(t, "assistant", sess.Messages[1].Role)
-	assert.Equal(t, "response", sess.Messages[1].Content)
+	assert.Equal(t, "user", sess.Messages[0].Message.Role)
+	assert.Equal(t, "test input", sess.Messages[0].Message.Content)
+	assert.Equal(t, "assistant", sess.Messages[1].Message.Role)
+	assert.Equal(t, "response", sess.Messages[1].Message.Content)
+
+	// Assistant should have metadata
+	require.NotNil(t, sess.Messages[1].Meta)
+	assert.Equal(t, 10, sess.Messages[1].Meta.InputTokens)
+	assert.Equal(t, 5, sess.Messages[1].Meta.OutputTokens)
+	assert.Equal(t, "stop", sess.Messages[1].Meta.FinishReason)
 
 	// Tokens should be tracked
 	assert.Equal(t, 10, sess.Tokens.Input)

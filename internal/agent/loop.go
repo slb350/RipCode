@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/stephenbrandon/ripcode/internal/provider"
 	"github.com/stephenbrandon/ripcode/internal/session"
@@ -89,9 +90,20 @@ func (l *Loop) run(ctx context.Context, input string, ch chan<- Event) {
 			return
 		}
 
+		streamStart := time.Now()
 		content, toolCalls, meta := l.consumeStream(ctx, streamCh, ch)
 
-		l.session.AddAssistant(content, toolCalls)
+		var am *session.AssistantMeta
+		if meta != nil {
+			am = &session.AssistantMeta{
+				Model:        meta.Model,
+				InputTokens:  meta.InputTokens,
+				OutputTokens: meta.OutputTokens,
+				FinishReason: meta.FinishReason,
+				Duration:     time.Since(streamStart),
+			}
+		}
+		l.session.AddAssistant(content, toolCalls, am)
 		if meta != nil {
 			l.session.AddTokens(meta.InputTokens, meta.OutputTokens)
 		}

@@ -98,7 +98,7 @@ Legend:
 
 ## Implementation Plan (Phased)
 
-## Phase 1: Core Prompt and Command Parity (P0)
+## Phase 1: Core Prompt and Command Parity (P0) ✅ COMPLETE
 
 Goal: Make daily coding loop feel equivalent.
 
@@ -116,7 +116,7 @@ Acceptance criteria:
 - All commands provide visible feedback via toast or dialog.
 - Unit tests for each command + keybind route.
 
-## Phase 2: Session Lifecycle and Timeline UX (P0/P1)
+## Phase 2: Session Lifecycle and Timeline UX (P0/P1) ✅ COMPLETE
 
 Goal: Match opencode's session/time-travel usability.
 

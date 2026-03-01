@@ -92,6 +92,71 @@ func (c *Chat) CommitStream() {
 	}
 }
 
+// PageUp scrolls up by one page height.
+func (c *Chat) PageUp() { c.scrollPos = max(0, c.scrollPos-c.height) }
+
+// PageDown scrolls down by one page height.
+func (c *Chat) PageDown() { c.scrollPos += c.height }
+
+// HalfPageUp scrolls up by half a page.
+func (c *Chat) HalfPageUp() { c.scrollPos = max(0, c.scrollPos-c.height/2) }
+
+// HalfPageDown scrolls down by half a page.
+func (c *Chat) HalfPageDown() { c.scrollPos += c.height / 2 }
+
+// LineUp scrolls up by one line.
+func (c *Chat) LineUp() { c.scrollPos = max(0, c.scrollPos-1) }
+
+// LineDown scrolls down by one line.
+func (c *Chat) LineDown() { c.scrollPos++ }
+
+// ScrollToTop scrolls to the very top.
+func (c *Chat) ScrollToTop() { c.scrollPos = 0 }
+
+// ScrollToBottom scrolls to the very bottom.
+func (c *Chat) ScrollToBottom() { c.scrollToBottom() }
+
+// ScrollPos returns the current scroll position.
+func (c Chat) ScrollPos() int { return c.scrollPos }
+
+// SetScrollPos sets the scroll position directly.
+func (c *Chat) SetScrollPos(pos int) { c.scrollPos = max(0, pos) }
+
+// NextUserMessage jumps scroll to the next user message entry after current view.
+func (c *Chat) NextUserMessage() {
+	linePos := 0
+	for _, entry := range c.entries {
+		entryLines := 2 // entry + blank (approximate)
+		if entry.Role == "user" && linePos > c.scrollPos {
+			c.scrollPos = linePos
+			return
+		}
+		linePos += entryLines
+	}
+}
+
+// PrevUserMessage jumps scroll to the previous user message entry before current view.
+func (c *Chat) PrevUserMessage() {
+	linePos := 0
+	lastUser := -1
+	for _, entry := range c.entries {
+		if entry.Role == "user" && linePos < c.scrollPos {
+			lastUser = linePos
+		}
+		linePos += 2 // entry + blank (approximate)
+	}
+	if lastUser >= 0 {
+		c.scrollPos = lastUser
+	}
+}
+
+// Entries returns the current chat entries.
+func (c Chat) Entries() []ChatEntry {
+	out := make([]ChatEntry, len(c.entries))
+	copy(out, c.entries)
+	return out
+}
+
 // Clear removes all entries.
 func (c *Chat) Clear() {
 	c.entries = nil
