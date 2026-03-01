@@ -50,18 +50,30 @@ func (w *WriteTool) Execute(ctx Context, argsJSON string) Result {
 		return Result{Error: fmt.Errorf("file_path is required")}
 	}
 
+	validated, err := ValidatePath(args.FilePath, ctx.WorkDir, false)
+	if err != nil {
+		return Result{Error: err}
+	}
+
+	// Check if target is a symlink before overwriting
+	if info, err := os.Lstat(validated); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return Result{Error: fmt.Errorf("refusing to write through symlink: %s", validated)}
+		}
+	}
+
 	// Create parent directories
-	dir := filepath.Dir(args.FilePath)
+	dir := filepath.Dir(validated)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return Result{Error: fmt.Errorf("create directories: %w", err)}
 	}
 
-	if err := os.WriteFile(args.FilePath, []byte(args.Content), 0644); err != nil {
+	if err := os.WriteFile(validated, []byte(args.Content), 0644); err != nil {
 		return Result{Error: fmt.Errorf("write file: %w", err)}
 	}
 
 	return Result{
-		Output: fmt.Sprintf("Wrote %d bytes to %s", len(args.Content), args.FilePath),
-		Title:  args.FilePath,
+		Output: fmt.Sprintf("Wrote %d bytes to %s", len(args.Content), validated),
+		Title:  validated,
 	}
 }

@@ -64,6 +64,13 @@ func (g *GlobTool) Execute(ctx Context, argsJSON string) Result {
 		root = ctx.WorkDir
 	}
 
+	// Validate root is within workDir
+	if root != ctx.WorkDir {
+		if _, err := ValidatePath(root, ctx.WorkDir, true); err != nil {
+			return Result{Error: err}
+		}
+	}
+
 	var matches []string
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {

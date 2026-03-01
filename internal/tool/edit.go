@@ -51,13 +51,27 @@ func (e *EditTool) Execute(ctx Context, argsJSON string) Result {
 		return Result{Error: fmt.Errorf("parse args: %w", err)}
 	}
 
-	info, err := os.Stat(args.FilePath)
+	validated, err := ValidatePath(args.FilePath, ctx.WorkDir, true)
+	if err != nil {
+		return Result{Error: err}
+	}
+
+	// Reject symlinks — edit must target real files
+	linfo, err := os.Lstat(validated)
+	if err != nil {
+		return Result{Error: fmt.Errorf("stat file: %w", err)}
+	}
+	if linfo.Mode()&os.ModeSymlink != 0 {
+		return Result{Error: fmt.Errorf("refusing to edit symlink: %s", validated)}
+	}
+
+	info, err := os.Stat(validated)
 	if err != nil {
 		return Result{Error: fmt.Errorf("stat file: %w", err)}
 	}
 	perm := info.Mode().Perm()
 
-	data, err := os.ReadFile(args.FilePath)
+	data, err := os.ReadFile(validated)
 	if err != nil {
 		return Result{Error: fmt.Errorf("read file: %w", err)}
 	}
@@ -71,30 +85,30 @@ func (e *EditTool) Execute(ctx Context, argsJSON string) Result {
 		// Whitespace-flexible fallback: normalize whitespace and retry
 		newContent, ok := whitespaceFlexibleReplace(content, args.OldString, args.NewString)
 		if !ok {
-			return Result{Error: fmt.Errorf("no match found for old_string in %s", args.FilePath)}
+			return Result{Error: fmt.Errorf("no match found for old_string in %s", validated)}
 		}
-		if err := os.WriteFile(args.FilePath, []byte(newContent), perm); err != nil {
+		if err := os.WriteFile(validated, []byte(newContent), perm); err != nil {
 			return Result{Error: fmt.Errorf("write file: %w", err)}
 		}
 		return Result{
-			Output: fmt.Sprintf("Edited %s (whitespace-flexible match)", args.FilePath),
-			Title:  args.FilePath,
+			Output: fmt.Sprintf("Edited %s (whitespace-flexible match)", validated),
+			Title:  validated,
 		}
 	}
 
 	if count > 1 {
-		return Result{Error: fmt.Errorf("old_string has %d matches in %s — must be unique. Provide more context", count, args.FilePath)}
+		return Result{Error: fmt.Errorf("old_string has %d matches in %s — must be unique. Provide more context", count, validated)}
 	}
 
 	newContent := strings.Replace(content, args.OldString, args.NewString, 1)
 
-	if err := os.WriteFile(args.FilePath, []byte(newContent), perm); err != nil {
+	if err := os.WriteFile(validated, []byte(newContent), perm); err != nil {
 		return Result{Error: fmt.Errorf("write file: %w", err)}
 	}
 
 	return Result{
-		Output: fmt.Sprintf("Edited %s", args.FilePath),
-		Title:  args.FilePath,
+		Output: fmt.Sprintf("Edited %s", validated),
+		Title:  validated,
 	}
 }
 

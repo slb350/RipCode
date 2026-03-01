@@ -55,7 +55,12 @@ func (r *ReadTool) Execute(ctx Context, argsJSON string) Result {
 		return Result{Error: fmt.Errorf("parse args: %w", err)}
 	}
 
-	data, err := os.ReadFile(args.FilePath)
+	validated, err := ValidatePath(args.FilePath, ctx.WorkDir, true)
+	if err != nil {
+		return Result{Error: err}
+	}
+
+	data, err := os.ReadFile(validated)
 	if err != nil {
 		return Result{Error: fmt.Errorf("read file: %w", err)}
 	}
@@ -63,7 +68,7 @@ func (r *ReadTool) Execute(ctx Context, argsJSON string) Result {
 	if len(data) == 0 {
 		return Result{
 			Output: "(empty file)",
-			Title:  args.FilePath,
+			Title:  validated,
 		}
 	}
 
@@ -75,7 +80,7 @@ func (r *ReadTool) Execute(ctx Context, argsJSON string) Result {
 	if bytes.ContainsRune(data[:checkLen], 0) {
 		return Result{
 			Output: fmt.Sprintf("(binary file, %d bytes)", len(data)),
-			Title:  args.FilePath,
+			Title:  validated,
 		}
 	}
 
@@ -117,6 +122,6 @@ func (r *ReadTool) Execute(ctx Context, argsJSON string) Result {
 
 	return Result{
 		Output: output,
-		Title:  args.FilePath,
+		Title:  validated,
 	}
 }
