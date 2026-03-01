@@ -74,6 +74,7 @@ type App struct {
 	responseStart     time.Time
 	cancel            context.CancelFunc
 	eventCh           <-chan agent.Event
+	promptHistory     *components.PromptHistory
 }
 
 type commandEntry struct {
@@ -136,14 +137,15 @@ func renderPickerList(header string, items []pickerItem, selected, maxRows int) 
 // NewApp creates the initial application model.
 func NewApp() App {
 	return App{
-		chat:      components.NewChat(),
-		input:     components.NewInput(),
-		statusbar: components.NewStatusBar(),
-		footer:    components.NewSessionFooter(),
-		toolpanel: components.NewToolPanel(),
-		home:      components.NewHome(),
-		state:     StateHome,
-		maxSteps:  100,
+		chat:          components.NewChat(),
+		input:         components.NewInput(),
+		statusbar:     components.NewStatusBar(),
+		footer:        components.NewSessionFooter(),
+		toolpanel:     components.NewToolPanel(),
+		home:          components.NewHome(),
+		state:         StateHome,
+		maxSteps:      100,
+		promptHistory: components.NewPromptHistory(200),
 	}
 }
 
@@ -328,6 +330,24 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				cmd := a.home.Input().Update(msg)
 				return a, cmd
 			}
+
+			// Prompt history: Up at first line, Down at last line
+			if msg.Code == tea.KeyUp && msg.Mod == 0 && a.input.CursorY() == 0 {
+				if a.promptHistory.AtNewest() {
+					a.promptHistory.SaveDraft(a.input.Value())
+				}
+				if p, ok := a.promptHistory.Previous(); ok {
+					a.input.SetValue(p)
+				}
+				return a, nil
+			}
+			if msg.Code == tea.KeyDown && msg.Mod == 0 && a.input.CursorY() == a.input.LineCount()-1 {
+				if p, ok := a.promptHistory.Next(); ok {
+					a.input.SetValue(p)
+				}
+				return a, nil
+			}
+
 			cmd := a.input.Update(msg)
 			cacheCmd := a.updateInlineSuggestions()
 			return a, tea.Batch(cmd, cacheCmd)
@@ -346,6 +366,8 @@ func (a App) handleSubmit(input string) (tea.Model, tea.Cmd) {
 		a.sidebarOverlay = false
 	}
 	a.inlineOpen = false
+
+	a.promptHistory.Push(input)
 
 	trimmed := strings.TrimSpace(input)
 	if strings.HasPrefix(trimmed, "/") {

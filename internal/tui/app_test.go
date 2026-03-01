@@ -152,6 +152,146 @@ func TestApp_CtrlC_QuitsWhenInputEmpty(t *testing.T) {
 	assert.NotNil(t, cmd, "ctrl+c with empty input should quit")
 }
 
+func TestApp_SubmitPrompt_AddedToHistory(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	// Submit a slash command (doesn't start streaming)
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/help"})
+	a = model.(App)
+
+	// Up arrow should recall "/help"
+	a.input.SetValue("")
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	a = model.(App)
+	assert.Equal(t, "/help", a.input.Value())
+}
+
+func TestApp_UpArrow_AtFirstLine_RecallsPreviousPrompt(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/help"})
+	a = model.(App)
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/new"})
+	a = model.(App)
+
+	// Up at first line recalls "/new"
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	a = model.(App)
+	assert.Equal(t, "/new", a.input.Value())
+
+	// Up again recalls "/help"
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	a = model.(App)
+	assert.Equal(t, "/help", a.input.Value())
+}
+
+func TestApp_DownArrow_AtLastLine_RecallsNextOrDraft(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/help"})
+	a = model.(App)
+
+	// Type something as draft
+	a.input.SetValue("my draft")
+
+	// Up to recall "/help"
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	a = model.(App)
+	assert.Equal(t, "/help", a.input.Value())
+
+	// Down to restore draft
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	a = model.(App)
+	assert.Equal(t, "my draft", a.input.Value())
+}
+
+func TestApp_UpArrow_AtMiddleLine_MovesUpNormally(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	// Multi-line input: cursor on line 1 (not first line)
+	a.input.SetValue("line1\nline2")
+	// SetValue moves cursor to end (line 1, pos 5)
+	// Up should move cursor to line 0, not history
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	a = model.(App)
+	assert.Equal(t, "line1\nline2", a.input.Value(), "should not change value")
+}
+
+func TestApp_DownArrow_AtMiddleLine_MovesDownNormally(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	// Multi-line input: cursor on line 0 (not last line)
+	a.input.SetValue("line1\nline2")
+	a.input.SetCursorOffset(3) // mid line 0
+	// Down should move to line 1, not history
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	a = model.(App)
+	assert.Equal(t, "line1\nline2", a.input.Value(), "should not change value")
+}
+
+func TestApp_HistoryNavigation_SavesAndRestoresDraft(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/help"})
+	a = model.(App)
+
+	a.input.SetValue("draft text")
+
+	// Up: saves draft, shows /help
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	a = model.(App)
+	assert.Equal(t, "/help", a.input.Value())
+
+	// Down: restores draft
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	a = model.(App)
+	assert.Equal(t, "draft text", a.input.Value())
+}
+
 func TestApp_ContentDelta_ContinuesListening(t *testing.T) {
 	app := NewApp()
 	ch := make(chan agent.Event, 1)

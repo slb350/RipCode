@@ -116,6 +116,12 @@ func (i *Input) findWordRight() int {
 	return pos
 }
 
+// CursorY returns the current cursor line index.
+func (i Input) CursorY() int { return i.cursorY }
+
+// LineCount returns the number of lines in the input.
+func (i Input) LineCount() int { return len(i.value) }
+
 // SetSize updates the input dimensions.
 func (i *Input) SetSize(width, height int) {
 	i.width = width
