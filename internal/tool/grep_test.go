@@ -124,6 +124,16 @@ func TestGrep_PathTraversalBlocked(t *testing.T) {
 	assert.Error(t, result.Error)
 }
 
+func TestGrep_InvalidIncludePattern_ReturnsError(t *testing.T) {
+	g := NewGrepTool()
+	ctx := newTestCtx(t)
+	require.NoError(t, os.WriteFile(filepath.Join(ctx.WorkDir, "a.go"), []byte("hello\n"), 0644))
+
+	result := g.Execute(ctx, `{"pattern":"hello","path":"`+ctx.WorkDir+`","include":"[invalid"}`)
+	assert.Error(t, result.Error, "invalid glob pattern should return error")
+	assert.Contains(t, result.Error.Error(), "invalid include pattern")
+}
+
 func TestGrep_SkipErrors_ReportsCount(t *testing.T) {
 	g := NewGrepTool()
 	ctx := newTestCtx(t)

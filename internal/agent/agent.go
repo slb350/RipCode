@@ -53,7 +53,7 @@ func PlanAgent() Agent {
 		Name:         NamePlan,
 		Mode:         ModePlan,
 		SystemPrompt: planSystemPrompt,
-		// NOTE: these must match tool IDs registered in tool.NewRegistry().
+		// NOTE: these must match tool IDs registered in cmd/ripcode/main.go.
 		// No compile-time check exists — update if tools are added/renamed.
 		AllowedTools: []string{"read", "glob", "grep", "ls", "todo"},
 	}
@@ -84,7 +84,7 @@ func (a Agent) FilterRegistry(reg *tool.Registry) []provider.ToolDef {
 type AgentInfo struct {
 	Name        string
 	Description string
-	Native      bool
+	Native      bool // true for built-in agents (build/plan), false for MCP-provided agents
 }
 
 // AllAgents returns info about all available agents.

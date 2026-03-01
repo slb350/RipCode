@@ -151,7 +151,7 @@ func TestLoadPromptHistory_Compaction_WritesCorrectData(t *testing.T) {
 	assert.LessOrEqual(t, len(items), historyMaxSize)
 
 	// Verify compacted file on disk
-	reloaded, err := store.LoadHistory()
+	reloaded, _, err := store.LoadHistory()
 	require.NoError(t, err)
 	assert.LessOrEqual(t, len(reloaded), historyMaxSize, "compacted file should not exceed max size")
 }
@@ -178,7 +178,7 @@ func TestPersistHistory_RoundTrips(t *testing.T) {
 	require.NoError(t, persistHistory(h))
 
 	// Reload and verify
-	entries, err := store.LoadHistory()
+	entries, _, err := store.LoadHistory()
 	require.NoError(t, err)
 	require.NotEmpty(t, entries)
 	assert.Equal(t, "test prompt", entries[len(entries)-1].Prompt)
@@ -194,7 +194,7 @@ func TestPersistHistory_DedupedPrompt_DoesNotAppendDuplicate(t *testing.T) {
 	h.PushWithMode("same prompt", "normal")
 	require.NoError(t, persistHistory(h))
 
-	entries, err := store.LoadHistory()
+	entries, _, err := store.LoadHistory()
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 	assert.Equal(t, "same prompt", entries[0].Prompt)

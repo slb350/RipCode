@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -210,6 +213,49 @@ func TestApp_ResumeSession_ReappliesSystemPrompt(t *testing.T) {
 	require.NotEmpty(t, history)
 	assert.Equal(t, provider.RoleSystem, history[0].Role, "resumed session should have system prompt")
 	assert.NotEmpty(t, history[0].Content)
+}
+
+func TestApp_ResumeSession_PartialLoadStillResumes(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RIPCODE_DIR", dir)
+
+	// Create and save a valid session.
+	sess := session.New(t.TempDir())
+	sess.AddUser("hello")
+	sess.AddAssistant("world", nil, nil)
+	require.NoError(t, store.Save(sess))
+
+	// Corrupt one message role so Load returns (session, error).
+	path := filepath.Join(store.SessionsDir(), sess.ID+".json")
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(data, &raw))
+	msgs := raw["messages"].([]any)
+	msgs[0].(map[string]any)["role"] = "bogus"
+	data, err = json.MarshalIndent(raw, "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, data, 0o644))
+
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	model, _ = a.resumeSession(sess.ID)
+	a = model.(App)
+
+	require.NotNil(t, a.session)
+	assert.Equal(t, sess.ID, a.session.ID)
+	assert.Equal(t, 1, a.session.Len(), "should resume with valid records that remain")
+	toast := a.toasts.Current()
+	require.NotNil(t, toast)
+	assert.Equal(t, components.ToastWarning, toast.Variant)
+	assert.Contains(t, toast.Message, "invalid record")
 }
 
 func TestApp_SessionsDialog_DeleteConfirm_Enter_DeletesSession(t *testing.T) {

@@ -135,7 +135,8 @@ func (c *OpenRouter) ListModels(ctx context.Context) ([]provider.ModelInfo, erro
 
 // Chat sends messages to the OpenRouter API and streams response events.
 func (c *OpenRouter) Chat(ctx context.Context, msgs []provider.Message, tools []provider.ToolDef) (<-chan provider.StreamEvent, error) {
-	body, err := c.buildRequest(msgs, tools)
+	model, effort := c.snapshotSettings()
+	body, err := c.buildRequestWithSettings(msgs, tools, model, effort)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
@@ -163,17 +164,24 @@ func (c *OpenRouter) Chat(ctx context.Context, msgs []provider.Message, tools []
 	}
 
 	ch := make(chan provider.StreamEvent, 64)
-	go c.streamResponse(ctx, resp, ch)
+	go c.streamResponse(ctx, resp, ch, model)
 	return ch, nil
 }
 
-// buildRequest constructs the JSON request body.
+// buildRequest constructs the JSON request body using the current model settings.
+// Used by tests; production code calls snapshotSettings + buildRequestWithSettings directly.
 func (c *OpenRouter) buildRequest(msgs []provider.Message, tools []provider.ToolDef) ([]byte, error) {
-	c.mu.RLock()
-	model := c.model
-	effort := c.reasoningEffort
-	c.mu.RUnlock()
+	model, effort := c.snapshotSettings()
+	return c.buildRequestWithSettings(msgs, tools, model, effort)
+}
 
+func (c *OpenRouter) snapshotSettings() (model, effort string) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.model, c.reasoningEffort
+}
+
+func (c *OpenRouter) buildRequestWithSettings(msgs []provider.Message, tools []provider.ToolDef, model, effort string) ([]byte, error) {
 	apiMsgs := make([]apiMessage, 0, len(msgs))
 	for _, m := range msgs {
 		am := apiMessage{
@@ -228,7 +236,7 @@ func (c *OpenRouter) buildRequest(msgs []provider.Message, tools []provider.Tool
 }
 
 // streamResponse reads SSE lines and emits events on the channel.
-func (c *OpenRouter) streamResponse(ctx context.Context, resp *http.Response, ch chan<- provider.StreamEvent) {
+func (c *OpenRouter) streamResponse(ctx context.Context, resp *http.Response, ch chan<- provider.StreamEvent, requestModel string) {
 	defer close(ch)
 	defer resp.Body.Close()
 
@@ -240,12 +248,8 @@ func (c *OpenRouter) streamResponse(ctx context.Context, resp *http.Response, ch
 	}
 	toolCalls := map[int]*toolCallAcc{}
 
-	c.mu.RLock()
-	currentModel := c.model
-	c.mu.RUnlock()
-
 	var meta provider.Metadata
-	meta.Model = currentModel
+	meta.Model = requestModel
 
 	// send emits an event on ch, returning false if the context was cancelled.
 	send := func(evt provider.StreamEvent) bool {

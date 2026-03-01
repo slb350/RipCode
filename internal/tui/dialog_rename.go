@@ -31,10 +31,7 @@ func (a App) handleRenameDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			a.warnOnErr(store.Save(a.session), "session")
 		}
 		id := a.toasts.Show(fmt.Sprintf("Renamed to \"%s\"", a.renameDialog.value), components.ToastSuccess, 3*time.Second)
-		return a, func() tea.Msg {
-			time.Sleep(3 * time.Second)
-			return ToastDismissMsg{ID: id}
-		}
+		return a, toastDismissCmd(id)
 
 	case msg.Code == tea.KeyBackspace:
 		a.renameDialog.value = backspaceRune(a.renameDialog.value)

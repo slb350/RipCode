@@ -9,7 +9,7 @@ const historyMaxSize = 200
 
 func loadPromptHistory() (*components.PromptHistory, error) {
 	h := components.NewPromptHistory(historyMaxSize)
-	entries, err := store.LoadHistory()
+	entries, _, err := store.LoadHistory()
 	if err != nil {
 		return h, err
 	}
@@ -70,7 +70,7 @@ func persistHistory(h *components.PromptHistory) error {
 
 	// Avoid appending duplicate consecutive entries when history push was
 	// deduplicated in-memory.
-	existing, err := store.LoadHistory()
+	existing, _, err := store.LoadHistory()
 	if err != nil {
 		return err
 	}

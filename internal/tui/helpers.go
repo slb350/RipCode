@@ -3,6 +3,9 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 // inlineEntry represents one item in the inline autocomplete popup.
@@ -123,6 +126,15 @@ func formatNumber(n int) string {
 	millions := n / 1_000_000
 	remainder := (n % 1_000_000) / 1000
 	return fmt.Sprintf("%d,%03d,%03d", millions, remainder, n%1000)
+}
+
+// toastDismissCmd returns a tea.Cmd that dismisses a toast after 3 seconds.
+// Use this in value-receiver dialog handlers that cannot call *App.ShowToast.
+func toastDismissCmd(id int64) tea.Cmd {
+	return func() tea.Msg {
+		time.Sleep(3 * time.Second)
+		return ToastDismissMsg{ID: id}
+	}
 }
 
 func enabledIcon(enabled bool) string {

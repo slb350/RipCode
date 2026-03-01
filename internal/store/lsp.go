@@ -29,8 +29,18 @@ const lspConfigFile = "lsp.json"
 
 // LoadLSPConfig reads LSP configuration from disk.
 // Returns empty config if the file does not exist.
+// Logs warnings for any invalid client entries found in the file.
 func LoadLSPConfig() (*LSPConfig, error) {
-	return loadState[LSPConfig](lspConfigFile, "LSP config")
+	cfg, err := loadState[LSPConfig](lspConfigFile, "LSP config")
+	if err != nil {
+		return cfg, err
+	}
+	for _, c := range cfg.Clients {
+		if verr := c.Valid(); verr != nil {
+			LogError("LSP config: invalid client", verr)
+		}
+	}
+	return cfg, nil
 }
 
 // Save writes LSP configuration to disk.

@@ -80,19 +80,22 @@ func TestMCPConfig_ToggleEnabled(t *testing.T) {
 	}
 
 	// Toggle off
-	newState := cfg.ToggleEnabled("srv")
+	newState, found := cfg.ToggleEnabled("srv")
+	assert.True(t, found)
 	assert.False(t, newState)
 	assert.False(t, cfg.Servers[0].Enabled)
 
 	// Toggle back on
-	newState = cfg.ToggleEnabled("srv")
+	newState, found = cfg.ToggleEnabled("srv")
+	assert.True(t, found)
 	assert.True(t, newState)
 	assert.True(t, cfg.Servers[0].Enabled)
 }
 
 func TestMCPConfig_ToggleEnabled_NotFound(t *testing.T) {
 	cfg := &MCPConfig{}
-	newState := cfg.ToggleEnabled("nonexistent")
+	newState, found := cfg.ToggleEnabled("nonexistent")
+	assert.False(t, found, "should report not found")
 	assert.False(t, newState)
 }
 
@@ -119,8 +122,8 @@ func TestMCPConfig_ByName_Found(t *testing.T) {
 			{Name: "srv2", URL: "http://test", Enabled: false},
 		},
 	}
-	s := cfg.ByName("srv2")
-	require.NotNil(t, s)
+	s, ok := cfg.ByName("srv2")
+	require.True(t, ok)
 	assert.Equal(t, "http://test", s.URL)
 }
 
@@ -128,7 +131,42 @@ func TestMCPConfig_ByName_NotFound(t *testing.T) {
 	cfg := &MCPConfig{
 		Servers: []MCPServer{{Name: "srv1", Command: "cmd1"}},
 	}
-	assert.Nil(t, cfg.ByName("missing"))
+	_, ok := cfg.ByName("missing")
+	assert.False(t, ok)
+}
+
+func TestMCPConfig_ByName_ReturnsCopy(t *testing.T) {
+	cfg := &MCPConfig{
+		Servers: []MCPServer{{Name: "srv1", Command: "cmd1", Enabled: true}},
+	}
+	s, ok := cfg.ByName("srv1")
+	require.True(t, ok)
+	s.Enabled = false // mutate the copy
+	assert.True(t, cfg.Servers[0].Enabled, "original should be unmodified")
+}
+
+func TestLoadMCPConfig_InvalidServers_LogsWarning(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RIPCODE_DIR", dir)
+	cfg := &MCPConfig{
+		Servers: []MCPServer{
+			{Name: "good", Command: "echo", Enabled: true},
+			{Name: "", Command: "bad"},                      // invalid: empty name
+			{Name: "both", Command: "cmd", URL: "http://x"}, // invalid: both set
+		},
+	}
+	require.NoError(t, cfg.Save())
+
+	loaded, err := LoadMCPConfig()
+	require.NoError(t, err, "invalid entries should not prevent loading")
+	assert.Len(t, loaded.Servers, 3, "all entries still loaded")
+
+	logData, readErr := os.ReadFile(filepath.Join(dir, "state", "errors.log"))
+	require.NoError(t, readErr)
+	logStr := string(logData)
+	assert.Contains(t, logStr, "MCP config: invalid server")
+	assert.Contains(t, logStr, "name is required")
+	assert.Contains(t, logStr, "both")
 }
 
 func TestMCPServer_Valid_WithCommand(t *testing.T) {

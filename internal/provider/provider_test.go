@@ -203,6 +203,43 @@ func TestMessage_Valid_ToolMissingCallID(t *testing.T) {
 	assert.Error(t, m.Valid())
 }
 
+func TestNewSystemMessage(t *testing.T) {
+	m := NewSystemMessage("you are helpful")
+	assert.Equal(t, RoleSystem, m.Role)
+	assert.Equal(t, "you are helpful", m.Content)
+	assert.NoError(t, m.Valid())
+}
+
+func TestNewUserMessage(t *testing.T) {
+	m := NewUserMessage("hello")
+	assert.Equal(t, RoleUser, m.Role)
+	assert.Equal(t, "hello", m.Content)
+	assert.NoError(t, m.Valid())
+}
+
+func TestNewAssistantMessage(t *testing.T) {
+	m := NewAssistantMessage("I'll help", nil)
+	assert.Equal(t, RoleAssistant, m.Role)
+	assert.Equal(t, "I'll help", m.Content)
+	assert.NoError(t, m.Valid())
+}
+
+func TestNewAssistantMessage_WithToolCalls(t *testing.T) {
+	tc := []ToolCall{{ID: "1", Name: "bash", Args: "{}"}}
+	m := NewAssistantMessage("calling tool", tc)
+	assert.Equal(t, RoleAssistant, m.Role)
+	assert.Len(t, m.ToolCalls, 1)
+	assert.NoError(t, m.Valid())
+}
+
+func TestNewToolResultMessage(t *testing.T) {
+	m := NewToolResultMessage("call_1", "output here")
+	assert.Equal(t, RoleTool, m.Role)
+	assert.Equal(t, "call_1", m.ToolCallID)
+	assert.Equal(t, "output here", m.Content)
+	assert.NoError(t, m.Valid())
+}
+
 func TestStreamEvent_Valid_ContentDelta(t *testing.T) {
 	e := StreamEvent{Type: EventContentDelta, Content: "hello"}
 	assert.NoError(t, e.Valid())

@@ -55,11 +55,8 @@ func (s *Session) AddUser(content string) *MessageRecord {
 	defer s.mu.Unlock()
 	s.redoStack = nil // new message invalidates redo history
 	rec := MessageRecord{
-		ID: generateMessageID(),
-		Message: provider.Message{
-			Role:    provider.RoleUser,
-			Content: content,
-		},
+		ID:        generateMessageID(),
+		Message:   provider.NewUserMessage(content),
 		CreatedAt: time.Now(),
 	}
 	s.messages = append(s.messages, rec)
@@ -73,12 +70,8 @@ func (s *Session) AddAssistant(content string, toolCalls []provider.ToolCall, me
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rec := MessageRecord{
-		ID: generateMessageID(),
-		Message: provider.Message{
-			Role:      provider.RoleAssistant,
-			Content:   content,
-			ToolCalls: toolCalls,
-		},
+		ID:        generateMessageID(),
+		Message:   provider.NewAssistantMessage(content, toolCalls),
 		CreatedAt: time.Now(),
 		Meta:      meta,
 	}
@@ -93,12 +86,8 @@ func (s *Session) AddToolResult(callID, content string) *MessageRecord {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rec := MessageRecord{
-		ID: generateMessageID(),
-		Message: provider.Message{
-			Role:       provider.RoleTool,
-			Content:    content,
-			ToolCallID: callID,
-		},
+		ID:        generateMessageID(),
+		Message:   provider.NewToolResultMessage(callID, content),
 		CreatedAt: time.Now(),
 	}
 	s.messages = append(s.messages, rec)
@@ -121,10 +110,7 @@ func (s *Session) History() []provider.Message {
 	msgs := make([]provider.Message, offset+len(s.messages))
 
 	if s.systemPrompt != "" {
-		msgs[0] = provider.Message{
-			Role:    provider.RoleSystem,
-			Content: s.systemPrompt,
-		}
+		msgs[0] = provider.NewSystemMessage(s.systemPrompt)
 	}
 
 	for i, rec := range s.messages {
@@ -222,13 +208,11 @@ func (s *Session) Fork(upToIndex int) (*Session, error) {
 			Message:   rec.Message,
 			CreatedAt: rec.CreatedAt,
 		}
-		// Deep-copy tool calls slice
 		if len(rec.Message.ToolCalls) > 0 {
 			tc := make([]provider.ToolCall, len(rec.Message.ToolCalls))
 			copy(tc, rec.Message.ToolCalls)
 			forked.messages[i].Message.ToolCalls = tc
 		}
-		// Deep-copy meta
 		if rec.Meta != nil {
 			meta := *rec.Meta
 			forked.messages[i].Meta = &meta

@@ -37,7 +37,11 @@ func (a App) handleMCPDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case msg.Code == ' ':
 		if a.mcpConfig != nil && a.mcpDialog.selected < serverCount {
 			srv := a.mcpConfig.Servers[a.mcpDialog.selected]
-			newState := a.mcpConfig.ToggleEnabled(srv.Name)
+			newState, found := a.mcpConfig.ToggleEnabled(srv.Name)
+			if !found {
+				a.toasts.Show(fmt.Sprintf("server %q not found", srv.Name), components.ToastWarning, 3*time.Second)
+				return a, nil
+			}
 			a.warnOnErr(a.mcpConfig.Save(), "MCP config")
 			a.footer.SetMCPCount(a.mcpConfig.CountEnabled())
 			label := "disabled"

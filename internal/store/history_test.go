@@ -17,8 +17,9 @@ func TestSaveLoadHistory_RoundTrip(t *testing.T) {
 	}
 	require.NoError(t, SaveHistory(entries))
 
-	loaded, err := LoadHistory()
+	loaded, skipped, err := LoadHistory()
 	require.NoError(t, err)
+	assert.Equal(t, 0, skipped)
 	assert.Len(t, loaded, 2)
 	assert.Equal(t, "hello", loaded[0].Prompt)
 	assert.Equal(t, "normal", loaded[0].Mode)
@@ -28,8 +29,9 @@ func TestSaveLoadHistory_RoundTrip(t *testing.T) {
 
 func TestLoadHistory_NoFile_ReturnsEmpty(t *testing.T) {
 	testDir(t)
-	entries, err := LoadHistory()
+	entries, skipped, err := LoadHistory()
 	require.NoError(t, err)
+	assert.Equal(t, 0, skipped)
 	assert.Empty(t, entries)
 }
 
@@ -49,7 +51,7 @@ func TestSaveLoadHistory_PreservesOrder(t *testing.T) {
 	}
 	require.NoError(t, SaveHistory(entries))
 
-	loaded, err := LoadHistory()
+	loaded, _, err := LoadHistory()
 	require.NoError(t, err)
 	require.Len(t, loaded, 3)
 	assert.Equal(t, "first", loaded[0].Prompt)
@@ -62,7 +64,7 @@ func TestAppendHistory_AppendsToFile(t *testing.T) {
 	require.NoError(t, AppendHistory(HistoryEntry{Prompt: "one", Mode: "normal"}))
 	require.NoError(t, AppendHistory(HistoryEntry{Prompt: "two", Mode: "shell"}))
 
-	loaded, err := LoadHistory()
+	loaded, _, err := LoadHistory()
 	require.NoError(t, err)
 	assert.Len(t, loaded, 2)
 	assert.Equal(t, "one", loaded[0].Prompt)
@@ -74,7 +76,7 @@ func TestAppendHistory_CreatesFileIfMissing(t *testing.T) {
 	err := AppendHistory(HistoryEntry{Prompt: "first", Mode: "normal"})
 	assert.NoError(t, err)
 
-	loaded, err := LoadHistory()
+	loaded, _, err := LoadHistory()
 	require.NoError(t, err)
 	assert.Len(t, loaded, 1)
 }
@@ -86,7 +88,7 @@ func TestAppendHistory_WriteError_WrapsMessage(t *testing.T) {
 
 	// Verify write error wrapping by checking the return path includes proper error context
 	// This is a structural test: the function should wrap write errors
-	loaded, err := LoadHistory()
+	loaded, _, err := LoadHistory()
 	require.NoError(t, err)
 	assert.Len(t, loaded, 1)
 }
@@ -102,8 +104,9 @@ func TestLoadHistory_MalformedLines_SkippedGracefully(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, f.Close())
 
-	loaded, err := LoadHistory()
+	loaded, skipped, err := LoadHistory()
 	require.NoError(t, err)
+	assert.Equal(t, 1, skipped, "should report 1 skipped entry")
 	assert.Len(t, loaded, 1, "should skip malformed line and return valid entries")
 	assert.Equal(t, "good", loaded[0].Prompt)
 }
@@ -116,7 +119,7 @@ func TestLoadHistory_MalformedLines_Logged(t *testing.T) {
 	_, _ = f.WriteString("{bad}\n")
 	f.Close()
 
-	_, _ = LoadHistory()
+	_, _, _ = LoadHistory()
 
 	logData, err := os.ReadFile(filepath.Join(StateDir(), "errors.log"))
 	require.NoError(t, err)
@@ -135,7 +138,7 @@ func TestSaveHistory_AtomicWrite_PreservesOnCrash(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "tmp file should be cleaned up")
 
 	// Verify the file is valid JSONL
-	loaded, err := LoadHistory()
+	loaded, _, err := LoadHistory()
 	require.NoError(t, err)
 	assert.Len(t, loaded, 1)
 	assert.Equal(t, "first", loaded[0].Prompt)
@@ -154,7 +157,7 @@ func TestSaveHistory_Overwrite_ReplacesContent(t *testing.T) {
 		{Prompt: "new1", Mode: "shell"},
 	}))
 
-	loaded, err := LoadHistory()
+	loaded, _, err := LoadHistory()
 	require.NoError(t, err)
 	assert.Len(t, loaded, 1, "should have replaced, not appended")
 	assert.Equal(t, "new1", loaded[0].Prompt)

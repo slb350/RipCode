@@ -21,18 +21,18 @@ func historyPath() string {
 
 // LoadHistory reads all prompt history entries from the JSONL file.
 // Returns empty slice if the file does not exist.
-func LoadHistory() ([]HistoryEntry, error) {
+// The second return value is the number of malformed entries that were skipped.
+func LoadHistory() (entries []HistoryEntry, skipped int, err error) {
 	path := historyPath()
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, 0, nil
 		}
-		return nil, fmt.Errorf("open history: %w", err)
+		return nil, 0, fmt.Errorf("open history: %w", err)
 	}
 	defer f.Close()
 
-	var entries []HistoryEntry
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -42,18 +42,20 @@ func LoadHistory() ([]HistoryEntry, error) {
 		var entry HistoryEntry
 		if err := json.Unmarshal(line, &entry); err != nil {
 			LogError("history: malformed entry", err)
+			skipped++
 			continue
 		}
 		entries = append(entries, entry)
 	}
 	if err := scanner.Err(); err != nil {
-		return entries, fmt.Errorf("scan history: %w", err)
+		return entries, skipped, fmt.Errorf("scan history: %w", err)
 	}
-	return entries, nil
+	return entries, skipped, nil
 }
 
 // SaveHistory writes all entries to the JSONL file atomically, replacing any
-// existing content. Returns an error if any entries fail to marshal.
+// existing content. Fails fast if any entry cannot be marshaled — the file
+// is only written when all entries serialize successfully.
 func SaveHistory(entries []HistoryEntry) error {
 	dir := StateDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -61,22 +63,16 @@ func SaveHistory(entries []HistoryEntry) error {
 	}
 
 	var buf bytes.Buffer
-	writeErrors := 0
-	for _, entry := range entries {
+	for i, entry := range entries {
 		data, err := json.Marshal(entry)
 		if err != nil {
-			LogError("history: marshal entry", err)
-			writeErrors++
-			continue
+			return fmt.Errorf("marshal history entry %d: %w", i, err)
 		}
 		buf.Write(data)
 		buf.WriteByte('\n')
 	}
 	if err := atomicWrite(historyPath(), buf.Bytes(), 0o644); err != nil {
 		return fmt.Errorf("write history: %w", err)
-	}
-	if writeErrors > 0 {
-		return fmt.Errorf("failed to write %d/%d history entries", writeErrors, len(entries))
 	}
 	return nil
 }

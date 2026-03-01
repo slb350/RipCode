@@ -11,6 +11,7 @@ import (
 
 // OpenNoFollow opens a file with the given flags, rejecting symlinks atomically.
 // On Unix, O_NOFOLLOW prevents the kernel from following symlinks at the target path.
+// This eliminates TOCTOU races where a symlink could be swapped in after ValidatePath.
 func OpenNoFollow(path string, flags int, perm os.FileMode) (*os.File, error) {
 	f, err := os.OpenFile(path, flags|syscall.O_NOFOLLOW, perm)
 	if err != nil {

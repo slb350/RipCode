@@ -126,14 +126,11 @@ func (a App) filteredSessions() []store.SessionSummary {
 
 func (a App) resumeSession(id string) (tea.Model, tea.Cmd) {
 	loaded, err := store.Load(id)
-	if err != nil {
+	if err != nil && loaded == nil {
 		a.sessionsDialog.open = false
 		a.input.Focus()
 		id := a.toasts.Show("Failed to load session: "+err.Error(), components.ToastError, 3*time.Second)
-		return a, func() tea.Msg {
-			time.Sleep(3 * time.Second)
-			return ToastDismissMsg{ID: id}
-		}
+		return a, toastDismissCmd(id)
 	}
 
 	a.session = loaded
@@ -154,11 +151,14 @@ func (a App) resumeSession(id string) (tea.Model, tea.Cmd) {
 	a.statusbar.SetTitle(title)
 	a.statusbar.SetTokens(loaded.Tokens.Input + loaded.Tokens.Output)
 
-	toastID := a.toasts.Show("Session resumed", components.ToastSuccess, 3*time.Second)
-	return a, func() tea.Msg {
-		time.Sleep(3 * time.Second)
-		return ToastDismissMsg{ID: toastID}
+	toastMsg := "Session resumed"
+	toastVariant := components.ToastSuccess
+	if err != nil {
+		toastMsg = "Session resumed with warnings: " + err.Error()
+		toastVariant = components.ToastWarning
 	}
+	toastID := a.toasts.Show(toastMsg, toastVariant, 3*time.Second)
+	return a, toastDismissCmd(toastID)
 }
 
 func (a *App) rebuildChatFromSession() {

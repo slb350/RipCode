@@ -52,6 +52,26 @@ func (m Message) Valid() error {
 	return nil
 }
 
+// NewSystemMessage creates a system message.
+func NewSystemMessage(content string) Message {
+	return Message{Role: RoleSystem, Content: content}
+}
+
+// NewUserMessage creates a user message.
+func NewUserMessage(content string) Message {
+	return Message{Role: RoleUser, Content: content}
+}
+
+// NewAssistantMessage creates an assistant message with optional tool calls.
+func NewAssistantMessage(content string, toolCalls []ToolCall) Message {
+	return Message{Role: RoleAssistant, Content: content, ToolCalls: toolCalls}
+}
+
+// NewToolResultMessage creates a tool result message.
+func NewToolResultMessage(callID, content string) Message {
+	return Message{Role: RoleTool, Content: content, ToolCallID: callID}
+}
+
 // ToolCall represents an LLM request to invoke a tool.
 type ToolCall struct {
 	ID   string
@@ -172,7 +192,8 @@ type ToolDef struct {
 // Provider is the interface for LLM backends.
 type Provider interface {
 	// Chat sends messages and streams the response as events on the returned channel.
-	// The channel is closed when the stream ends (either successfully or on error).
+	// The implementation creates and owns the returned channel; it is closed when the
+	// stream ends (either successfully or on error).
 	// Callers must drain the channel to avoid goroutine leaks.
 	// Implementations MUST close the channel promptly when the context is cancelled.
 	// After cancellation, callers must still drain any remaining buffered events;

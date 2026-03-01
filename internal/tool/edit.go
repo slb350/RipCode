@@ -137,7 +137,7 @@ func whitespaceFlexibleReplace(content, oldStr, newStr string) (string, bool) {
 	return result, true
 }
 
-// normalizeWhitespace replaces leading tabs with 4 spaces.
+// normalizeWhitespace converts tabs to 4 spaces in the leading whitespace of each line.
 func normalizeWhitespace(s string) string {
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {

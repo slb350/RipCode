@@ -100,7 +100,10 @@ func (g *GrepTool) Execute(ctx Context, argsJSON string) Result {
 
 		// Apply include filter
 		if args.Include != "" {
-			matched, _ := doublestar.PathMatch(args.Include, d.Name())
+			matched, matchErr := doublestar.PathMatch(args.Include, d.Name())
+			if matchErr != nil {
+				return fmt.Errorf("invalid include pattern %q: %w", args.Include, matchErr)
+			}
 			if !matched {
 				return nil
 			}

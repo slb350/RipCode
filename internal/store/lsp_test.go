@@ -88,6 +88,30 @@ func TestLSPConfig_CountEnabled_Empty(t *testing.T) {
 	assert.Equal(t, 0, cfg.CountEnabled())
 }
 
+func TestLoadLSPConfig_InvalidClients_LogsWarning(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RIPCODE_DIR", dir)
+	cfg := &LSPConfig{
+		Clients: []LSPClient{
+			{Name: "gopls", Root: "/tmp", Enabled: true},
+			{Name: "", Root: "/tmp"},                    // invalid: empty name
+			{Name: "tsserver", Root: "", Enabled: true}, // invalid: empty root
+		},
+	}
+	require.NoError(t, cfg.Save())
+
+	loaded, err := LoadLSPConfig()
+	require.NoError(t, err, "invalid entries should not prevent loading")
+	assert.Len(t, loaded.Clients, 3, "all entries still loaded")
+
+	logData, readErr := os.ReadFile(filepath.Join(dir, "state", "errors.log"))
+	require.NoError(t, readErr)
+	logStr := string(logData)
+	assert.Contains(t, logStr, "LSP config: invalid client")
+	assert.Contains(t, logStr, "client name is required")
+	assert.Contains(t, logStr, "requires a root path")
+}
+
 func TestLSPClient_Valid_EmptyName_ReturnsError(t *testing.T) {
 	c := LSPClient{Name: "", Root: "/tmp"}
 	err := c.Valid()

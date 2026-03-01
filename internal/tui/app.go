@@ -255,10 +255,7 @@ func (a *App) warnOnErr(err error, what string) {
 // ShowToast displays a toast notification and returns a dismiss command.
 func (a *App) ShowToast(msg string, variant components.ToastVariant) tea.Cmd {
 	id := a.toasts.Show(msg, variant, 3*time.Second)
-	return func() tea.Msg {
-		time.Sleep(3 * time.Second)
-		return ToastDismissMsg{ID: id}
-	}
+	return toastDismissCmd(id)
 }
 
 // setStreaming updates the streaming state and keeps statusbar/footer in sync.

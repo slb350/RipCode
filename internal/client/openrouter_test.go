@@ -620,6 +620,49 @@ func TestOpenRouter_ConcurrentSetModelAndChat(t *testing.T) {
 	}
 }
 
+func TestOpenRouter_StreamMetadataUsesRequestModel(t *testing.T) {
+	firstChunkSent := make(chan struct{})
+	allowFinish := make(chan struct{})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+
+		// Send one chunk so the stream starts, then wait while model changes.
+		fmt.Fprint(w, "data: "+chatChunk("hello", "")+"\n\n")
+		w.(http.Flusher).Flush()
+		close(firstChunkSent)
+
+		<-allowFinish
+		fmt.Fprint(w, "data: "+chatChunkWithUsage("stop", 2, 1)+"\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		w.(http.Flusher).Flush()
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "model-a")
+	c.baseURL = srv.URL
+
+	ch, err := c.Chat(context.Background(), []provider.Message{
+		{Role: provider.RoleUser, Content: "hi"},
+	}, nil)
+	require.NoError(t, err)
+
+	<-firstChunkSent
+	c.SetModel("model-b")
+	close(allowFinish)
+
+	var finish *provider.StreamEvent
+	for e := range ch {
+		if e.Type == provider.EventFinish {
+			evt := e
+			finish = &evt
+		}
+	}
+
+	require.NotNil(t, finish)
+	assert.Equal(t, "model-a", finish.Meta.Model, "finish metadata should reflect the request model")
+}
+
 func TestOpenRouter_ImplementsReasoningEffortSetter(t *testing.T) {
 	var _ provider.ReasoningEffortSetter = &OpenRouter{}
 }
