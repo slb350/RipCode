@@ -81,3 +81,17 @@ func envLookup(key string, dotenv map[string]string) string {
 	}
 	return dotenv[key]
 }
+
+// SaveAPIKey writes or updates the OPENROUTER_API_KEY in the .env file at dir.
+// Creates the file if it doesn't exist. Preserves other entries.
+func SaveAPIKey(dir, apiKey string) error {
+	envPath := filepath.Join(dir, ".env")
+
+	existing, _ := godotenv.Read(envPath)
+	if existing == nil {
+		existing = make(map[string]string)
+	}
+	existing["OPENROUTER_API_KEY"] = apiKey
+
+	return godotenv.Write(existing, envPath)
+}

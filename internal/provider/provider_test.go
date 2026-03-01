@@ -104,3 +104,34 @@ func TestEventType_Values(t *testing.T) {
 	assert.Equal(t, EventType(2), EventFinish)
 	assert.Equal(t, EventType(3), EventError)
 }
+
+func TestModelInfo_ProviderName_ExtractsFromID(t *testing.T) {
+	m := ModelInfo{ID: "anthropic/claude-4", Name: "Claude 4"}
+	assert.Equal(t, "anthropic", m.ProviderName())
+}
+
+func TestModelInfo_ProviderName_NoSlash_ReturnsID(t *testing.T) {
+	m := ModelInfo{ID: "gpt-4", Name: "GPT-4"}
+	assert.Equal(t, "gpt-4", m.ProviderName())
+}
+
+func TestModelInfo_IsFree_NilPricing(t *testing.T) {
+	m := ModelInfo{ID: "test/model", Pricing: nil}
+	assert.True(t, m.IsFree())
+}
+
+func TestModelInfo_IsFree_ZeroCost(t *testing.T) {
+	m := ModelInfo{
+		ID:      "test/model",
+		Pricing: &ModelPricing{PromptPerMillion: 0, CompletionPerMillion: 0},
+	}
+	assert.True(t, m.IsFree())
+}
+
+func TestModelInfo_IsFree_NonZeroCost(t *testing.T) {
+	m := ModelInfo{
+		ID:      "anthropic/claude-4",
+		Pricing: &ModelPricing{PromptPerMillion: 3.0, CompletionPerMillion: 15.0},
+	}
+	assert.False(t, m.IsFree())
+}

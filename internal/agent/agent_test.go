@@ -82,3 +82,21 @@ func TestMode_String(t *testing.T) {
 	assert.Equal(t, "build", ModeBuild.String())
 	assert.Equal(t, "plan", ModePlan.String())
 }
+
+func TestAllAgents_ReturnsBuildAndPlan(t *testing.T) {
+	agents := AllAgents()
+	assert.Len(t, agents, 2)
+	names := make([]string, len(agents))
+	for i, a := range agents {
+		names[i] = a.Name
+	}
+	assert.Contains(t, names, NameBuild)
+	assert.Contains(t, names, NamePlan)
+}
+
+func TestAllAgents_HaveDescriptions(t *testing.T) {
+	agents := AllAgents()
+	for _, a := range agents {
+		assert.NotEmpty(t, a.Description, "agent %s should have a description", a.Name)
+	}
+}

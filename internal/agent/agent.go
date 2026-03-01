@@ -78,6 +78,21 @@ func (a Agent) FilterRegistry(reg *tool.Registry) []provider.ToolDef {
 	return filtered
 }
 
+// AgentInfo describes an agent for display in the agent picker dialog.
+type AgentInfo struct {
+	Name        string
+	Description string
+	Native      bool
+}
+
+// AllAgents returns info about all available agents.
+func AllAgents() []AgentInfo {
+	return []AgentInfo{
+		{Name: NameBuild, Description: "Full tool access for coding tasks", Native: true},
+		{Name: NamePlan, Description: "Read-only analysis and planning", Native: true},
+	}
+}
+
 const buildSystemPrompt = `You are ripcode, an AI coding assistant in the terminal.
 You have access to tools for reading, writing, and executing code.
 Use tools to explore the codebase and make changes as requested.

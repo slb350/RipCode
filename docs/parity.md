@@ -137,7 +137,7 @@ Acceptance criteria:
 - Timeline behavior matches opencode interaction patterns.
 - Every lifecycle action has toast feedback.
 
-## Phase 3: Model/Provider UX Parity (P1)
+## Phase 3: Model/Provider UX Parity (P1) ✅ COMPLETE
 
 Goal: Match opencode's model/provider ergonomics.
 

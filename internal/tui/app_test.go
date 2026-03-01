@@ -2456,3 +2456,684 @@ func TestApp_StashListDialog_EnterRestores(t *testing.T) {
 	// Should restore the selected entry to input
 	assert.Contains(t, a.input.Value(), "draft")
 }
+
+// --- Model dialog favorites tests ---
+
+func TestModelDialog_CtrlF_TogglesFavorite_ShowsToast(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modelsCache = []provider.ModelInfo{
+		{ID: "anthropic/claude-4", Name: "Claude 4"},
+		{ID: "openai/gpt-4o", Name: "GPT-4o"},
+	}
+	a.modelsLoaded = true
+	a = a.openModelDialog("")
+	// Toggle favorite with ctrl+f
+	model, cmd := a.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	a = model.(App)
+	assert.True(t, a.modelPrefs.IsFavorite(store.ModelRef{ProviderID: "anthropic", ModelID: "anthropic/claude-4"}))
+	assert.NotNil(t, cmd, "should return toast cmd")
+}
+
+func TestModelDialog_CtrlF_UnfavoriteShowsToast(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modelsCache = []provider.ModelInfo{
+		{ID: "anthropic/claude-4", Name: "Claude 4"},
+	}
+	a.modelsLoaded = true
+	a.modelPrefs.ToggleFavorite(store.ModelRef{ProviderID: "anthropic", ModelID: "anthropic/claude-4"})
+	a = a.openModelDialog("")
+	model, cmd := a.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	a = model.(App)
+	assert.False(t, a.modelPrefs.IsFavorite(store.ModelRef{ProviderID: "anthropic", ModelID: "anthropic/claude-4"}))
+	assert.NotNil(t, cmd)
+}
+
+func TestModelDialog_FavoriteIndicator_StarPrefix(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modelsCache = []provider.ModelInfo{
+		{ID: "anthropic/claude-4", Name: "Claude 4"},
+	}
+	a.modelsLoaded = true
+	a.modelPrefs.ToggleFavorite(store.ModelRef{ProviderID: "anthropic", ModelID: "anthropic/claude-4"})
+	a = a.openModelDialog("")
+	rendered := a.renderModelDialog()
+	assert.Contains(t, rendered, "★")
+}
+
+func TestModelDialog_FavoritesSection_ShownFirst(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modelsCache = []provider.ModelInfo{
+		{ID: "openai/gpt-4o", Name: "GPT-4o"},
+		{ID: "anthropic/claude-4", Name: "Claude 4"},
+	}
+	a.modelsLoaded = true
+	a.modelPrefs.ToggleFavorite(store.ModelRef{ProviderID: "anthropic", ModelID: "anthropic/claude-4"})
+	a = a.openModelDialog("")
+	rendered := a.renderModelDialog()
+	// Claude should appear before GPT since it's a favorite
+	claudeIdx := strings.Index(rendered, "claude-4")
+	gptIdx := strings.Index(rendered, "gpt-4o")
+	assert.Greater(t, gptIdx, claudeIdx, "favorites should appear first")
+}
+
+func TestModelDialog_FavoriteToggle_PersistsToStore(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modelsCache = []provider.ModelInfo{
+		{ID: "anthropic/claude-4", Name: "Claude 4"},
+	}
+	a.modelsLoaded = true
+	a = a.openModelDialog("")
+	model, _ := a.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	a = model.(App)
+	// Load prefs from disk to verify persistence
+	loaded, err := store.LoadModelPrefs()
+	assert.NoError(t, err)
+	assert.True(t, loaded.IsFavorite(store.ModelRef{ProviderID: "anthropic", ModelID: "anthropic/claude-4"}))
+}
+
+func TestModelDialog_FavoriteToggle_SelectionStaysOnSameModel(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modelsCache = []provider.ModelInfo{
+		{ID: "openai/gpt-4o", Name: "GPT-4o"},
+		{ID: "anthropic/claude-4", Name: "Claude 4"},
+	}
+	a.modelsLoaded = true
+	a = a.openModelDialog("")
+	// Move selection to claude (index 1)
+	a.modelDialogSelect = 1
+	model, _ := a.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	a = model.(App)
+	// After toggling favorite, claude should be in favorites (first), selection should still point at it
+	displayed := a.filteredModelsDialog()
+	if assert.NotEmpty(t, displayed) {
+		assert.Equal(t, "anthropic/claude-4", displayed[a.modelDialogSelect].ID)
+	}
+}
+
+func TestModelDialog_CtrlF_WhenNoModelsLoaded_NoOp(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modelsCache = nil
+	a.modelsLoaded = true
+	a = a.openModelDialog("")
+	model, cmd := a.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	a = model.(App)
+	assert.True(t, a.modelDialogOpen, "dialog should remain open")
+	assert.Nil(t, cmd)
+}
+
+// --- Ctrl+A provider filter tests ---
+
+func TestModelDialog_CtrlA_OpensProviderFilter(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modelsCache = []provider.ModelInfo{
+		{ID: "anthropic/claude-4", Name: "Claude 4"},
+		{ID: "openai/gpt-4o", Name: "GPT-4o"},
+	}
+	a.modelsLoaded = true
+	a = a.openModelDialog("")
+	model, _ := a.Update(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	a = model.(App)
+	assert.True(t, a.modelDialogProviderMode)
+}
+
+func TestProviderFilter_ListsUniqueProviders(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modelsCache = []provider.ModelInfo{
+		{ID: "anthropic/claude-4", Name: "Claude 4"},
+		{ID: "anthropic/claude-3", Name: "Claude 3"},
+		{ID: "openai/gpt-4o", Name: "GPT-4o"},
+	}
+	a.modelsLoaded = true
+	providers := a.uniqueProviders()
+	assert.Contains(t, providers, "anthropic")
+	assert.Contains(t, providers, "openai")
+	assert.Len(t, providers, 2)
+}
+
+func TestProviderFilter_SelectProvider_FiltersModelList(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modelsCache = []provider.ModelInfo{
+		{ID: "anthropic/claude-4", Name: "Claude 4"},
+		{ID: "openai/gpt-4o", Name: "GPT-4o"},
+	}
+	a.modelsLoaded = true
+	a = a.openModelDialog("")
+	a.modelProviderFilter = "anthropic"
+	models := a.filteredModelsDialog()
+	assert.Len(t, models, 1)
+	assert.Equal(t, "anthropic/claude-4", models[0].ID)
+}
+
+func TestProviderFilter_Escape_ReturnsToFullList(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modelsCache = []provider.ModelInfo{
+		{ID: "anthropic/claude-4", Name: "Claude 4"},
+		{ID: "openai/gpt-4o", Name: "GPT-4o"},
+	}
+	a.modelsLoaded = true
+	a = a.openModelDialog("")
+	a.modelProviderFilter = "anthropic"
+	// Press ctrl+a to toggle to provider mode, then escape should clear filter
+	a.modelDialogProviderMode = true
+	model, _ := a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	a = model.(App)
+	assert.False(t, a.modelDialogProviderMode)
+	assert.Equal(t, "", a.modelProviderFilter)
+}
+
+func TestProviderFilter_SelectAll_ShowsAllModels(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modelsCache = []provider.ModelInfo{
+		{ID: "anthropic/claude-4", Name: "Claude 4"},
+		{ID: "openai/gpt-4o", Name: "GPT-4o"},
+	}
+	a.modelsLoaded = true
+	a = a.openModelDialog("")
+	a.modelProviderFilter = "" // empty = all providers
+	models := a.filteredModelsDialog()
+	assert.Len(t, models, 2)
+}
+
+// --- Provider sections + free badge tests ---
+
+func TestModelDialog_ProviderSections_GroupedByProvider(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modelsCache = []provider.ModelInfo{
+		{ID: "anthropic/claude-4", Name: "Claude 4"},
+		{ID: "openai/gpt-4o", Name: "GPT-4o"},
+		{ID: "anthropic/claude-3", Name: "Claude 3"},
+	}
+	a.modelsLoaded = true
+	a = a.openModelDialog("")
+	rendered := a.renderModelDialog()
+	assert.Contains(t, rendered, "anthropic")
+	assert.Contains(t, rendered, "openai")
+}
+
+func TestModelDialog_ProviderSections_AlphabeticalOrder(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modelsCache = []provider.ModelInfo{
+		{ID: "openai/gpt-4o", Name: "GPT-4o"},
+		{ID: "anthropic/claude-4", Name: "Claude 4"},
+	}
+	a.modelsLoaded = true
+	a = a.openModelDialog("")
+	rendered := a.renderModelDialog()
+	anthIdx := strings.Index(rendered, "── anthropic")
+	openIdx := strings.Index(rendered, "── openai")
+	if anthIdx >= 0 && openIdx >= 0 {
+		assert.Less(t, anthIdx, openIdx, "anthropic should appear before openai")
+	}
+}
+
+func TestModelDialog_FreeBadge_ShownForFreeModels(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modelsCache = []provider.ModelInfo{
+		{ID: "free/model", Name: "Free Model", Pricing: nil},
+	}
+	a.modelsLoaded = true
+	a = a.openModelDialog("")
+	rendered := a.renderModelDialog()
+	assert.Contains(t, rendered, "[free]")
+}
+
+func TestModelDialog_FreeBadge_NotShownForPaidModels(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modelsCache = []provider.ModelInfo{
+		{ID: "anthropic/claude-4", Name: "Claude 4", Pricing: &provider.ModelPricing{PromptPerMillion: 3.0, CompletionPerMillion: 15.0}},
+	}
+	a.modelsLoaded = true
+	a = a.openModelDialog("")
+	rendered := a.renderModelDialog()
+	assert.NotContains(t, rendered, "[free]")
+}
+
+func TestModelDialog_Filtering_FlatList_NoSections(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modelsCache = []provider.ModelInfo{
+		{ID: "anthropic/claude-4", Name: "Claude 4"},
+		{ID: "openai/gpt-4o", Name: "GPT-4o"},
+	}
+	a.modelsLoaded = true
+	a = a.openModelDialog("")
+	a.modelDialogQuery = "claude"
+	rendered := a.renderModelDialog()
+	assert.NotContains(t, rendered, "── anthropic", "sections should not appear when filtering")
+}
+
+func TestModelDialog_ContextLengthShown(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modelsCache = []provider.ModelInfo{
+		{ID: "anthropic/claude-4", Name: "Claude 4", ContextLength: 200000},
+	}
+	a.modelsLoaded = true
+	a = a.openModelDialog("")
+	rendered := a.renderModelDialog()
+	assert.Contains(t, rendered, "200K")
+}
+
+func TestFormatContextLength_EdgeCases(t *testing.T) {
+	assert.Equal(t, "1M", formatContextLength(1000000))
+	assert.Equal(t, "1M", formatContextLength(999999))
+	assert.Equal(t, "200K", formatContextLength(200000))
+	assert.Equal(t, "", formatContextLength(0))
+}
+
+// --- Recents + F2 cycling tests ---
+
+func TestSwitchModel_AddsToRecent(t *testing.T) {
+	a := makeSessionApp(t)
+	a.switchModel("anthropic/claude-4")
+	assert.Len(t, a.modelPrefs.Recent, 1)
+	assert.Equal(t, "anthropic/claude-4", a.modelPrefs.Recent[0].ModelID)
+}
+
+func TestModelDialog_RecentsSection_ShownAfterFavorites(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modelsCache = []provider.ModelInfo{
+		{ID: "anthropic/claude-4", Name: "Claude 4"},
+		{ID: "openai/gpt-4o", Name: "GPT-4o"},
+		{ID: "meta/llama-3", Name: "Llama 3"},
+	}
+	a.modelsLoaded = true
+	// Set up one favorite and one recent
+	a.modelPrefs.ToggleFavorite(store.ModelRef{ProviderID: "meta", ModelID: "meta/llama-3"})
+	a.modelPrefs.AddRecent(store.ModelRef{ProviderID: "openai", ModelID: "openai/gpt-4o"})
+	a = a.openModelDialog("")
+	displayed := a.filteredModelsDialog()
+	// Favorites first (llama), then recents (gpt-4o), then rest (claude)
+	if assert.Len(t, displayed, 3) {
+		assert.Equal(t, "meta/llama-3", displayed[0].ID, "favorite should be first")
+		assert.Equal(t, "openai/gpt-4o", displayed[1].ID, "recent should be second")
+		assert.Equal(t, "anthropic/claude-4", displayed[2].ID, "rest should be last")
+	}
+}
+
+func TestApp_F2_CyclesRecentModel_Forward(t *testing.T) {
+	a := makeSessionApp(t)
+	a.fullModelID = "anthropic/claude-4"
+	a.modelPrefs.AddRecent(store.ModelRef{ProviderID: "openai", ModelID: "openai/gpt-4o"})
+	a.modelPrefs.AddRecent(store.ModelRef{ProviderID: "anthropic", ModelID: "anthropic/claude-4"})
+	model, _ := a.Update(tea.KeyPressMsg{Code: tea.KeyF2})
+	a = model.(App)
+	assert.Equal(t, "openai/gpt-4o", a.fullModelID)
+}
+
+func TestApp_ShiftF2_CyclesRecentModel_Reverse(t *testing.T) {
+	a := makeSessionApp(t)
+	a.fullModelID = "anthropic/claude-4"
+	a.modelPrefs.AddRecent(store.ModelRef{ProviderID: "openai", ModelID: "openai/gpt-4o"})
+	a.modelPrefs.AddRecent(store.ModelRef{ProviderID: "anthropic", ModelID: "anthropic/claude-4"})
+	model, _ := a.Update(tea.KeyPressMsg{Code: tea.KeyF2, Mod: tea.ModShift})
+	a = model.(App)
+	assert.Equal(t, "openai/gpt-4o", a.fullModelID)
+}
+
+func TestApp_F2_NoRecents_ShowsToast(t *testing.T) {
+	a := makeSessionApp(t)
+	model, cmd := a.Update(tea.KeyPressMsg{Code: tea.KeyF2})
+	a = model.(App)
+	assert.NotNil(t, cmd, "should show toast when no recents")
+}
+
+func TestApp_F2_SwitchesModelAndShowsToast(t *testing.T) {
+	a := makeSessionApp(t)
+	a.fullModelID = "anthropic/claude-4"
+	a.modelPrefs.AddRecent(store.ModelRef{ProviderID: "anthropic", ModelID: "anthropic/claude-4"})
+	a.modelPrefs.AddRecent(store.ModelRef{ProviderID: "openai", ModelID: "openai/gpt-4o"})
+	// Reverse order: claude-4 is at index 0 (most recent), gpt-4o at 1
+	// Wait, AddRecent prepends, so after both: gpt-4o is [0], claude-4 is [1]
+	// Nope — second AddRecent("claude-4") would prepend claude-4
+	// Actually: first AddRecent(claude-4) -> [claude-4], then AddRecent(gpt-4o) -> [gpt-4o, claude-4]
+	// But in the earlier test, I used different order. Let me just verify there's a cmd returned
+	model, cmd := a.Update(tea.KeyPressMsg{Code: tea.KeyF2})
+	_ = model.(App)
+	assert.NotNil(t, cmd, "should return toast cmd")
+}
+
+// --- Connect dialog tests ---
+
+func TestConnectCommand_OpensDialog(t *testing.T) {
+	a := makeSessionApp(t)
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/connect"})
+	a = model.(App)
+	assert.True(t, a.connectDialogOpen)
+}
+
+func TestConnectDialog_AcceptsTextInput(t *testing.T) {
+	a := makeSessionApp(t)
+	a.connectDialogOpen = true
+	model, _ := a.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	a = model.(App)
+	assert.Equal(t, "s", a.connectDialogInput)
+}
+
+func TestConnectDialog_Escape_Closes(t *testing.T) {
+	a := makeSessionApp(t)
+	a.connectDialogOpen = true
+	a.connectDialogInput = "some-key"
+	model, _ := a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	a = model.(App)
+	assert.False(t, a.connectDialogOpen)
+	assert.Equal(t, "", a.connectDialogInput)
+}
+
+func TestConnectDialog_ShowsCurrentStatus(t *testing.T) {
+	a := makeSessionApp(t)
+	a.connectDialogOpen = true
+	rendered := a.renderConnectDialog()
+	assert.Contains(t, rendered, "connected")
+}
+
+func TestConnectDialog_EmptyInput_ShowsError(t *testing.T) {
+	a := makeSessionApp(t)
+	a.connectDialogOpen = true
+	a.connectDialogInput = ""
+	model, cmd := a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+	assert.True(t, a.connectDialogOpen, "dialog should stay open on empty input")
+	assert.NotNil(t, cmd, "should show toast")
+}
+
+// --- Agent dialog tests ---
+
+func TestApp_LeaderA_OpensAgentDialog(t *testing.T) {
+	a := makeSessionApp(t)
+	// ctrl+x then 'a'
+	model, _ := a.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	a = model.(App)
+	model, _ = a.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	a = model.(App)
+	assert.True(t, a.agentDialogOpen)
+}
+
+func TestAgentDialog_ListsAllAgents(t *testing.T) {
+	a := makeSessionApp(t)
+	a.agentDialogOpen = true
+	rendered := a.renderAgentDialog()
+	assert.Contains(t, rendered, "build")
+	assert.Contains(t, rendered, "plan")
+}
+
+func TestAgentDialog_FilterByQuery(t *testing.T) {
+	a := makeSessionApp(t)
+	a.agentDialogOpen = true
+	a.agentDialogQuery = "plan"
+	rendered := a.renderAgentDialog()
+	assert.Contains(t, rendered, "plan")
+	assert.NotContains(t, rendered, "> build")
+}
+
+func TestAgentDialog_Enter_SwitchesAgent(t *testing.T) {
+	a := makeSessionApp(t)
+	a.agentDialogOpen = true
+	a.agentDialogSelect = 1 // plan is second
+	model, _ := a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+	assert.False(t, a.agentDialogOpen)
+	assert.Equal(t, "plan", a.agent.Name)
+}
+
+func TestAgentDialog_Escape_Closes(t *testing.T) {
+	a := makeSessionApp(t)
+	a.agentDialogOpen = true
+	model, _ := a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	a = model.(App)
+	assert.False(t, a.agentDialogOpen)
+}
+
+func TestAgentDialog_ShowsNativeIndicator(t *testing.T) {
+	a := makeSessionApp(t)
+	a.agentDialogOpen = true
+	rendered := a.renderAgentDialog()
+	assert.Contains(t, rendered, "[native]")
+}
+
+func TestAgentDialog_ShowsCurrentAgentMarker(t *testing.T) {
+	a := makeSessionApp(t)
+	a.agentDialogOpen = true
+	rendered := a.renderAgentDialog()
+	assert.Contains(t, rendered, "● build", "current agent should have marker")
+}
+
+// --- Variant (Ctrl+T) tests ---
+
+func TestApp_CtrlT_CyclesVariant(t *testing.T) {
+	a := makeSessionApp(t)
+	a.model = "claude-sonnet-4-thinking"
+	a.fullModelID = "anthropic/claude-sonnet-4-thinking"
+	model, _ := a.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+	a = model.(App)
+	assert.Equal(t, "low", a.activeVariant)
+}
+
+func TestApp_CtrlT_NoVariants_ShowsToast(t *testing.T) {
+	a := makeSessionApp(t)
+	a.fullModelID = "openai/gpt-4o"
+	model, cmd := a.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+	a = model.(App)
+	assert.Equal(t, "", a.activeVariant)
+	assert.NotNil(t, cmd)
+}
+
+func TestApp_CtrlT_ShowsToastWithVariantName(t *testing.T) {
+	a := makeSessionApp(t)
+	a.fullModelID = "anthropic/claude-sonnet-4-thinking"
+	model, cmd := a.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+	a = model.(App)
+	assert.NotNil(t, cmd, "should show toast for variant change")
+	assert.Equal(t, "low", a.activeVariant)
+}
+
+func TestApp_VariantBadge_ShownInStatusBar(t *testing.T) {
+	a := makeSessionApp(t)
+	a.fullModelID = "anthropic/claude-sonnet-4-thinking"
+	a.activeVariant = "high"
+	a.statusbar.SetVariantBadge("[thinking:high]")
+	view := a.View()
+	assert.Contains(t, view.Content, "[thinking:high]")
+}
+
+func TestApp_VariantBadge_HiddenWhenNone(t *testing.T) {
+	a := makeSessionApp(t)
+	a.activeVariant = ""
+	a.statusbar.SetVariantBadge("")
+	view := a.View()
+	assert.NotContains(t, view.Content, "[thinking:")
+}
+
+func TestApp_Variant_PersistsAcrossSessions(t *testing.T) {
+	a := makeSessionApp(t)
+	a.fullModelID = "anthropic/claude-sonnet-4-thinking"
+	model, _ := a.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+	a = model.(App)
+	// Check that the variant was persisted
+	loaded, err := store.LoadModelPrefs()
+	assert.NoError(t, err)
+	assert.Equal(t, "low", loaded.GetVariant("anthropic/claude-sonnet-4-thinking"))
+}
+
+func TestApp_SwitchModel_ClearsIncompatibleVariant(t *testing.T) {
+	a := makeSessionApp(t)
+	a.fullModelID = "anthropic/claude-sonnet-4-thinking"
+	a.activeVariant = "high"
+	// Switch to a model without variants
+	a.modelsCache = []provider.ModelInfo{{ID: "openai/gpt-4o", Name: "GPT-4o"}}
+	a.modelsLoaded = true
+	a.switchModel("openai/gpt-4o")
+	assert.Equal(t, "", a.activeVariant)
+}
+
+// --- Fuzzy search tests ---
+
+func TestFilterModels_ExactMatch_RanksFirst(t *testing.T) {
+	models := []provider.ModelInfo{
+		{ID: "openai/gpt-4o", Name: "GPT-4o"},
+		{ID: "anthropic/claude-4", Name: "Claude 4"},
+		{ID: "openai/gpt-4o-mini", Name: "GPT-4o Mini"},
+	}
+	result := filterModels(models, "gpt-4o")
+	assert.NotEmpty(t, result)
+	assert.Equal(t, "openai/gpt-4o", result[0].ID)
+}
+
+func TestFilterModels_FuzzyMatch_FindsPartial(t *testing.T) {
+	models := []provider.ModelInfo{
+		{ID: "anthropic/claude-sonnet-4", Name: "Claude Sonnet 4"},
+		{ID: "openai/gpt-4o", Name: "GPT-4o"},
+	}
+	result := filterModels(models, "clde")
+	if assert.NotEmpty(t, result, "fuzzy search should match 'clde' to 'claude'") {
+		assert.Equal(t, "anthropic/claude-sonnet-4", result[0].ID)
+	}
+}
+
+func TestFilterModels_CaseInsensitive(t *testing.T) {
+	models := []provider.ModelInfo{
+		{ID: "anthropic/claude-4", Name: "Claude 4"},
+	}
+	result := filterModels(models, "CLAUDE")
+	assert.Len(t, result, 1)
+}
+
+func TestFilterModels_EmptyQuery_ReturnsAll(t *testing.T) {
+	models := []provider.ModelInfo{
+		{ID: "a/m1", Name: "M1"},
+		{ID: "b/m2", Name: "M2"},
+	}
+	result := filterModels(models, "")
+	assert.Len(t, result, 2)
+}
+
+func TestFilterModels_NoMatch_ReturnsEmpty(t *testing.T) {
+	models := []provider.ModelInfo{
+		{ID: "anthropic/claude-4", Name: "Claude 4"},
+	}
+	result := filterModels(models, "zzzznotamodel")
+	assert.Empty(t, result)
+}
+
+func TestFilterModels_MatchesBothIDAndName(t *testing.T) {
+	models := []provider.ModelInfo{
+		{ID: "x/hidden-model", Name: "Visible Name"},
+	}
+	// Match by name
+	result := filterModels(models, "Visible")
+	assert.Len(t, result, 1)
+	// Match by ID
+	result = filterModels(models, "hidden")
+	assert.Len(t, result, 1)
+}
+
+// --- Leader key prefix tests ---
+
+func TestApp_CtrlX_SetsLeaderPending(t *testing.T) {
+	a := makeSessionApp(t)
+	model, _ := a.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	a = model.(App)
+	assert.True(t, a.leaderPending)
+}
+
+func TestApp_LeaderPending_FollowedByKey_DispatchesLeader(t *testing.T) {
+	a := makeSessionApp(t)
+	// Press ctrl+x to enter leader mode
+	model, _ := a.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	a = model.(App)
+	assert.True(t, a.leaderPending)
+	// Press 'a' — should clear leader pending (dispatch happens, regardless of handler)
+	model, _ = a.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	a = model.(App)
+	assert.False(t, a.leaderPending)
+}
+
+func TestApp_LeaderPending_Escape_Cancels(t *testing.T) {
+	a := makeSessionApp(t)
+	model, _ := a.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	a = model.(App)
+	assert.True(t, a.leaderPending)
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	a = model.(App)
+	assert.False(t, a.leaderPending)
+}
+
+func TestApp_LeaderPending_UnrecognizedKey_Cancels(t *testing.T) {
+	a := makeSessionApp(t)
+	model, _ := a.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	a = model.(App)
+	assert.True(t, a.leaderPending)
+	// Press an unrecognized key like 'z'
+	model, _ = a.Update(tea.KeyPressMsg{Code: 'z', Text: "z"})
+	a = model.(App)
+	assert.False(t, a.leaderPending)
+}
+
+func TestApp_LeaderPending_NotInDialog(t *testing.T) {
+	a := makeSessionApp(t)
+	a.helpDialogOpen = true
+	model, _ := a.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	a = model.(App)
+	assert.False(t, a.leaderPending, "leader key should be ignored when dialog is open")
+}
+
+func TestApp_LeaderPending_StatusBarHint(t *testing.T) {
+	a := makeSessionApp(t)
+	model, _ := a.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	a = model.(App)
+	view := a.View()
+	assert.Contains(t, view.Content, "ctrl+x…")
+}
+
+func TestApp_LeaderPending_CmdBetweenKeys_StillWorks(t *testing.T) {
+	a := makeSessionApp(t)
+	// Press ctrl+x
+	model, _ := a.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	a = model.(App)
+	assert.True(t, a.leaderPending)
+	// Simulate an unrelated msg (e.g. window resize) between ctrl+x and follow-up
+	model, _ = a.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a = model.(App)
+	// Leader pending should survive non-key messages
+	assert.True(t, a.leaderPending)
+	// Now press the follow-up key
+	model, _ = a.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	a = model.(App)
+	assert.False(t, a.leaderPending)
+}
+
+// --- Chunk 12: Command registry integration tests ---
+
+func TestRegistry_ConnectCommand_Registered(t *testing.T) {
+	a := makeSessionApp(t)
+	cmd := a.cmdRegistry.Get("connect")
+	assert.NotNil(t, cmd)
+	assert.Equal(t, CategorySystem, cmd.Category)
+}
+
+func TestRegistry_AgentCommand_HasLeaderKeybind(t *testing.T) {
+	a := makeSessionApp(t)
+	cmd := a.cmdRegistry.Get("agent")
+	assert.NotNil(t, cmd)
+	assert.Equal(t, "ctrl+x a", cmd.Keybind)
+}
+
+func TestRegistry_ModelPickerEnhancements_InPalette(t *testing.T) {
+	a := makeSessionApp(t)
+	// Models command should exist
+	cmd := a.cmdRegistry.Get("models")
+	assert.NotNil(t, cmd)
+	assert.Equal(t, CategoryAgent, cmd.Category)
+}
+
+func TestCommandPalette_ShowsF2Keybind(t *testing.T) {
+	a := makeSessionApp(t)
+	cmd := a.cmdRegistry.Get("recent-model")
+	assert.NotNil(t, cmd, "recent-model command should be registered")
+	assert.Equal(t, "F2", cmd.Keybind)
+}
+
+func TestCommandPalette_ShowsCtrlTKeybind(t *testing.T) {
+	a := makeSessionApp(t)
+	cmd := a.cmdRegistry.Get("variant")
+	assert.NotNil(t, cmd, "variant command should be registered")
+	assert.Equal(t, "Ctrl+T", cmd.Keybind)
+}

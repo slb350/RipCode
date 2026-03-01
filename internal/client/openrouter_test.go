@@ -372,6 +372,98 @@ func TestOpenRouter_ListModels(t *testing.T) {
 	assert.Equal(t, "openai/gpt-4o", models[1].ID)
 }
 
+func TestListModels_ParsesPricing(t *testing.T) {
+	body := `{"data":[{"id":"anthropic/claude-4","name":"Claude 4","pricing":{"prompt":"0.003","completion":"0.015"}}]}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.modelsURL = srv.URL
+
+	models, err := c.ListModels(context.Background())
+	require.NoError(t, err)
+	require.Len(t, models, 1)
+	require.NotNil(t, models[0].Pricing)
+	assert.InDelta(t, 0.003, models[0].Pricing.PromptPerMillion, 0.0001)
+	assert.InDelta(t, 0.015, models[0].Pricing.CompletionPerMillion, 0.0001)
+}
+
+func TestListModels_ParsesContextLength(t *testing.T) {
+	body := `{"data":[{"id":"anthropic/claude-4","name":"Claude 4","context_length":200000}]}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.modelsURL = srv.URL
+
+	models, err := c.ListModels(context.Background())
+	require.NoError(t, err)
+	require.Len(t, models, 1)
+	assert.Equal(t, 200000, models[0].ContextLength)
+}
+
+func TestListModels_ParsesDescription(t *testing.T) {
+	body := `{"data":[{"id":"anthropic/claude-4","name":"Claude 4","description":"A powerful model"}]}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.modelsURL = srv.URL
+
+	models, err := c.ListModels(context.Background())
+	require.NoError(t, err)
+	require.Len(t, models, 1)
+	assert.Equal(t, "A powerful model", models[0].Description)
+}
+
+func TestListModels_NullPricing_NilModelPricing(t *testing.T) {
+	body := `{"data":[{"id":"free/model","name":"Free Model"}]}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.modelsURL = srv.URL
+
+	models, err := c.ListModels(context.Background())
+	require.NoError(t, err)
+	require.Len(t, models, 1)
+	assert.Nil(t, models[0].Pricing)
+}
+
+func TestListModels_MalformedPricing_Fallback(t *testing.T) {
+	body := `{"data":[{"id":"test/model","name":"Test","pricing":{"prompt":"free","completion":"free"}}]}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.modelsURL = srv.URL
+
+	models, err := c.ListModels(context.Background())
+	require.NoError(t, err)
+	require.Len(t, models, 1)
+	assert.Nil(t, models[0].Pricing, "malformed pricing should result in nil")
+}
+
 func TestOpenRouter_ListModels_APIError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)

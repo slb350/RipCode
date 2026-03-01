@@ -1,6 +1,9 @@
 package provider
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 // Message represents a single message in a conversation.
 type Message struct {
@@ -44,10 +47,37 @@ type Metadata struct {
 	FinishReason string // "stop", "tool_calls", "length"
 }
 
+// ModelPricing holds per-million-token pricing for a model.
+type ModelPricing struct {
+	PromptPerMillion     float64
+	CompletionPerMillion float64
+}
+
 // ModelInfo represents a model entry available from a provider.
 type ModelInfo struct {
-	ID   string
-	Name string
+	ID            string
+	Name          string
+	Description   string
+	ContextLength int
+	Pricing       *ModelPricing
+}
+
+// ProviderName extracts the provider prefix from the model ID.
+// For "anthropic/claude-4" it returns "anthropic".
+// If there is no slash, it returns the full ID.
+func (m ModelInfo) ProviderName() string {
+	if idx := strings.IndexByte(m.ID, '/'); idx >= 0 {
+		return m.ID[:idx]
+	}
+	return m.ID
+}
+
+// IsFree returns true if the model has no pricing or zero cost.
+func (m ModelInfo) IsFree() bool {
+	if m.Pricing == nil {
+		return true
+	}
+	return m.Pricing.PromptPerMillion == 0 && m.Pricing.CompletionPerMillion == 0
 }
 
 // ToolDef describes a tool for the LLM's tool-use schema.

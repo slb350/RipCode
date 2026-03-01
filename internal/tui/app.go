@@ -15,7 +15,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/sahilm/fuzzy"
 	"github.com/stephenbrandon/ripcode/internal/agent"
+	"github.com/stephenbrandon/ripcode/internal/config"
 	"github.com/stephenbrandon/ripcode/internal/provider"
 	"github.com/stephenbrandon/ripcode/internal/session"
 	"github.com/stephenbrandon/ripcode/internal/store"
@@ -47,12 +49,17 @@ type App struct {
 	toolpanel components.ToolPanel
 	home      components.Home
 
+	// Model preferences
+	modelPrefs *store.ModelPrefs
+
 	// Agent state
 	provider          provider.Provider
 	registry          *tool.Registry
 	session           *session.Session
 	agent             agent.Agent
 	model             string
+	fullModelID       string
+	activeVariant     string
 	maxSteps          int
 	streaming         bool
 	modelsCache       []provider.ModelInfo
@@ -85,6 +92,9 @@ type App struct {
 	showThinking      bool
 	showTimestamps    bool
 
+	// Leader key prefix
+	leaderPending bool
+
 	// Help dialog
 	helpDialogOpen   bool
 	helpDialogQuery  string
@@ -114,8 +124,18 @@ type App struct {
 	sessionsDialogEntries []store.SessionSummary
 	sessionsDialogLoaded  bool
 
+	// Agent dialog
+	agentDialogOpen   bool
+	agentDialogQuery  string
+	agentDialogSelect int
+
 	// Connect dialog
-	connectDialogOpen bool
+	connectDialogOpen  bool
+	connectDialogInput string
+
+	// Model provider filter (sub-mode within model dialog)
+	modelDialogProviderMode bool
+	modelProviderFilter     string
 
 	// Themes dialog
 	themesDialogOpen   bool
@@ -189,6 +209,7 @@ func renderPickerList(header string, items []pickerItem, selected, maxRows int) 
 
 // NewApp creates the initial application model.
 func NewApp() App {
+	prefs, _ := store.LoadModelPrefs()
 	a := App{
 		chat:          components.NewChat(),
 		input:         components.NewInput(),
@@ -201,6 +222,7 @@ func NewApp() App {
 		promptHistory: loadPromptHistory(),
 		toasts:        components.NewToastManager(),
 		stash:         loadPromptStash(),
+		modelPrefs:    prefs,
 	}
 	a.initRegistry()
 	return a
@@ -215,6 +237,7 @@ func (a *App) closeAllDialogs() {
 	a.exportDialogOpen = false
 	a.renameDialogOpen = false
 	a.sessionsDialogOpen = false
+	a.agentDialogOpen = false
 	a.connectDialogOpen = false
 	a.themesDialogOpen = false
 	a.timelineDialogOpen = false
@@ -280,10 +303,15 @@ func (a *App) initRegistry() {
 
 	r.Register(Command{
 		Name: "agent", Category: CategoryAgent,
-		Title: "Switch agent", Description: "Toggle build/plan agent",
-		Keybind: "Tab", Execute: true,
+		Title: "Switch agent", Description: "Toggle build/plan agent or open agent picker",
+		Keybind: "ctrl+x a", Execute: true,
 		Handler: func(a *App) tea.Cmd {
-			return nil // special-cased (needs args)
+			// Opens agent dialog when invoked without args
+			a.closeAllDialogs()
+			a.agentDialogOpen = true
+			a.agentDialogQuery = ""
+			a.agentDialogSelect = 0
+			return nil
 		},
 	})
 
@@ -351,12 +379,13 @@ func (a *App) initRegistry() {
 	})
 
 	r.Register(Command{
-		Name: "connect", Category: CategorySession,
+		Name: "connect", Category: CategorySystem,
 		Title: "Connect", Description: "Provider connection info",
 		Execute: true,
 		Handler: func(a *App) tea.Cmd {
 			a.closeAllDialogs()
 			a.connectDialogOpen = true
+			a.connectDialogInput = ""
 			return nil
 		},
 	})
@@ -660,6 +689,28 @@ func (a *App) initRegistry() {
 		},
 	})
 
+	r.Register(Command{
+		Name: "recent-model", Category: CategoryAgent,
+		Title: "Cycle recent model", Description: "Cycle through recently used models",
+		Keybind: "F2", Execute: true, Hidden: true,
+		Handler: func(a *App) tea.Cmd {
+			m, cmd := (*a).cycleRecentModel(false)
+			*a = m.(App)
+			return cmd
+		},
+	})
+
+	r.Register(Command{
+		Name: "variant", Category: CategoryAgent,
+		Title: "Cycle variant", Description: "Cycle thinking budget variant",
+		Keybind: "Ctrl+T", Execute: true, Hidden: true,
+		Handler: func(a *App) tea.Cmd {
+			m, cmd := (*a).handleVariantCycle()
+			*a = m.(App)
+			return cmd
+		},
+	})
+
 	a.cmdRegistry = r
 }
 
@@ -702,6 +753,11 @@ func (a *App) SetModel(model string) {
 	a.statusbar.SetModel(model)
 	a.input.SetModel(model)
 	a.home.SetModel(model)
+}
+
+// SetFullModelID updates the full model ID (e.g. "anthropic/claude-4").
+func (a *App) SetFullModelID(id string) {
+	a.fullModelID = id
 }
 
 // SetMaxSteps sets the max agent loop steps.
@@ -825,6 +881,9 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case a.stashDialogOpen:
 		return a.handleStashDialogKey(msg)
 
+	case a.agentDialogOpen:
+		return a.handleAgentDialogKey(msg)
+
 	case a.connectDialogOpen:
 		return a.handleConnectDialogKey(msg)
 
@@ -857,6 +916,9 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	case a.sidebarOverlayActive():
 		return a.handleSidebarOverlayKey(msg)
+
+	case a.leaderPending:
+		return a.handleLeaderKey(msg)
 
 	case msg.Code == tea.KeyEscape:
 		if a.streaming {
@@ -979,6 +1041,25 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case msg.Mod == tea.ModCtrl|tea.ModAlt && msg.Code == 'p':
 		if a.state == StateSession {
 			a.chat.PrevUserMessage()
+		}
+		return a, nil
+
+	case msg.Code == tea.KeyF2:
+		if !a.streaming && a.state == StateSession {
+			return a.cycleRecentModel(msg.Mod&tea.ModShift != 0)
+		}
+		return a, nil
+
+	case msg.Mod == tea.ModCtrl && msg.Code == 't':
+		if !a.streaming && a.state == StateSession {
+			return a.handleVariantCycle()
+		}
+		return a, nil
+
+	case msg.Mod == tea.ModCtrl && msg.Code == 'x':
+		if !a.streaming && a.state == StateSession {
+			a.leaderPending = true
+			a.statusbar.SetLeaderHint("ctrl+x…")
 		}
 		return a, nil
 
@@ -1205,6 +1286,24 @@ func (a *App) switchModel(modelID string) bool {
 
 	setter.SetModel(modelID)
 	a.SetModel(displayModelName(modelID))
+	a.fullModelID = modelID
+	// Track in recents
+	if a.modelPrefs != nil {
+		ref := store.ModelRef{
+			ProviderID: provider.ModelInfo{ID: modelID}.ProviderName(),
+			ModelID:    modelID,
+		}
+		a.modelPrefs.AddRecent(ref)
+		_ = a.modelPrefs.Save()
+	}
+	// Clear variant if new model doesn't support it
+	if a.activeVariant != "" {
+		variants := provider.VariantsFor(modelID)
+		if len(variants) == 0 {
+			a.activeVariant = ""
+			a.statusbar.SetVariantBadge("")
+		}
+	}
 	a.chat.AddEntry(components.ChatEntry{
 		Role:    "system",
 		Content: fmt.Sprintf(`Model switched to "%s".`, modelID),
@@ -1320,6 +1419,16 @@ func clamp(v, lo, hi int) int {
 		return hi
 	}
 	return v
+}
+
+// backspaceRune removes the last rune from s, returning the shorter string.
+// Returns empty string if s is already empty.
+func backspaceRune(s string) string {
+	if s == "" {
+		return ""
+	}
+	runes := []rune(s)
+	return string(runes[:len(runes)-1])
 }
 
 func (a App) handleModelsCommand(input string) (tea.Model, tea.Cmd) {
@@ -1441,17 +1550,26 @@ func parseModelsQuery(input string) string {
 	return strings.Join(parts[1:], " ")
 }
 
+// modelSearchStrings implements fuzzy.Source for model searching.
+type modelSearchStrings []provider.ModelInfo
+
+func (m modelSearchStrings) String(i int) string {
+	return m[i].ID + " " + m[i].Name
+}
+
+func (m modelSearchStrings) Len() int {
+	return len(m)
+}
+
 func filterModels(models []provider.ModelInfo, query string) []provider.ModelInfo {
 	if query == "" {
 		return models
 	}
 
-	q := strings.ToLower(query)
-	out := make([]provider.ModelInfo, 0, len(models))
-	for _, m := range models {
-		if strings.Contains(strings.ToLower(m.ID), q) || strings.Contains(strings.ToLower(m.Name), q) {
-			out = append(out, m)
-		}
+	matches := fuzzy.FindFrom(strings.ToLower(query), modelSearchStrings(models))
+	out := make([]provider.ModelInfo, len(matches))
+	for i, match := range matches {
+		out[i] = models[match.Index]
 	}
 	return out
 }
@@ -1461,6 +1579,16 @@ func modelLine(m provider.ModelInfo) string {
 		return m.ID
 	}
 	return m.ID + " - " + m.Name
+}
+
+func formatContextLength(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if n >= 999999 {
+		return fmt.Sprintf("%dM", (n+500000)/1000000)
+	}
+	return fmt.Sprintf("%dK", n/1000)
 }
 
 // paletteEntries returns commands in the order displayed in the command palette.
@@ -1784,18 +1912,142 @@ func (a App) closeModelDialog() App {
 	a.modelDialogOpen = false
 	a.modelDialogQuery = ""
 	a.modelDialogSelect = 0
+	a.modelDialogProviderMode = false
+	a.modelProviderFilter = ""
 	a.input.Focus()
 	return a
 }
 
 func (a App) filteredModelsDialog() []provider.ModelInfo {
-	return filterModels(a.modelsCache, strings.TrimSpace(a.modelDialogQuery))
+	// Apply provider filter first
+	source := a.modelsCache
+	if a.modelProviderFilter != "" {
+		source = make([]provider.ModelInfo, 0)
+		for _, m := range a.modelsCache {
+			if m.ProviderName() == a.modelProviderFilter {
+				source = append(source, m)
+			}
+		}
+	}
+	filtered := filterModels(source, strings.TrimSpace(a.modelDialogQuery))
+	query := strings.TrimSpace(a.modelDialogQuery)
+	// When filtering, return flat fuzzy-sorted list (no grouping)
+	if query != "" {
+		return filtered
+	}
+	// When unfiltered, put favorites first, then recents, then rest
+	if a.modelPrefs == nil {
+		return filtered
+	}
+	var favs, recents, rest []provider.ModelInfo
+	recentSet := make(map[string]bool)
+	for _, r := range a.modelPrefs.Recent {
+		recentSet[r.ModelID] = true
+	}
+	for _, m := range filtered {
+		ref := store.ModelRef{ProviderID: m.ProviderName(), ModelID: m.ID}
+		if a.modelPrefs.IsFavorite(ref) {
+			favs = append(favs, m)
+		} else if recentSet[m.ID] {
+			recents = append(recents, m)
+		} else {
+			rest = append(rest, m)
+		}
+	}
+	result := make([]provider.ModelInfo, 0, len(filtered))
+	result = append(result, favs...)
+	result = append(result, recents...)
+	result = append(result, rest...)
+	return result
+}
+
+func (a App) uniqueProviders() []string {
+	seen := make(map[string]bool)
+	var providers []string
+	for _, m := range a.modelsCache {
+		p := m.ProviderName()
+		if !seen[p] {
+			seen[p] = true
+			providers = append(providers, p)
+		}
+	}
+	sort.Strings(providers)
+	return providers
 }
 
 func (a App) handleModelDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// Provider sub-mode: Escape clears filter and exits mode
+	if a.modelDialogProviderMode {
+		switch {
+		case msg.Code == tea.KeyEscape:
+			a.modelDialogProviderMode = false
+			a.modelProviderFilter = ""
+			a.modelDialogSelect = 0
+			return a, nil
+		case msg.Code == tea.KeyEnter:
+			providers := a.uniqueProviders()
+			if a.modelDialogSelect == 0 {
+				// "All" option
+				a.modelProviderFilter = ""
+			} else if a.modelDialogSelect > 0 && a.modelDialogSelect <= len(providers) {
+				a.modelProviderFilter = providers[a.modelDialogSelect-1]
+			}
+			a.modelDialogProviderMode = false
+			a.modelDialogSelect = 0
+			return a, nil
+		case msg.Code == tea.KeyUp:
+			providers := a.uniqueProviders()
+			total := len(providers) + 1 // +1 for "All"
+			a.modelDialogSelect--
+			if a.modelDialogSelect < 0 {
+				a.modelDialogSelect = total - 1
+			}
+			return a, nil
+		case msg.Code == tea.KeyDown:
+			providers := a.uniqueProviders()
+			total := len(providers) + 1 // +1 for "All"
+			a.modelDialogSelect++
+			if a.modelDialogSelect >= total {
+				a.modelDialogSelect = 0
+			}
+			return a, nil
+		default:
+			return a, nil
+		}
+	}
+
 	switch {
 	case msg.Code == tea.KeyEscape:
 		return a.closeModelDialog(), nil
+
+	case msg.Mod == tea.ModCtrl && msg.Code == 'a':
+		a.modelDialogProviderMode = true
+		a.modelDialogSelect = 0
+		return a, nil
+
+	case msg.Mod == tea.ModCtrl && msg.Code == 'f':
+		models := a.filteredModelsDialog()
+		if len(models) == 0 {
+			return a, nil
+		}
+		sel := clamp(a.modelDialogSelect, 0, len(models)-1)
+		selected := models[sel]
+		ref := store.ModelRef{ProviderID: selected.ProviderName(), ModelID: selected.ID}
+		isFav := a.modelPrefs.ToggleFavorite(ref)
+		_ = a.modelPrefs.Save()
+		// Re-sort and find the same model
+		newModels := a.filteredModelsDialog()
+		for i, m := range newModels {
+			if m.ID == selected.ID {
+				a.modelDialogSelect = i
+				break
+			}
+		}
+		msg := "Removed from favorites"
+		if isFav {
+			msg = "Added to favorites"
+		}
+		return a, a.ShowToast(msg, components.ToastSuccess)
 
 	case msg.Code == tea.KeyEnter:
 		models := a.filteredModelsDialog()
@@ -1837,11 +2089,7 @@ func (a App) handleModelDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case msg.Code == tea.KeyBackspace:
-		if a.modelDialogQuery == "" {
-			return a, nil
-		}
-		runes := []rune(a.modelDialogQuery)
-		a.modelDialogQuery = string(runes[:len(runes)-1])
+		a.modelDialogQuery = backspaceRune(a.modelDialogQuery)
 		a.modelDialogSelect = 0
 		return a, nil
 
@@ -1860,17 +2108,219 @@ func (a App) renderModelDialog() string {
 	if query == "" {
 		query = "all"
 	}
-	header := "Select model (type to filter, Enter choose, Esc close) - filter: " + query
+	header := "Select model (Enter choose, Esc close, ^F fav) - filter: " + query
 
+	isFiltering := strings.TrimSpace(a.modelDialogQuery) != ""
+
+	// Build items with badges
 	items := make([]pickerItem, len(models))
 	for i, m := range models {
 		label := modelLine(m)
+		// Current model marker
 		if displayModelName(m.ID) == a.model || m.ID == a.model {
 			label = "● " + label
 		}
+		// Favorite star
+		if a.modelPrefs != nil {
+			ref := store.ModelRef{ProviderID: m.ProviderName(), ModelID: m.ID}
+			if a.modelPrefs.IsFavorite(ref) {
+				label = "★ " + label
+			}
+		}
+		// Free badge
+		if m.IsFree() {
+			label += " [free]"
+		}
+		// Context length
+		if ctx := formatContextLength(m.ContextLength); ctx != "" {
+			label += " " + ctx
+		}
 		items[i] = pickerItem{Label: label}
 	}
-	return renderPickerList(header, items, a.modelDialogSelect, 9)
+
+	// When filtering, use flat list (no section headers)
+	if isFiltering || len(models) == 0 {
+		return renderPickerList(header, items, a.modelDialogSelect, 9)
+	}
+
+	// When unfiltered, render with section headers
+	var sb strings.Builder
+	sb.WriteString(header)
+
+	// Determine section boundaries
+	type section struct {
+		header string
+		start  int
+		end    int
+	}
+	var sections []section
+
+	// Find favorites section
+	favEnd := 0
+	if a.modelPrefs != nil {
+		for i, m := range models {
+			ref := store.ModelRef{ProviderID: m.ProviderName(), ModelID: m.ID}
+			if a.modelPrefs.IsFavorite(ref) {
+				favEnd = i + 1
+			} else {
+				break
+			}
+		}
+	}
+	if favEnd > 0 {
+		sections = append(sections, section{header: "── Favorites ──", start: 0, end: favEnd})
+	}
+
+	// Find recents section
+	recentEnd := favEnd
+	recentSet := make(map[string]bool)
+	if a.modelPrefs != nil {
+		for _, r := range a.modelPrefs.Recent {
+			recentSet[r.ModelID] = true
+		}
+	}
+	for i := favEnd; i < len(models); i++ {
+		if recentSet[models[i].ID] {
+			recentEnd = i + 1
+		} else {
+			break
+		}
+	}
+	if recentEnd > favEnd {
+		sections = append(sections, section{header: "── Recent ──", start: favEnd, end: recentEnd})
+	}
+
+	// Provider groups for remaining models
+	restStart := recentEnd
+	if restStart < len(models) {
+		providerGroups := make(map[string][]int)
+		var providerOrder []string
+		for i := restStart; i < len(models); i++ {
+			prov := models[i].ProviderName()
+			if _, exists := providerGroups[prov]; !exists {
+				providerOrder = append(providerOrder, prov)
+			}
+			providerGroups[prov] = append(providerGroups[prov], i)
+		}
+		sort.Strings(providerOrder)
+		for _, prov := range providerOrder {
+			indices := providerGroups[prov]
+			sections = append(sections, section{
+				header: "── " + prov + " ──",
+				start:  indices[0],
+				end:    indices[len(indices)-1] + 1,
+			})
+		}
+	}
+
+	// Render with windowing
+	maxRows := 9
+	selected := clamp(a.modelDialogSelect, 0, len(models)-1)
+	start := 0
+	if selected >= maxRows {
+		start = selected - maxRows + 1
+	}
+	end := min(len(models), start+maxRows)
+
+	sectionIdx := 0
+	for i := start; i < end; i++ {
+		// Check if we need a section header
+		for sectionIdx < len(sections) && sections[sectionIdx].start <= i && i < sections[sectionIdx].end {
+			if sections[sectionIdx].start == i {
+				sb.WriteString("\n  ")
+				sb.WriteString(sections[sectionIdx].header)
+			}
+			break
+		}
+		// Advance section index if past current section
+		for sectionIdx < len(sections) && i >= sections[sectionIdx].end {
+			sectionIdx++
+		}
+		// Check again after advancing
+		if sectionIdx < len(sections) && sections[sectionIdx].start == i {
+			sb.WriteString("\n  ")
+			sb.WriteString(sections[sectionIdx].header)
+		}
+
+		prefix := "  "
+		if i == selected {
+			prefix = "> "
+		}
+		sb.WriteString("\n")
+		sb.WriteString(prefix)
+		sb.WriteString(items[i].Label)
+	}
+	if len(models) > end {
+		sb.WriteString(fmt.Sprintf("\n  ... %d more", len(models)-end))
+	}
+	return sb.String()
+}
+
+func (a App) cycleRecentModel(reverse bool) (tea.Model, tea.Cmd) {
+	if a.modelPrefs == nil || len(a.modelPrefs.Recent) < 2 {
+		return a, a.ShowToast("No recent models to cycle", components.ToastWarning)
+	}
+
+	// Find current model in recents
+	current := a.fullModelID
+	idx := -1
+	for i, r := range a.modelPrefs.Recent {
+		if r.ModelID == current {
+			idx = i
+			break
+		}
+	}
+
+	var next store.ModelRef
+	if idx < 0 {
+		// Current not in recents, go to first
+		next = a.modelPrefs.Recent[0]
+	} else if reverse {
+		next = a.modelPrefs.Recent[(idx-1+len(a.modelPrefs.Recent))%len(a.modelPrefs.Recent)]
+	} else {
+		next = a.modelPrefs.Recent[(idx+1)%len(a.modelPrefs.Recent)]
+	}
+
+	a.switchModel(next.ModelID)
+	return a, a.ShowToast("Model: "+displayModelName(next.ModelID), components.ToastInfo)
+}
+
+func (a App) handleVariantCycle() (tea.Model, tea.Cmd) {
+	variants := provider.VariantsFor(a.fullModelID)
+	if len(variants) == 0 {
+		return a, a.ShowToast("No variants for this model", components.ToastWarning)
+	}
+	next := provider.CycleVariant(a.fullModelID, a.activeVariant)
+	a.activeVariant = next
+	if a.modelPrefs != nil {
+		a.modelPrefs.SetVariant(a.fullModelID, next)
+		_ = a.modelPrefs.Save()
+	}
+	if next == "" {
+		a.statusbar.SetVariantBadge("")
+		return a, a.ShowToast("Variant: none", components.ToastInfo)
+	}
+	badge := "[thinking:" + next + "]"
+	a.statusbar.SetVariantBadge(badge)
+	return a, a.ShowToast("Variant: "+next, components.ToastInfo)
+}
+
+func (a App) handleLeaderKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	a.leaderPending = false
+	a.statusbar.SetLeaderHint("")
+
+	switch {
+	case msg.Code == tea.KeyEscape:
+		return a, nil
+	case msg.Code == 'a':
+		a.closeAllDialogs()
+		a.agentDialogOpen = true
+		a.agentDialogQuery = ""
+		a.agentDialogSelect = 0
+		return a, nil
+	default:
+		return a, nil
+	}
 }
 
 func (a App) cycleAgent(reverse bool) App {
@@ -1952,11 +2402,7 @@ func (a App) handleCommandPaletteKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case msg.Code == tea.KeyBackspace:
-		if a.commandQuery == "" {
-			return a, nil
-		}
-		runes := []rune(a.commandQuery)
-		a.commandQuery = string(runes[:len(runes)-1])
+		a.commandQuery = backspaceRune(a.commandQuery)
 		a.commandSelect = 0
 		return a, nil
 
@@ -2059,11 +2505,8 @@ func (a App) handleHelpDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case msg.Code == tea.KeyBackspace:
-		if a.helpDialogQuery != "" {
-			runes := []rune(a.helpDialogQuery)
-			a.helpDialogQuery = string(runes[:len(runes)-1])
-			a.helpDialogSelect = 0
-		}
+		a.helpDialogQuery = backspaceRune(a.helpDialogQuery)
+		a.helpDialogSelect = 0
 		return a, nil
 
 	default:
@@ -2262,9 +2705,7 @@ func (a App) handleExportDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			a.exportFocusedField--
 			return a, nil
 		case msg.Code == tea.KeyBackspace:
-			if len(a.exportFilename) > 0 {
-				a.exportFilename = a.exportFilename[:len(a.exportFilename)-1]
-			}
+			a.exportFilename = backspaceRune(a.exportFilename)
 			return a, nil
 		default:
 			if msg.Text != "" {
@@ -2414,9 +2855,7 @@ func (a App) handleRenameDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case msg.Code == tea.KeyBackspace:
-		if len(a.renameDialogValue) > 0 {
-			a.renameDialogValue = a.renameDialogValue[:len(a.renameDialogValue)-1]
-		}
+		a.renameDialogValue = backspaceRune(a.renameDialogValue)
 		return a, nil
 
 	default:
@@ -2487,10 +2926,8 @@ func (a App) handleSessionsDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case msg.Code == tea.KeyBackspace:
-		if len(a.sessionsDialogQuery) > 0 {
-			a.sessionsDialogQuery = a.sessionsDialogQuery[:len(a.sessionsDialogQuery)-1]
-			a.sessionsDialogSelect = 0
-		}
+		a.sessionsDialogQuery = backspaceRune(a.sessionsDialogQuery)
+		a.sessionsDialogSelect = 0
 		return a, nil
 
 	default:
@@ -2686,18 +3123,48 @@ func (a App) renderSessionsDialog() string {
 
 func (a App) handleConnectDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
-	case msg.Code == tea.KeyEscape, msg.Code == tea.KeyEnter:
+	case msg.Code == tea.KeyEscape:
 		a.connectDialogOpen = false
+		a.connectDialogInput = ""
 		a.input.Focus()
 		return a, nil
+
+	case msg.Code == tea.KeyEnter:
+		key := strings.TrimSpace(a.connectDialogInput)
+		if key == "" {
+			return a, a.ShowToast("API key cannot be empty", components.ToastError)
+		}
+		// Save the key
+		workDir := ""
+		if a.session != nil {
+			workDir = a.session.WorkDir
+		}
+		if workDir == "" {
+			workDir, _ = os.Getwd()
+		}
+		if err := config.SaveAPIKey(workDir, key); err != nil {
+			return a, a.ShowToast("Save failed: "+err.Error(), components.ToastError)
+		}
+		a.connectDialogOpen = false
+		a.connectDialogInput = ""
+		a.input.Focus()
+		return a, a.ShowToast("API key saved", components.ToastSuccess)
+
+	case msg.Code == tea.KeyBackspace:
+		a.connectDialogInput = backspaceRune(a.connectDialogInput)
+		return a, nil
+
 	default:
+		if msg.Text != "" {
+			a.connectDialogInput += msg.Text
+		}
 		return a, nil
 	}
 }
 
 func (a App) renderConnectDialog() string {
 	var sb strings.Builder
-	sb.WriteString("Provider Connection                       esc\n")
+	sb.WriteString("Provider Connection (Enter save, Esc close)\n")
 	sb.WriteString("\n  Provider: OpenRouter")
 	if a.provider != nil {
 		sb.WriteString(" (connected)")
@@ -2705,10 +3172,119 @@ func (a App) renderConnectDialog() string {
 		sb.WriteString(" (not connected)")
 	}
 	sb.WriteString("\n  Model: " + a.model)
-	sb.WriteString("\n\n  Set OPENROUTER_API_KEY in .env or environment")
-	sb.WriteString("\n  to connect to 400+ models via OpenRouter.")
-	sb.WriteString("\n\n  [Enter/Esc] close")
+	sb.WriteString("\n\n  API Key: ")
+	if a.connectDialogInput == "" {
+		sb.WriteString("(type key here)")
+	} else {
+		sb.WriteString(strings.Repeat("*", len(a.connectDialogInput)))
+	}
+	sb.WriteString("\n\n  Enter an OpenRouter API key to save to .env")
 	return sb.String()
+}
+
+// --- Agent dialog ---
+
+func (a App) filteredAgents() []agent.AgentInfo {
+	all := agent.AllAgents()
+	q := strings.ToLower(strings.TrimSpace(a.agentDialogQuery))
+	if q == "" {
+		return all
+	}
+	var out []agent.AgentInfo
+	for _, ag := range all {
+		if strings.Contains(strings.ToLower(ag.Name), q) || strings.Contains(strings.ToLower(ag.Description), q) {
+			out = append(out, ag)
+		}
+	}
+	return out
+}
+
+func (a App) handleAgentDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case msg.Code == tea.KeyEscape:
+		a.agentDialogOpen = false
+		a.agentDialogQuery = ""
+		a.agentDialogSelect = 0
+		a.input.Focus()
+		return a, nil
+
+	case msg.Code == tea.KeyEnter:
+		agents := a.filteredAgents()
+		if len(agents) == 0 {
+			a.agentDialogOpen = false
+			a.input.Focus()
+			return a, nil
+		}
+		sel := clamp(a.agentDialogSelect, 0, len(agents)-1)
+		selected := agents[sel]
+		a.agentDialogOpen = false
+		a.agentDialogQuery = ""
+		a.agentDialogSelect = 0
+		a.input.Focus()
+		switch selected.Name {
+		case agent.NameBuild:
+			a.SetAgent(agent.BuildAgent())
+		case agent.NamePlan:
+			a.SetAgent(agent.PlanAgent())
+		}
+		return a, a.ShowToast("Agent: "+selected.Name, components.ToastSuccess)
+
+	case msg.Code == tea.KeyUp:
+		agents := a.filteredAgents()
+		if len(agents) == 0 {
+			return a, nil
+		}
+		a.agentDialogSelect--
+		if a.agentDialogSelect < 0 {
+			a.agentDialogSelect = len(agents) - 1
+		}
+		return a, nil
+
+	case msg.Code == tea.KeyDown:
+		agents := a.filteredAgents()
+		if len(agents) == 0 {
+			return a, nil
+		}
+		a.agentDialogSelect++
+		if a.agentDialogSelect >= len(agents) {
+			a.agentDialogSelect = 0
+		}
+		return a, nil
+
+	case msg.Code == tea.KeyBackspace:
+		a.agentDialogQuery = backspaceRune(a.agentDialogQuery)
+		a.agentDialogSelect = 0
+		return a, nil
+
+	default:
+		if msg.Text != "" {
+			a.agentDialogQuery += msg.Text
+			a.agentDialogSelect = 0
+		}
+		return a, nil
+	}
+}
+
+func (a App) renderAgentDialog() string {
+	agents := a.filteredAgents()
+	query := strings.TrimSpace(a.agentDialogQuery)
+	header := "Select agent (Enter choose, Esc close)"
+	if query != "" {
+		header += " - filter: " + query
+	}
+
+	items := make([]pickerItem, len(agents))
+	for i, ag := range agents {
+		label := ag.Name
+		if ag.Name == a.agent.Name {
+			label = "● " + label
+		}
+		if ag.Native {
+			label += "  [native]"
+		}
+		items[i] = pickerItem{Label: label, Description: ag.Description}
+	}
+	return renderPickerList(header, items, a.agentDialogSelect, 9)
 }
 
 // --- Themes dialog ---
@@ -3453,6 +4029,10 @@ func (a App) renderSessionView() string {
 	}
 	if a.stashDialogOpen {
 		sb.WriteString(a.renderStashDialog())
+		sb.WriteByte('\n')
+	}
+	if a.agentDialogOpen {
+		sb.WriteString(a.renderAgentDialog())
 		sb.WriteByte('\n')
 	}
 	if a.connectDialogOpen {

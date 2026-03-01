@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -88,10 +89,23 @@ func (c *OpenRouter) ListModels(ctx context.Context) ([]provider.ModelInfo, erro
 		if name == "" {
 			name = m.ID
 		}
-		models = append(models, provider.ModelInfo{
-			ID:   m.ID,
-			Name: name,
-		})
+		info := provider.ModelInfo{
+			ID:            m.ID,
+			Name:          name,
+			Description:   m.Description,
+			ContextLength: m.ContextLength,
+		}
+		if m.Pricing != nil {
+			prompt, errP := strconv.ParseFloat(m.Pricing.Prompt, 64)
+			completion, errC := strconv.ParseFloat(m.Pricing.Completion, 64)
+			if errP == nil && errC == nil {
+				info.Pricing = &provider.ModelPricing{
+					PromptPerMillion:     prompt,
+					CompletionPerMillion: completion,
+				}
+			}
+		}
+		models = append(models, info)
 	}
 
 	sort.Slice(models, func(i, j int) bool {
@@ -368,6 +382,14 @@ type apiModelsResponse struct {
 }
 
 type apiModel struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID            string      `json:"id"`
+	Name          string      `json:"name"`
+	Description   string      `json:"description"`
+	ContextLength int         `json:"context_length"`
+	Pricing       *apiPricing `json:"pricing"`
+}
+
+type apiPricing struct {
+	Prompt     string `json:"prompt"`
+	Completion string `json:"completion"`
 }

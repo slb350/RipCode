@@ -10,12 +10,14 @@ import (
 
 // StatusBar displays the session header information.
 type StatusBar struct {
-	width    int
-	title    string
-	model    string
-	mode     string
-	tokens   int
-	spinning bool
+	width        int
+	title        string
+	model        string
+	mode         string
+	tokens       int
+	spinning     bool
+	leaderHint   string
+	variantBadge string
 }
 
 // NewStatusBar creates a new status bar.
@@ -61,6 +63,16 @@ func (s *StatusBar) SetSpinning(spinning bool) {
 	s.spinning = spinning
 }
 
+// SetLeaderHint sets a leader key hint to display in the status bar.
+func (s *StatusBar) SetLeaderHint(hint string) {
+	s.leaderHint = hint
+}
+
+// SetVariantBadge sets the variant badge text to display in the status bar.
+func (s *StatusBar) SetVariantBadge(badge string) {
+	s.variantBadge = badge
+}
+
 // View renders the status bar.
 func (s StatusBar) View() string {
 	if s.width == 0 {
@@ -75,6 +87,12 @@ func (s StatusBar) View() string {
 	right := fmt.Sprintf("%s · %s", s.mode, s.model)
 	if s.tokens > 0 {
 		right += fmt.Sprintf(" · %s tokens", FormatTokens(s.tokens))
+	}
+	if s.variantBadge != "" {
+		right += " · " + s.variantBadge
+	}
+	if s.leaderHint != "" {
+		right += " · " + s.leaderHint
 	}
 	right = " " + right
 
