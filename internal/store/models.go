@@ -1,14 +1,5 @@
 package store
 
-import (
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
-)
-
 // ModelRef identifies a model by its provider and full model ID.
 type ModelRef struct {
 	ProviderID string `json:"providerID"`
@@ -28,32 +19,12 @@ const maxRecent = 10
 // LoadModelPrefs reads model preferences from disk.
 // Returns empty prefs if the file does not exist.
 func LoadModelPrefs() (*ModelPrefs, error) {
-	path := filepath.Join(StateDir(), modelPrefsFile)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return &ModelPrefs{}, nil
-		}
-		return nil, err
-	}
-	var p ModelPrefs
-	if err := json.Unmarshal(data, &p); err != nil {
-		return &ModelPrefs{}, fmt.Errorf("parse model preferences: %w", err)
-	}
-	return &p, nil
+	return loadState[ModelPrefs](modelPrefsFile, "model preferences")
 }
 
 // Save writes model preferences to disk.
 func (p *ModelPrefs) Save() error {
-	dir := StateDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(p, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(dir, modelPrefsFile), data, 0o644)
+	return saveState(modelPrefsFile, p)
 }
 
 // AddRecent prepends a model to the recents list, deduplicating and limiting to 10.

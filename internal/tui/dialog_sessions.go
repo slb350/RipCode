@@ -7,17 +7,18 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/stephenbrandon/ripcode/internal/provider"
 	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 )
 
 func (a *App) loadSessions() tea.Cmd {
 	return func() tea.Msg {
-		summaries, err := store.List()
+		summaries, corrupted, err := store.List()
 		if err != nil {
 			return SessionsLoadedMsg{Err: err}
 		}
-		return SessionsLoadedMsg{Sessions: summaries}
+		return SessionsLoadedMsg{Sessions: summaries, Corrupted: corrupted}
 	}
 }
 
@@ -167,17 +168,17 @@ func (a *App) rebuildChatFromSession() {
 	}
 	for _, rec := range a.session.Records() {
 		switch rec.Message.Role {
-		case "user":
+		case provider.RoleUser:
 			a.chat.AddEntry(components.ChatEntry{
 				Role:    "user",
 				Content: rec.Message.Content,
 			})
-		case "assistant":
+		case provider.RoleAssistant:
 			a.chat.AddEntry(components.ChatEntry{
 				Role:    "assistant",
 				Content: rec.Message.Content,
 			})
-		case "tool":
+		case provider.RoleTool:
 			a.chat.AddEntry(components.ChatEntry{
 				Role:       "tool",
 				Content:    rec.Message.Content,

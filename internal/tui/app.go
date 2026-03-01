@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -242,8 +243,10 @@ func (a *App) SetMaxSteps(n int) {
 
 // warnOnErr shows a toast warning if err is non-nil. Used for non-fatal
 // save/persist failures where the operation can continue with stale state.
+// Also logs the error to disk for later diagnosis.
 func (a *App) warnOnErr(err error, what string) {
 	if err != nil {
+		store.LogError("save "+what, err)
 		a.toasts.Show("Failed to save "+what, components.ToastWarning, 3*time.Second)
 	}
 }
@@ -331,6 +334,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.sessionsDialog.entries = msg.Sessions
 		a.sessionsDialog.loaded = true
+		if len(msg.Corrupted) > 0 {
+			return a, a.ShowToast(
+				fmt.Sprintf("%d corrupted session file(s) skipped", len(msg.Corrupted)),
+				components.ToastWarning,
+			)
+		}
 		return a, nil
 
 	case ToastDismissMsg:

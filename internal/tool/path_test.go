@@ -140,3 +140,30 @@ func TestValidatePath_NewFileWithNewParent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, newFile, got)
 }
+
+func TestValidatePath_WorkspaceRootAllowed(t *testing.T) {
+	dir := t.TempDir()
+
+	// The workspace root itself should be a valid path
+	got, err := ValidatePath(dir, dir, true)
+	require.NoError(t, err)
+	assert.Equal(t, dir, got)
+}
+
+func TestValidatePath_DotPathAllowed(t *testing.T) {
+	dir := t.TempDir()
+
+	// "." resolves to workDir — should be allowed
+	got, err := ValidatePath(".", dir, true)
+	require.NoError(t, err)
+	assert.Equal(t, dir, got)
+}
+
+func TestValidatePath_DotSlashPathAllowed(t *testing.T) {
+	dir := t.TempDir()
+
+	// "./" resolves to workDir — should be allowed
+	got, err := ValidatePath("./", dir, true)
+	require.NoError(t, err)
+	assert.Equal(t, dir, got)
+}

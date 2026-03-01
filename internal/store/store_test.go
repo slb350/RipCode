@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -141,9 +142,10 @@ func TestList_ReturnsAllSessions(t *testing.T) {
 	require.NoError(t, Save(s1))
 	require.NoError(t, Save(s2))
 
-	summaries, err := List()
+	summaries, corrupted, err := List()
 	require.NoError(t, err)
 	assert.Len(t, summaries, 2)
+	assert.Empty(t, corrupted)
 }
 
 func TestList_SortsByUpdatedAtDesc(t *testing.T) {
@@ -160,7 +162,7 @@ func TestList_SortsByUpdatedAtDesc(t *testing.T) {
 	s2.AddUser("second")
 	require.NoError(t, Save(s2))
 
-	summaries, err := List()
+	summaries, _, err := List()
 	require.NoError(t, err)
 	require.Len(t, summaries, 2)
 	assert.Equal(t, "newer", summaries[0].Title)
@@ -169,9 +171,10 @@ func TestList_SortsByUpdatedAtDesc(t *testing.T) {
 
 func TestList_EmptyDir_ReturnsEmpty(t *testing.T) {
 	testDir(t)
-	summaries, err := List()
+	summaries, corrupted, err := List()
 	require.NoError(t, err)
 	assert.Empty(t, summaries)
+	assert.Empty(t, corrupted)
 }
 
 func TestDelete_RemovesFile(t *testing.T) {
@@ -197,7 +200,7 @@ func TestSessionSummary_HasTitle(t *testing.T) {
 	sess := makeTestSession(t)
 	require.NoError(t, Save(sess))
 
-	summaries, err := List()
+	summaries, _, err := List()
 	require.NoError(t, err)
 	require.Len(t, summaries, 1)
 	assert.Equal(t, "test session", summaries[0].Title)
@@ -208,7 +211,7 @@ func TestSessionSummary_HasDates(t *testing.T) {
 	sess := makeTestSession(t)
 	require.NoError(t, Save(sess))
 
-	summaries, err := List()
+	summaries, _, err := List()
 	require.NoError(t, err)
 	require.Len(t, summaries, 1)
 	assert.False(t, summaries[0].CreatedAt.IsZero())
@@ -220,7 +223,7 @@ func TestSessionSummary_HasMessageCount(t *testing.T) {
 	sess := makeTestSession(t)
 	require.NoError(t, Save(sess))
 
-	summaries, err := List()
+	summaries, _, err := List()
 	require.NoError(t, err)
 	require.Len(t, summaries, 1)
 	assert.Equal(t, 2, summaries[0].MessageCount)
@@ -259,10 +262,76 @@ func TestList_CorruptedJSONFile_SkipsAndContinues(t *testing.T) {
 	corruptPath := filepath.Join(dir, "corrupted-session.json")
 	require.NoError(t, os.WriteFile(corruptPath, []byte("{not valid json!!!"), 0o644))
 
-	summaries, err := List()
+	summaries, corrupted, err := List()
 	require.NoError(t, err, "List should not return error for corrupted files")
 	assert.Len(t, summaries, 1, "should return only the valid session")
 	assert.Equal(t, s1.ID, summaries[0].ID)
+	assert.Equal(t, []string{"corrupted-session.json"}, corrupted)
+}
+
+func TestList_CorruptedReturnsMultipleFilenames(t *testing.T) {
+	testDir(t)
+	dir := SessionsDir()
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bad1.json"), []byte("{bad"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bad2.json"), []byte("{bad"), 0o644))
+
+	summaries, corrupted, err := List()
+	require.NoError(t, err)
+	assert.Empty(t, summaries)
+	assert.Len(t, corrupted, 2)
+	assert.Contains(t, corrupted, "bad1.json")
+	assert.Contains(t, corrupted, "bad2.json")
+}
+
+func TestSave_WritesMessageCountToJSON(t *testing.T) {
+	testDir(t)
+	sess := makeTestSession(t) // 2 messages (user + assistant)
+	require.NoError(t, Save(sess))
+
+	// Read the raw JSON and verify messageCount is present and correct
+	path := filepath.Join(SessionsDir(), sess.ID+".json")
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(data, &raw))
+	mc, ok := raw["messageCount"]
+	require.True(t, ok, "JSON should contain messageCount field")
+	assert.Equal(t, float64(2), mc)
+}
+
+func TestList_LegacyFileWithoutMessageCount(t *testing.T) {
+	testDir(t)
+	dir := SessionsDir()
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+
+	// Write a v1 file without the messageCount field (legacy format)
+	legacy := `{
+		"version": 1,
+		"id": "legacy-001",
+		"title": "old session",
+		"workDir": "/tmp",
+		"createdAt": "2025-01-01T00:00:00Z",
+		"updatedAt": "2025-01-01T00:00:00Z",
+		"tokens": {"input": 0, "output": 0},
+		"messages": [
+			{"id": "m1", "role": "user", "content": "hi", "createdAt": "2025-01-01T00:00:00Z"},
+			{"id": "m2", "role": "assistant", "content": "hello", "createdAt": "2025-01-01T00:00:00Z"},
+			{"id": "m3", "role": "user", "content": "bye", "createdAt": "2025-01-01T00:00:00Z"}
+		]
+	}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "legacy-001.json"), []byte(legacy), 0o644))
+
+	summaries, corrupted, err := List()
+	require.NoError(t, err)
+	assert.Empty(t, corrupted)
+	require.Len(t, summaries, 1)
+	assert.Equal(t, "old session", summaries[0].Title)
+	// Legacy file has no messageCount field — List should fall back to
+	// counting the messages array.
+	assert.Equal(t, 3, summaries[0].MessageCount)
 }
 
 func TestSaveLoad_PreservesToolCalls(t *testing.T) {

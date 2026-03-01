@@ -2,6 +2,8 @@ package tool
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -98,4 +100,63 @@ func TestResult_WithError(t *testing.T) {
 	}
 
 	assert.Error(t, r.Error)
+}
+
+// --- skipTracker tests ---
+
+func TestSkipTracker_Empty(t *testing.T) {
+	st := newSkipTracker()
+	assert.Equal(t, 0, st.count())
+	assert.Empty(t, st.note("paths"))
+}
+
+func TestSkipTracker_SingleReason(t *testing.T) {
+	st := newSkipTracker()
+	st.add(os.ErrPermission)
+	assert.Equal(t, 1, st.count())
+	note := st.note("paths")
+	assert.Contains(t, note, "1 paths skipped")
+	assert.Contains(t, note, "permission denied")
+}
+
+func TestSkipTracker_MultipleReasons(t *testing.T) {
+	st := newSkipTracker()
+	st.add(os.ErrPermission)
+	st.add(os.ErrPermission)
+	st.add(os.ErrNotExist)
+	assert.Equal(t, 3, st.count())
+	note := st.note("entries")
+	assert.Contains(t, note, "3 entries skipped")
+	assert.Contains(t, note, "2 permission denied")
+	assert.Contains(t, note, "1 not found")
+}
+
+func TestSkipTracker_UnknownError(t *testing.T) {
+	st := newSkipTracker()
+	st.add(fmt.Errorf("something weird"))
+	note := st.note("paths")
+	assert.Contains(t, note, "1 paths skipped")
+	assert.Contains(t, note, "error")
+}
+
+func TestSkipTracker_NilError(t *testing.T) {
+	st := newSkipTracker()
+	st.add(nil)
+	assert.Equal(t, 1, st.count())
+	note := st.note("paths")
+	assert.Contains(t, note, "error")
+}
+
+func TestClassifyError_Permission(t *testing.T) {
+	assert.Equal(t, "permission denied", classifyError(os.ErrPermission))
+	assert.Equal(t, "permission denied", classifyError(fmt.Errorf("wrapped: %w", os.ErrPermission)))
+}
+
+func TestClassifyError_NotExist(t *testing.T) {
+	assert.Equal(t, "not found", classifyError(os.ErrNotExist))
+}
+
+func TestClassifyError_Default(t *testing.T) {
+	assert.Equal(t, "error", classifyError(fmt.Errorf("unknown")))
+	assert.Equal(t, "error", classifyError(nil))
 }

@@ -49,7 +49,7 @@ func ValidatePath(path, workDir string, mustExist bool) (string, error) {
 		if err != nil {
 			return "", &PathError{Path: path, Reason: fmt.Sprintf("resolve symlinks: %v", err)}
 		}
-		if !isWithin(realPath, realWorkDir) {
+		if !isWithin(realPath, realWorkDir) && realPath != realWorkDir {
 			return "", &PathError{Path: path, Reason: "symlink target outside work directory"}
 		}
 		return absPath, nil

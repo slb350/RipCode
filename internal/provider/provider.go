@@ -16,6 +16,15 @@ const (
 	RoleTool      Role = "tool"
 )
 
+// Valid returns true if the role is one of the defined constants.
+func (r Role) Valid() bool {
+	switch r {
+	case RoleSystem, RoleUser, RoleAssistant, RoleTool:
+		return true
+	}
+	return false
+}
+
 // Message represents a single message in a conversation.
 type Message struct {
 	Role       Role // RoleSystem, RoleUser, RoleAssistant, or RoleTool

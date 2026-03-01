@@ -44,6 +44,22 @@ func TestLoadUIPrefs_CorruptedJSON_ReturnsDefaultsAndError(t *testing.T) {
 	assert.False(t, p.GettingStartedDismissed)
 }
 
+func TestLoadUIPrefs_ReadError_ReturnsDefaultsAndError(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RIPCODE_DIR", dir)
+	stateDir := filepath.Join(dir, "state")
+	require.NoError(t, os.MkdirAll(stateDir, 0o755))
+	filePath := filepath.Join(stateDir, "ui.json")
+	require.NoError(t, os.WriteFile(filePath, []byte(`{}`), 0o644))
+	require.NoError(t, os.Chmod(filePath, 0o000))
+	t.Cleanup(func() { os.Chmod(filePath, 0o644) })
+
+	p, err := LoadUIPrefs()
+	assert.Error(t, err, "unreadable file should return an error")
+	assert.NotNil(t, p, "should return usable defaults even on read error")
+	assert.False(t, p.GettingStartedDismissed)
+}
+
 func TestUIPrefs_Save_CreatesStateDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("RIPCODE_DIR", dir)

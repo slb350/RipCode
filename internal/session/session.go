@@ -3,6 +3,7 @@ package session
 import (
 	"crypto/rand"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/stephenbrandon/ripcode/internal/provider"
@@ -20,6 +21,7 @@ type Session struct {
 	Tokens       TokenCount
 	systemPrompt string
 	redoStack    []revertPoint
+	mu           sync.RWMutex
 }
 
 // TokenCount tracks cumulative token usage.
@@ -41,12 +43,16 @@ func New(workDir string) *Session {
 
 // SetSystemPrompt sets the system message prepended to history.
 func (s *Session) SetSystemPrompt(prompt string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.systemPrompt = prompt
 }
 
 // AddUser appends a user message and returns the record.
 // Adding a new user message clears the redo stack.
 func (s *Session) AddUser(content string) *MessageRecord {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.redoStack = nil // new message invalidates redo history
 	rec := MessageRecord{
 		ID: generateMessageID(),
@@ -63,6 +69,8 @@ func (s *Session) AddUser(content string) *MessageRecord {
 
 // AddAssistant appends an assistant message with optional tool calls and metadata.
 func (s *Session) AddAssistant(content string, toolCalls []provider.ToolCall, meta *AssistantMeta) *MessageRecord {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	rec := MessageRecord{
 		ID: generateMessageID(),
 		Message: provider.Message{
@@ -80,6 +88,8 @@ func (s *Session) AddAssistant(content string, toolCalls []provider.ToolCall, me
 
 // AddToolResult appends a tool result message.
 func (s *Session) AddToolResult(callID, content string) *MessageRecord {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	rec := MessageRecord{
 		ID: generateMessageID(),
 		Message: provider.Message{
@@ -98,6 +108,8 @@ func (s *Session) AddToolResult(callID, content string) *MessageRecord {
 // provider, including the system prompt if set. Extracts provider.Message
 // from each MessageRecord.
 func (s *Session) History() []provider.Message {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	offset := 0
 	if s.systemPrompt != "" {
 		offset = 1
@@ -120,6 +132,8 @@ func (s *Session) History() []provider.Message {
 
 // Records returns all message records.
 func (s *Session) Records() []MessageRecord {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	out := make([]MessageRecord, len(s.messages))
 	copy(out, s.messages)
 	return out
@@ -127,6 +141,8 @@ func (s *Session) Records() []MessageRecord {
 
 // RecordByID finds a message record by ID, or returns nil if not found.
 func (s *Session) RecordByID(id string) *MessageRecord {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	for i := range s.messages {
 		if s.messages[i].ID == id {
 			return &s.messages[i]
@@ -138,6 +154,8 @@ func (s *Session) RecordByID(id string) *MessageRecord {
 // MessageCount returns the count of messages matching the given role.
 // If role is empty, returns the total count.
 func (s *Session) MessageCount(role provider.Role) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	if role == "" {
 		return len(s.messages)
 	}
@@ -153,6 +171,8 @@ func (s *Session) MessageCount(role provider.Role) int {
 // Reset clears messages, tokens, and generates a new session ID,
 // preserving the working directory and system prompt.
 func (s *Session) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.ID = generateID()
 	s.Title = ""
 	s.messages = nil
@@ -168,6 +188,8 @@ func (s *Session) Reset() {
 // and preserves the system prompt. Message records are deep-copied with
 // new IDs so the fork is fully independent.
 func (s *Session) Fork(upToIndex int) (*Session, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	if len(s.messages) == 0 {
 		return nil, fmt.Errorf("cannot fork empty session")
 	}
@@ -214,22 +236,30 @@ func (s *Session) Fork(upToIndex int) (*Session, error) {
 
 // Len returns the number of messages in the session.
 func (s *Session) Len() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return len(s.messages)
 }
 
 // ClearMessages removes all messages and clears the redo stack.
 func (s *Session) ClearMessages() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.messages = nil
 	s.redoStack = nil
 }
 
-// AppendRecord adds a pre-built message record (used by store.Load).
-func (s *Session) AppendRecord(rec MessageRecord) {
+// LoadRecord adds a pre-built message record during session loading from disk.
+func (s *Session) LoadRecord(rec MessageRecord) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.messages = append(s.messages, rec)
 }
 
 // AddTokens accumulates token usage.
 func (s *Session) AddTokens(input, output int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.Tokens.Input += input
 	s.Tokens.Output += output
 }

@@ -2,7 +2,11 @@ package tool
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"sort"
+	"strings"
 
 	"github.com/stephenbrandon/ripcode/internal/provider"
 )
@@ -16,12 +20,73 @@ var skipDirs = map[string]bool{
 	".venv":        true,
 }
 
-// skippedNote returns a formatted skip message for tool output, or "" if none.
-func skippedNote(count int, noun string) string {
-	if count == 0 {
+// skipTracker collects skip counts categorized by error reason.
+type skipTracker struct {
+	reasons map[string]int
+}
+
+func newSkipTracker() *skipTracker {
+	return &skipTracker{reasons: make(map[string]int)}
+}
+
+func (s *skipTracker) add(err error) {
+	reason := classifyError(err)
+	s.reasons[reason]++
+}
+
+func (s *skipTracker) count() int {
+	n := 0
+	for _, c := range s.reasons {
+		n += c
+	}
+	return n
+}
+
+// note returns a formatted skip message, or "" if nothing was skipped.
+// Format: "\n(3 paths skipped: 2 permission denied, 1 not a directory)"
+func (s *skipTracker) note(noun string) string {
+	if len(s.reasons) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("\n(%d %s skipped due to errors)", count, noun)
+
+	total := s.count()
+
+	// Sort reasons for deterministic output.
+	type entry struct {
+		reason string
+		count  int
+	}
+	entries := make([]entry, 0, len(s.reasons))
+	for r, c := range s.reasons {
+		entries = append(entries, entry{r, c})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].count != entries[j].count {
+			return entries[i].count > entries[j].count // highest count first
+		}
+		return entries[i].reason < entries[j].reason
+	})
+
+	parts := make([]string, len(entries))
+	for i, e := range entries {
+		parts[i] = fmt.Sprintf("%d %s", e.count, e.reason)
+	}
+
+	return fmt.Sprintf("\n(%d %s skipped: %s)", total, noun, strings.Join(parts, ", "))
+}
+
+// classifyError maps an error to a human-readable reason category.
+func classifyError(err error) string {
+	switch {
+	case err == nil:
+		return "error"
+	case errors.Is(err, os.ErrPermission):
+		return "permission denied"
+	case errors.Is(err, os.ErrNotExist):
+		return "not found"
+	default:
+		return "error"
+	}
 }
 
 // Context carries execution context for tool invocations.

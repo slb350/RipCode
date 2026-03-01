@@ -1,14 +1,5 @@
 package store
 
-import (
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
-)
-
 // UIPrefs holds UI preferences like collapsed sidebar sections.
 type UIPrefs struct {
 	CollapsedSections       map[string]bool `json:"collapsed_sections"`
@@ -20,32 +11,12 @@ const uiPrefsFile = "ui.json"
 // LoadUIPrefs reads UI preferences from disk.
 // Returns defaults if the file does not exist.
 func LoadUIPrefs() (*UIPrefs, error) {
-	path := filepath.Join(StateDir(), uiPrefsFile)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return &UIPrefs{}, nil
-		}
-		return nil, err
-	}
-	var p UIPrefs
-	if err := json.Unmarshal(data, &p); err != nil {
-		return &UIPrefs{}, fmt.Errorf("parse UI preferences: %w", err)
-	}
-	return &p, nil
+	return loadState[UIPrefs](uiPrefsFile, "UI preferences")
 }
 
 // Save writes UI preferences to disk.
 func (p *UIPrefs) Save() error {
-	dir := StateDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(p, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(dir, uiPrefsFile), data, 0o644)
+	return saveState(uiPrefsFile, p)
 }
 
 // IsCollapsed returns whether a sidebar section is collapsed.

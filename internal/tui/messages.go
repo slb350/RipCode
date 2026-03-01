@@ -42,6 +42,7 @@ type ShellResultMsg struct {
 
 // SessionsLoadedMsg carries the result of an async session list fetch.
 type SessionsLoadedMsg struct {
-	Sessions []store.SessionSummary
-	Err      error
+	Sessions  []store.SessionSummary
+	Corrupted []string
+	Err       error
 }

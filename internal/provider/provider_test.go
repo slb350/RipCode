@@ -136,6 +136,19 @@ func TestModelInfo_IsFree_NonZeroCost(t *testing.T) {
 	assert.False(t, m.IsFree())
 }
 
+func TestRole_Valid_KnownRoles(t *testing.T) {
+	assert.True(t, RoleSystem.Valid())
+	assert.True(t, RoleUser.Valid())
+	assert.True(t, RoleAssistant.Valid())
+	assert.True(t, RoleTool.Valid())
+}
+
+func TestRole_Valid_UnknownRoles(t *testing.T) {
+	assert.False(t, Role("").Valid())
+	assert.False(t, Role("admin").Valid())
+	assert.False(t, Role("USER").Valid())
+}
+
 func TestRoleConstants_MatchExpectedValues(t *testing.T) {
 	assert.Equal(t, Role("system"), RoleSystem)
 	assert.Equal(t, Role("user"), RoleUser)

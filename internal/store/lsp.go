@@ -1,14 +1,5 @@
 package store
 
-import (
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
-)
-
 // LSPClient represents a configured LSP client.
 type LSPClient struct {
 	Name    string `json:"name"`
@@ -26,32 +17,12 @@ const lspConfigFile = "lsp.json"
 // LoadLSPConfig reads LSP configuration from disk.
 // Returns empty config if the file does not exist.
 func LoadLSPConfig() (*LSPConfig, error) {
-	path := filepath.Join(StateDir(), lspConfigFile)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return &LSPConfig{}, nil
-		}
-		return nil, err
-	}
-	var c LSPConfig
-	if err := json.Unmarshal(data, &c); err != nil {
-		return &LSPConfig{}, fmt.Errorf("parse LSP config: %w", err)
-	}
-	return &c, nil
+	return loadState[LSPConfig](lspConfigFile, "LSP config")
 }
 
 // Save writes LSP configuration to disk.
 func (c *LSPConfig) Save() error {
-	dir := StateDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(dir, lspConfigFile), data, 0o644)
+	return saveState(lspConfigFile, c)
 }
 
 // CountEnabled returns the number of enabled clients.

@@ -25,15 +25,28 @@ type SessionSummary struct {
 
 // sessionFile is the on-disk JSON format (v1).
 type sessionFile struct {
-	Version   int            `json:"version"`
-	ID        string         `json:"id"`
-	Title     string         `json:"title"`
-	ParentID  string         `json:"parentId,omitempty"`
-	WorkDir   string         `json:"workDir"`
-	CreatedAt time.Time      `json:"createdAt"`
-	UpdatedAt time.Time      `json:"updatedAt"`
-	Tokens    tokenCountFile `json:"tokens"`
-	Messages  []messageFile  `json:"messages"`
+	Version      int            `json:"version"`
+	ID           string         `json:"id"`
+	Title        string         `json:"title"`
+	ParentID     string         `json:"parentId,omitempty"`
+	WorkDir      string         `json:"workDir"`
+	CreatedAt    time.Time      `json:"createdAt"`
+	UpdatedAt    time.Time      `json:"updatedAt"`
+	Tokens       tokenCountFile `json:"tokens"`
+	MessageCount int            `json:"messageCount"`
+	Messages     []messageFile  `json:"messages"`
+}
+
+// sessionSummaryFile is a header-only view of a session file.
+// Used by List() to avoid parsing the Messages array.
+type sessionSummaryFile struct {
+	ID           string         `json:"id"`
+	Title        string         `json:"title"`
+	WorkDir      string         `json:"workDir"`
+	CreatedAt    time.Time      `json:"createdAt"`
+	UpdatedAt    time.Time      `json:"updatedAt"`
+	Tokens       tokenCountFile `json:"tokens"`
+	MessageCount int            `json:"messageCount"`
 }
 
 type tokenCountFile struct {
@@ -73,21 +86,23 @@ func Save(s *session.Session) error {
 		return fmt.Errorf("create sessions dir: %w", err)
 	}
 
+	records := s.Records()
 	f := sessionFile{
-		Version:   1,
-		ID:        s.ID,
-		Title:     s.Title,
-		ParentID:  s.ParentID,
-		WorkDir:   s.WorkDir,
-		CreatedAt: s.CreatedAt,
-		UpdatedAt: s.UpdatedAt,
+		Version:      1,
+		ID:           s.ID,
+		Title:        s.Title,
+		ParentID:     s.ParentID,
+		WorkDir:      s.WorkDir,
+		CreatedAt:    s.CreatedAt,
+		UpdatedAt:    s.UpdatedAt,
+		MessageCount: len(records),
 		Tokens: tokenCountFile{
 			Input:  s.Tokens.Input,
 			Output: s.Tokens.Output,
 		},
 	}
 
-	for _, rec := range s.Records() {
+	for _, rec := range records {
 		mf := messageFile{
 			ID:         rec.ID,
 			Role:       string(rec.Message.Role),
@@ -177,24 +192,26 @@ func Load(id string) (*session.Session, error) {
 				Duration:     mf.Meta.Duration,
 			}
 		}
-		s.AppendRecord(rec)
+		s.LoadRecord(rec)
 	}
 
 	return s, nil
 }
 
-// List returns summaries of all saved sessions, sorted by UpdatedAt descending.
-func List() ([]SessionSummary, error) {
+// List returns summaries of all saved sessions sorted by UpdatedAt descending,
+// plus filenames of any corrupted/unreadable session files.
+func List() ([]SessionSummary, []string, error) {
 	dir := SessionsDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, nil, nil
 		}
-		return nil, fmt.Errorf("read sessions dir: %w", err)
+		return nil, nil, fmt.Errorf("read sessions dir: %w", err)
 	}
 
 	var summaries []SessionSummary
+	var corrupted []string
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
@@ -203,25 +220,33 @@ func List() ([]SessionSummary, error) {
 		id := strings.TrimSuffix(entry.Name(), ".json")
 		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
 		if err != nil {
-			// Intentional skip: unreadable session files (permissions, race
-			// conditions) are skipped so the rest of the listing still works.
+			corrupted = append(corrupted, entry.Name())
 			continue
 		}
 
-		var f sessionFile
-		if err := json.Unmarshal(data, &f); err != nil {
-			// Intentional skip: corrupted session files are skipped rather
-			// than failing the entire listing operation.
+		var hdr sessionSummaryFile
+		if err := json.Unmarshal(data, &hdr); err != nil {
+			corrupted = append(corrupted, entry.Name())
 			continue
+		}
+
+		msgCount := hdr.MessageCount
+		if msgCount == 0 {
+			// Legacy file without messageCount — fall back to counting
+			// the messages array from the full parse.
+			var full sessionFile
+			if err := json.Unmarshal(data, &full); err == nil {
+				msgCount = len(full.Messages)
+			}
 		}
 
 		summaries = append(summaries, SessionSummary{
 			ID:           id,
-			Title:        f.Title,
-			WorkDir:      f.WorkDir,
-			CreatedAt:    f.CreatedAt,
-			UpdatedAt:    f.UpdatedAt,
-			MessageCount: len(f.Messages),
+			Title:        hdr.Title,
+			WorkDir:      hdr.WorkDir,
+			CreatedAt:    hdr.CreatedAt,
+			UpdatedAt:    hdr.UpdatedAt,
+			MessageCount: msgCount,
 		})
 	}
 
@@ -229,7 +254,7 @@ func List() ([]SessionSummary, error) {
 		return summaries[i].UpdatedAt.After(summaries[j].UpdatedAt)
 	})
 
-	return summaries, nil
+	return summaries, corrupted, nil
 }
 
 // Delete removes a saved session by ID.

@@ -314,6 +314,35 @@ func TestLoop_SessionUpdated(t *testing.T) {
 	assert.Equal(t, 5, sess.Tokens.Output)
 }
 
+func TestLoop_StreamEventError(t *testing.T) {
+	// Provider returns EventError mid-stream — verify the loop emits EventError.
+	p := &mockProvider{
+		responses: []mockResponse{
+			{events: []provider.StreamEvent{
+				{Type: provider.EventContentDelta, Content: "partial"},
+				{Type: provider.EventError, Error: fmt.Errorf("stream broke")},
+			}},
+		},
+	}
+
+	reg := newTestRegistry()
+	sess := session.New("/tmp")
+	loop := NewLoop(p, reg, sess, BuildAgent(), 10)
+
+	events := collectEvents(loop.Run(context.Background(), "test"))
+
+	var gotError bool
+	var errMsg string
+	for _, e := range events {
+		if e.Type == EventError {
+			gotError = true
+			errMsg = e.Error.Error()
+		}
+	}
+	assert.True(t, gotError, "should emit EventError for stream error")
+	assert.Contains(t, errMsg, "stream broke")
+}
+
 func TestLoop_UnknownTool(t *testing.T) {
 	p := &mockProvider{
 		responses: []mockResponse{

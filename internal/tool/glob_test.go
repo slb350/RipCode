@@ -112,5 +112,6 @@ func TestGlob_SkipErrors_ReportsCount(t *testing.T) {
 	result := g.Execute(ctx, `{"pattern":"**/*.go","path":"`+ctx.WorkDir+`"}`)
 	require.NoError(t, result.Error)
 	assert.Contains(t, result.Output, "ok.go")
-	assert.Contains(t, result.Output, "skipped due to errors")
+	assert.Contains(t, result.Output, "paths skipped:")
+	assert.Contains(t, result.Output, "permission denied")
 }

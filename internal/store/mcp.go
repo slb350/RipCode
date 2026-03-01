@@ -1,13 +1,6 @@
 package store
 
-import (
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
-)
+import "fmt"
 
 // MCPServer represents a configured MCP server.
 type MCPServer struct {
@@ -41,32 +34,12 @@ const mcpConfigFile = "mcp.json"
 // LoadMCPConfig reads MCP configuration from disk.
 // Returns empty config if the file does not exist.
 func LoadMCPConfig() (*MCPConfig, error) {
-	path := filepath.Join(StateDir(), mcpConfigFile)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return &MCPConfig{}, nil
-		}
-		return nil, err
-	}
-	var c MCPConfig
-	if err := json.Unmarshal(data, &c); err != nil {
-		return &MCPConfig{}, fmt.Errorf("parse MCP config: %w", err)
-	}
-	return &c, nil
+	return loadState[MCPConfig](mcpConfigFile, "MCP config")
 }
 
 // Save writes MCP configuration to disk.
 func (c *MCPConfig) Save() error {
-	dir := StateDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(dir, mcpConfigFile), data, 0o644)
+	return saveState(mcpConfigFile, c)
 }
 
 // ToggleEnabled toggles a server's enabled state by name.

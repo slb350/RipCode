@@ -20,9 +20,9 @@ const defaultTimeout = 2 * time.Minute
 // These are defense-in-depth — not a security sandbox.
 var blockedPatterns = []*regexp.Regexp{
 	// rm with -r and -f flags in any order, targeting root
-	regexp.MustCompile(`\brm\s+(-[a-z]*r[a-z]*\s+)*-[a-z]*f[a-z]*\s+/`),
-	regexp.MustCompile(`\brm\s+(-[a-z]*f[a-z]*\s+)*-[a-z]*r[a-z]*\s+/`),
-	regexp.MustCompile(`\brm\s+-rf\s+/`),
+	regexp.MustCompile(`\brm\s+(-[a-z]*r[a-z]*\s+)*-[a-z]*f[a-z]*\s+/(\s|$)`),
+	regexp.MustCompile(`\brm\s+(-[a-z]*f[a-z]*\s+)*-[a-z]*r[a-z]*\s+/(\s|$)`),
+	regexp.MustCompile(`\brm\s+-rf\s+/(\s|$)`),
 	// sudo rm / sudo dd
 	regexp.MustCompile(`\bsudo\s+rm\b`),
 	regexp.MustCompile(`\bsudo\s+dd\b`),
@@ -35,7 +35,7 @@ var blockedPatterns = []*regexp.Regexp{
 	// Write to block devices
 	regexp.MustCompile(`>\s*/dev/sd`),
 	// chmod 777 root
-	regexp.MustCompile(`\bchmod\s+(-[a-zA-Z]*\s+)*777\s+/`),
+	regexp.MustCompile(`\bchmod\s+(-[a-zA-Z]*\s+)*777\s+/(\s|$)`),
 }
 
 // BashTool executes shell commands.

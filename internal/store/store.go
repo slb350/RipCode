@@ -1,6 +1,10 @@
 package store
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -27,4 +31,36 @@ func SessionsDir() string {
 // StateDir returns the state subdirectory for persistent UI state.
 func StateDir() string {
 	return filepath.Join(Dir(), "state")
+}
+
+// loadState reads a JSON state file and unmarshals it into T.
+// Returns a zero-value T if the file does not exist.
+// Returns a zero-value T plus an error for read or parse failures.
+func loadState[T any](filename, desc string) (*T, error) {
+	path := filepath.Join(StateDir(), filename)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return new(T), nil
+		}
+		return new(T), fmt.Errorf("read %s: %w", desc, err)
+	}
+	var v T
+	if err := json.Unmarshal(data, &v); err != nil {
+		return new(T), fmt.Errorf("parse %s: %w", desc, err)
+	}
+	return &v, nil
+}
+
+// saveState marshals v as indented JSON and writes it to the state directory.
+func saveState(filename string, v any) error {
+	dir := StateDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, filename), data, 0o644)
 }

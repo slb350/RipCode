@@ -63,10 +63,10 @@ func (g *GlobTool) Execute(ctx Context, argsJSON string) Result {
 	}
 
 	var matches []string
-	skipped := 0
+	skips := newSkipTracker()
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			skipped++
+			skips.add(err)
 			return nil
 		}
 
@@ -79,6 +79,7 @@ func (g *GlobTool) Execute(ctx Context, argsJSON string) Result {
 
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
+			skips.add(err)
 			return nil
 		}
 
@@ -111,7 +112,7 @@ func (g *GlobTool) Execute(ctx Context, argsJSON string) Result {
 		sb.WriteByte('\n')
 	}
 	sb.WriteString(fmt.Sprintf("\n%d files matched", len(matches)))
-	sb.WriteString(skippedNote(skipped, "paths"))
+	sb.WriteString(skips.note("paths"))
 
 	return Result{
 		Output: sb.String(),

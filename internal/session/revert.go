@@ -1,6 +1,10 @@
 package session
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/stephenbrandon/ripcode/internal/provider"
+)
 
 // revertPoint stores messages that were removed during a revert.
 type revertPoint struct {
@@ -13,10 +17,12 @@ type revertPoint struct {
 // Pushes removed messages onto the redo stack (cleared by AddUser).
 // Returns an error if no user message exists to revert.
 func (s *Session) Revert() (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	// Find the last user message
 	lastUser := -1
 	for i := len(s.messages) - 1; i >= 0; i-- {
-		if s.messages[i].Message.Role == "user" {
+		if s.messages[i].Message.Role == provider.RoleUser {
 			lastUser = i
 			break
 		}
@@ -45,6 +51,8 @@ func (s *Session) Revert() (string, error) {
 
 // Unrevert restores the most recently reverted messages.
 func (s *Session) Unrevert() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if len(s.redoStack) == 0 {
 		return fmt.Errorf("nothing to redo")
 	}
@@ -58,8 +66,10 @@ func (s *Session) Unrevert() error {
 
 // CanUndo returns true if there are user messages that can be reverted.
 func (s *Session) CanUndo() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	for _, rec := range s.messages {
-		if rec.Message.Role == "user" {
+		if rec.Message.Role == provider.RoleUser {
 			return true
 		}
 	}
@@ -68,5 +78,7 @@ func (s *Session) CanUndo() bool {
 
 // CanRedo returns true if there are reverted messages that can be restored.
 func (s *Session) CanRedo() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return len(s.redoStack) > 0
 }

@@ -102,6 +102,8 @@ func TestBash_BlockedCommandVariants(t *testing.T) {
 		`{"command":":(){ :|:& };:"}`,
 		// chmod 777 root
 		`{"command":"chmod -R 777 /"}`,
+		// rm root with --no-preserve-root
+		`{"command":"rm -rf / --no-preserve-root"}`,
 	}
 
 	for _, args := range variants {
@@ -119,6 +121,8 @@ func TestBash_AllowedCommands(t *testing.T) {
 	allowed := []string{
 		`{"command":"ls /"}`,
 		`{"command":"rm file.txt"}`,
+		`{"command":"rm -rf /tmp/build-cache"}`,
+		`{"command":"rm -rf /var/log/old"}`,
 	}
 
 	for _, args := range allowed {

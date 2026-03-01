@@ -112,7 +112,7 @@ func (e *EditTool) Execute(ctx Context, argsJSON string) Result {
 	}
 }
 
-// whitespaceFlexibleReplace normalizes leading whitespace (tabs ↔ spaces)
+// whitespaceFlexibleReplace normalizes leading whitespace (tabs → spaces)
 // to find a match when exact matching fails. Returns the modified content
 // and whether a unique match was found.
 func whitespaceFlexibleReplace(content, oldStr, newStr string) (string, bool) {
@@ -136,8 +136,7 @@ func whitespaceFlexibleReplace(content, oldStr, newStr string) (string, bool) {
 	return result, true
 }
 
-// normalizeWhitespace replaces leading tabs with 4 spaces and collapses
-// multiple spaces in leading whitespace to single units.
+// normalizeWhitespace replaces leading tabs with 4 spaces.
 func normalizeWhitespace(s string) string {
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {

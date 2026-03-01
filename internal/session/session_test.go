@@ -594,6 +594,33 @@ func TestFork_BoundaryConditions(t *testing.T) {
 	})
 }
 
+func TestSession_ConcurrentReadWrite(t *testing.T) {
+	// Verify there are no data races when writing and reading concurrently.
+	// Run with -race to detect issues.
+	s := New("/tmp")
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 100; i++ {
+			s.AddUser("msg")
+			s.AddAssistant("resp", nil, &AssistantMeta{Model: "test"})
+		}
+	}()
+
+	// Concurrent reads while the goroutine writes.
+	for i := 0; i < 100; i++ {
+		_ = s.Records()
+		_ = s.History()
+		_ = s.Len()
+		_ = s.CanUndo()
+		_ = s.CanRedo()
+	}
+
+	<-done
+	assert.True(t, s.Len() > 0)
+}
+
 func TestFork_DoesNotMutateOriginal(t *testing.T) {
 	s := New("/tmp")
 	s.AddUser("q1")

@@ -127,6 +127,23 @@ func TestLoadModelPrefs_CorruptedJSON_ReturnsDefaultsAndError(t *testing.T) {
 	assert.Empty(t, p.Favorite)
 }
 
+func TestLoadModelPrefs_ReadError_ReturnsDefaultsAndError(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RIPCODE_DIR", dir)
+	stateDir := filepath.Join(dir, "state")
+	require.NoError(t, os.MkdirAll(stateDir, 0o755))
+	// Create file then make it unreadable
+	filePath := filepath.Join(stateDir, "model.json")
+	require.NoError(t, os.WriteFile(filePath, []byte(`{"recent":[]}`), 0o644))
+	require.NoError(t, os.Chmod(filePath, 0o000))
+	t.Cleanup(func() { os.Chmod(filePath, 0o644) })
+
+	p, err := LoadModelPrefs()
+	assert.Error(t, err, "unreadable file should return an error")
+	assert.NotNil(t, p, "should return usable defaults even on read error")
+	assert.Empty(t, p.Recent)
+}
+
 func TestModelPrefs_Save_CreatesStateDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("RIPCODE_DIR", dir)
