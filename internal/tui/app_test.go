@@ -16,6 +16,7 @@ import (
 	"github.com/stephenbrandon/ripcode/internal/tool"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type modelListProvider struct {
@@ -1076,14 +1077,14 @@ func TestApp_Sidebar_VisibleOnWideLayout_AndTogglesWithCtrlB(t *testing.T) {
 	a.state = StateSession
 
 	view := a.View().Content
-	assert.Contains(t, view, "Recent tools")
-	assert.Contains(t, view, "^B toggle sidebar")
+	assert.Contains(t, view, "Tools")
+	assert.Contains(t, view, "Context")
 
 	model, _ = a.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
 	a = model.(App)
 
 	view = a.View().Content
-	assert.NotContains(t, view, "Recent tools")
+	assert.NotContains(t, view, "▾ Tools")
 }
 
 func TestApp_SidebarSlashCommand_TogglesSidebar(t *testing.T) {
@@ -3136,4 +3137,471 @@ func TestCommandPalette_ShowsCtrlTKeybind(t *testing.T) {
 	cmd := a.cmdRegistry.Get("variant")
 	assert.NotNil(t, cmd, "variant command should be registered")
 	assert.Equal(t, "Ctrl+T", cmd.Keybind)
+}
+
+// --- Sidebar Section tests ---
+
+func makeSidebarApp(t *testing.T) App {
+	t.Helper()
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	app.uiPrefs = &store.UIPrefs{}
+	app.mcpConfig = &store.MCPConfig{}
+	app.lspConfig = &store.LSPConfig{}
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 160, Height: 40})
+	return model.(App)
+}
+
+func TestSidebar_ContextSection_Rendered(t *testing.T) {
+	a := makeSidebarApp(t)
+	sidebar := a.renderSidebar()
+	assert.Contains(t, sidebar, "Context")
+	assert.Contains(t, sidebar, "tokens")
+}
+
+func TestSidebar_MCPSection_ShowsServers(t *testing.T) {
+	a := makeSidebarApp(t)
+	a.mcpConfig = &store.MCPConfig{
+		Servers: []store.MCPServer{
+			{Name: "github", Command: "gh mcp", Enabled: true},
+			{Name: "disabled-srv", Command: "cmd", Enabled: false},
+		},
+	}
+	sidebar := a.renderSidebar()
+	assert.Contains(t, sidebar, "MCP")
+	assert.Contains(t, sidebar, "github")
+	assert.Contains(t, sidebar, "disabled-srv")
+}
+
+func TestSidebar_LSPSection_ShowsClients(t *testing.T) {
+	a := makeSidebarApp(t)
+	a.lspConfig = &store.LSPConfig{
+		Clients: []store.LSPClient{
+			{Name: "gopls", Root: "/project", Enabled: true},
+		},
+	}
+	sidebar := a.renderSidebar()
+	assert.Contains(t, sidebar, "LSP")
+	assert.Contains(t, sidebar, "gopls")
+}
+
+func TestSidebar_TodoSection_ShowsItems(t *testing.T) {
+	a := makeSidebarApp(t)
+	td := tool.NewTodoTool()
+	td.Execute(tool.Context{WorkDir: "."}, `{"action":"write","items":[{"subject":"Fix bug","status":"pending"}]}`)
+	a.todoTool = td
+	sidebar := a.renderSidebar()
+	assert.Contains(t, sidebar, "Todo")
+	assert.Contains(t, sidebar, "Fix bug")
+}
+
+func TestSidebar_ModifiedFiles_ShowsFiles(t *testing.T) {
+	a := makeSidebarApp(t)
+	a.modifiedFiles = []string{"/tmp/foo.go", "/tmp/bar.go"}
+	sidebar := a.renderSidebar()
+	assert.Contains(t, sidebar, "Modified")
+	assert.Contains(t, sidebar, "foo.go")
+	assert.Contains(t, sidebar, "bar.go")
+}
+
+func TestSidebar_SectionCollapse_HidesContent(t *testing.T) {
+	a := makeSidebarApp(t)
+	a.uiPrefs = &store.UIPrefs{
+		CollapsedSections: map[string]bool{"context": true},
+	}
+	sidebar := a.renderSidebar()
+	assert.Contains(t, sidebar, "Context")
+	assert.NotContains(t, sidebar, "tokens")
+}
+
+func TestSidebar_SectionCollapse_ShowsIndicator(t *testing.T) {
+	a := makeSidebarApp(t)
+	a.uiPrefs = &store.UIPrefs{
+		CollapsedSections: map[string]bool{"context": true},
+	}
+	sidebar := a.renderSidebar()
+	assert.Contains(t, sidebar, "▸")
+}
+
+func TestSidebar_SectionExpanded_ShowsIndicator(t *testing.T) {
+	a := makeSidebarApp(t)
+	sidebar := a.renderSidebar()
+	assert.Contains(t, sidebar, "▾")
+}
+
+// --- Sidebar Overlay Keybind tests ---
+
+func makeOverlayApp(t *testing.T) App {
+	t.Helper()
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	app.uiPrefs = &store.UIPrefs{}
+	app.mcpConfig = &store.MCPConfig{}
+	app.lspConfig = &store.LSPConfig{}
+	// Use narrow width so overlay mode activates (< 120)
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
+	a := model.(App)
+	a.sidebarOverlay = true
+	return a
+}
+
+func TestSidebarOverlay_NumberKeyTogglesSection(t *testing.T) {
+	a := makeOverlayApp(t)
+
+	// Press '1' to toggle context section
+	model, _ := a.Update(tea.KeyPressMsg{Code: '1'})
+	a = model.(App)
+
+	assert.True(t, a.uiPrefs.IsCollapsed(sectionContext))
+
+	// Press '1' again to toggle back
+	model, _ = a.Update(tea.KeyPressMsg{Code: '1'})
+	a = model.(App)
+
+	assert.False(t, a.uiPrefs.IsCollapsed(sectionContext))
+}
+
+func TestSidebarOverlay_AllNumberKeys(t *testing.T) {
+	a := makeOverlayApp(t)
+
+	sections := []struct {
+		key  rune
+		name string
+	}{
+		{'1', sectionContext},
+		{'2', sectionMCP},
+		{'3', sectionLSP},
+		{'4', sectionTodo},
+		{'5', sectionModified},
+		{'6', sectionTools},
+	}
+
+	for _, s := range sections {
+		model, _ := a.Update(tea.KeyPressMsg{Code: s.key})
+		a = model.(App)
+		assert.True(t, a.uiPrefs.IsCollapsed(s.name), "section %q should be collapsed after pressing %c", s.name, s.key)
+	}
+}
+
+func TestSidebarOverlay_DKeyDismissesGettingStarted(t *testing.T) {
+	a := makeOverlayApp(t)
+
+	model, _ := a.Update(tea.KeyPressMsg{Code: 'd'})
+	a = model.(App)
+
+	assert.True(t, a.uiPrefs.GettingStartedDismissed)
+}
+
+// --- MCP Dialog tests ---
+
+func TestApp_MCPDialog_OpensWithCommand(t *testing.T) {
+	a := makeSidebarApp(t)
+	a.mcpConfig = &store.MCPConfig{
+		Servers: []store.MCPServer{
+			{Name: "srv1", Command: "cmd1", Enabled: true},
+		},
+	}
+
+	cmd := a.cmdRegistry.Get("mcp")
+	require.NotNil(t, cmd)
+	cmd.Handler(&a)
+
+	assert.True(t, a.mcpDialogOpen)
+}
+
+func TestApp_MCPDialog_ShowsServers(t *testing.T) {
+	a := makeSidebarApp(t)
+	a.mcpConfig = &store.MCPConfig{
+		Servers: []store.MCPServer{
+			{Name: "github-mcp", Command: "gh mcp", Enabled: true},
+			{Name: "api-srv", URL: "http://localhost", Enabled: false},
+		},
+	}
+	a.mcpDialogOpen = true
+
+	view := a.renderMCPDialog()
+	assert.Contains(t, view, "github-mcp")
+	assert.Contains(t, view, "api-srv")
+}
+
+func TestApp_MCPDialog_SpaceToggle(t *testing.T) {
+	a := makeSidebarApp(t)
+	a.mcpConfig = &store.MCPConfig{
+		Servers: []store.MCPServer{
+			{Name: "srv1", Command: "cmd1", Enabled: true},
+		},
+	}
+	a.mcpDialogOpen = true
+	a.mcpDialogSelect = 0
+
+	model, _ := a.Update(tea.KeyPressMsg{Code: ' '})
+	a = model.(App)
+
+	assert.False(t, a.mcpConfig.Servers[0].Enabled)
+}
+
+func TestApp_MCPDialog_Navigate(t *testing.T) {
+	a := makeSidebarApp(t)
+	a.mcpConfig = &store.MCPConfig{
+		Servers: []store.MCPServer{
+			{Name: "srv1", Command: "cmd1", Enabled: true},
+			{Name: "srv2", Command: "cmd2", Enabled: false},
+		},
+	}
+	a.mcpDialogOpen = true
+	a.mcpDialogSelect = 0
+
+	model, _ := a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	a = model.(App)
+
+	assert.Equal(t, 1, a.mcpDialogSelect)
+}
+
+func TestApp_MCPDialog_EscapeCloses(t *testing.T) {
+	a := makeSidebarApp(t)
+	a.mcpConfig = &store.MCPConfig{}
+	a.mcpDialogOpen = true
+
+	model, _ := a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	a = model.(App)
+
+	assert.False(t, a.mcpDialogOpen)
+}
+
+func TestApp_MCPDialog_ToastOnToggle(t *testing.T) {
+	a := makeSidebarApp(t)
+	a.mcpConfig = &store.MCPConfig{
+		Servers: []store.MCPServer{
+			{Name: "srv1", Command: "cmd1", Enabled: true},
+		},
+	}
+	a.mcpDialogOpen = true
+	a.mcpDialogSelect = 0
+
+	model, _ := a.Update(tea.KeyPressMsg{Code: ' '})
+	a = model.(App)
+
+	toastView := a.toasts.View()
+	assert.Contains(t, toastView, "srv1")
+}
+
+// --- Getting Started Card tests ---
+
+func TestApp_GettingStarted_ShownForNewUser(t *testing.T) {
+	a := makeSidebarApp(t)
+	a.uiPrefs = &store.UIPrefs{GettingStartedDismissed: false}
+	// No session history — sessionsDialogLoaded false by default
+	sidebar := a.renderSidebar()
+	assert.Contains(t, sidebar, "Getting Started")
+}
+
+func TestApp_GettingStarted_HiddenAfterDismiss(t *testing.T) {
+	a := makeSidebarApp(t)
+	a.uiPrefs = &store.UIPrefs{GettingStartedDismissed: true}
+	sidebar := a.renderSidebar()
+	assert.NotContains(t, sidebar, "Getting Started")
+}
+
+func TestApp_GettingStarted_DismissPersists(t *testing.T) {
+	a := makeOverlayApp(t)
+	a.uiPrefs = &store.UIPrefs{GettingStartedDismissed: false}
+
+	// Press 'd' to dismiss
+	model, _ := a.Update(tea.KeyPressMsg{Code: 'd'})
+	a = model.(App)
+
+	assert.True(t, a.uiPrefs.GettingStartedDismissed)
+}
+
+func TestApp_GettingStarted_HiddenWhenHasSessions(t *testing.T) {
+	a := makeSidebarApp(t)
+	a.uiPrefs = &store.UIPrefs{GettingStartedDismissed: false}
+	a.sessionsDialogLoaded = true
+	a.sessionsDialogEntries = []store.SessionSummary{
+		{ID: "test", Title: "test"},
+	}
+	sidebar := a.renderSidebar()
+	assert.NotContains(t, sidebar, "Getting Started")
+}
+
+// --- Integration Wiring tests ---
+
+func TestApp_FooterShowsMCPCount_FromConfig(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	cfg := &store.MCPConfig{
+		Servers: []store.MCPServer{
+			{Name: "srv1", Enabled: true},
+			{Name: "srv2", Enabled: true},
+			{Name: "srv3", Enabled: false},
+		},
+	}
+	require.NoError(t, cfg.Save())
+
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.state = StateSession
+	app.footer.SetWorkDir("/project")
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 160, Height: 40})
+	a := model.(App)
+
+	view := a.footer.View()
+	assert.Contains(t, view, "⊙ 2")
+}
+
+func TestApp_FooterShowsLSPCount_FromConfig(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	cfg := &store.LSPConfig{
+		Clients: []store.LSPClient{
+			{Name: "gopls", Enabled: true},
+		},
+	}
+	require.NoError(t, cfg.Save())
+
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.state = StateSession
+	app.footer.SetWorkDir("/project")
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 160, Height: 40})
+	a := model.(App)
+
+	view := a.footer.View()
+	assert.Contains(t, view, "• 1")
+}
+
+func TestApp_Sidebar_ShowsTodoFromTool(t *testing.T) {
+	a := makeSidebarApp(t)
+
+	// Use SetTodoTool to set the tool reference
+	td := tool.NewTodoTool()
+	td.Execute(tool.Context{WorkDir: "."}, `{"action":"write","items":[{"subject":"Sidebar task","status":"pending"}]}`)
+	a.todoTool = td
+
+	sidebar := a.renderSidebar()
+	assert.Contains(t, sidebar, "Todo")
+	assert.Contains(t, sidebar, "Sidebar task")
+}
+
+func TestApp_NewApp_LoadsConfigs(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+
+	app := NewApp()
+	assert.NotNil(t, app.mcpConfig)
+	assert.NotNil(t, app.lspConfig)
+	assert.NotNil(t, app.uiPrefs)
+}
+
+// --- Modified Files Tracking tests ---
+
+func TestApp_ModifiedFiles_TracksWriteEvent(t *testing.T) {
+	app := NewApp()
+	app.state = StateSession
+	ch := make(chan agent.Event, 1)
+	app.streaming = true
+	app.eventCh = ch
+
+	model, _ := app.Update(AgentEventMsg{
+		Event: agent.Event{
+			Type: agent.EventToolEnd,
+			Tool: &agent.ToolEvent{
+				ID:     "1",
+				Name:   "write",
+				Args:   `{"file_path":"/tmp/foo.go","content":"package main"}`,
+				Output: "wrote /tmp/foo.go",
+			},
+		},
+	})
+	a := model.(App)
+	assert.Contains(t, a.modifiedFiles, "/tmp/foo.go")
+}
+
+func TestApp_ModifiedFiles_TracksEditEvent(t *testing.T) {
+	app := NewApp()
+	app.state = StateSession
+	ch := make(chan agent.Event, 1)
+	app.streaming = true
+	app.eventCh = ch
+
+	model, _ := app.Update(AgentEventMsg{
+		Event: agent.Event{
+			Type: agent.EventToolEnd,
+			Tool: &agent.ToolEvent{
+				ID:     "1",
+				Name:   "edit",
+				Args:   `{"file_path":"/tmp/bar.go","old_string":"foo","new_string":"bar"}`,
+				Output: "edited /tmp/bar.go",
+			},
+		},
+	})
+	a := model.(App)
+	assert.Contains(t, a.modifiedFiles, "/tmp/bar.go")
+}
+
+func TestApp_ModifiedFiles_Deduplicates(t *testing.T) {
+	app := NewApp()
+	app.state = StateSession
+	ch := make(chan agent.Event, 1)
+	app.streaming = true
+	app.eventCh = ch
+
+	// First write
+	model, _ := app.Update(AgentEventMsg{
+		Event: agent.Event{
+			Type: agent.EventToolEnd,
+			Tool: &agent.ToolEvent{
+				ID:     "1",
+				Name:   "write",
+				Args:   `{"file_path":"/tmp/foo.go"}`,
+				Output: "ok",
+			},
+		},
+	})
+	a := model.(App)
+
+	// Second write to same file
+	a.eventCh = ch
+	model, _ = a.Update(AgentEventMsg{
+		Event: agent.Event{
+			Type: agent.EventToolEnd,
+			Tool: &agent.ToolEvent{
+				ID:     "2",
+				Name:   "write",
+				Args:   `{"file_path":"/tmp/foo.go"}`,
+				Output: "ok",
+			},
+		},
+	})
+	a = model.(App)
+
+	count := 0
+	for _, f := range a.modifiedFiles {
+		if f == "/tmp/foo.go" {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count)
+}
+
+func TestApp_ModifiedFiles_ClearedOnNewSession(t *testing.T) {
+	a := makeSessionApp(t)
+	a.modifiedFiles = []string{"/tmp/foo.go", "/tmp/bar.go"}
+
+	cmd := a.cmdRegistry.Get("new")
+	require.NotNil(t, cmd)
+	cmd.Handler(&a)
+
+	assert.Empty(t, a.modifiedFiles)
 }

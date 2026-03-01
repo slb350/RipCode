@@ -153,7 +153,7 @@ Acceptance criteria:
 - Model picker supports high-volume model lists without friction.
 - Agent selection available via both Tab cycling and dialog.
 
-## Phase 4: Sidebar + Status Depth (P1/P2)
+## Phase 4: Sidebar + Status Depth (P1/P2) ✅ COMPLETE
 
 Goal: Match side-panel utility and session observability.
 
@@ -168,6 +168,10 @@ Acceptance criteria:
 - Sidebar shows operational state useful for coding decisions.
 - Narrow and wide layouts feel equivalent functionally.
 - MCP servers can be toggled without config file edits.
+
+Completion notes:
+- MCP/LSP counts in footer: done. Permissions count (`△ N`) and retry indicators: **deferred to Phase 7** — blocked on permission request and session status data stores that don't exist yet.
+- Overlay: hints, dimmed backdrop, click-to-close done. Backdrop animations: **deferred to Phase 7** — cosmetic, requires tick-based animation system.
 
 ## Phase 5: Prompt Part and Rendering Fidelity (P1/P2)
 
@@ -191,6 +195,11 @@ Acceptance criteria:
 - Advanced prompt composition works without manual workarounds.
 - Diff views are readable at all terminal widths.
 
+Data dependencies:
+- Part-based rendering requires message parts store (`partsByMessageID` with delta patching) — build in Phase 7 or inline here.
+- Rich `@` autocomplete with MCP resources requires live MCP resource catalog — build in Phase 7 or inline here.
+- Attachment pipeline requires prompt-part state model (`text`/`file`/`agent`/`subtask`) — build in Phase 7 or inline here.
+
 ## Phase 6: Keybind/Theming/Config Parity (P2)
 
 Goal: Match customization surface.
@@ -213,6 +222,63 @@ Acceptance criteria:
 - Power users can remap and tune UI behavior without code changes.
 - Theme switching is instant with preview.
 - All visibility preferences persist across restarts.
+
+## Phase 7: Data Foundation, Integration & Remaining Parity
+
+Goal: Build the missing data stores, event infrastructure, and remaining UI features that earlier phases deferred due to missing backends. Close all parity gaps.
+
+### 7a — Data Stores
+
+These are the data planes listed in the Data Prerequisites table that have no backing implementation. Without them, UI behavior will continue to drift from opencode.
+
+| Store | What to Build | Unblocks |
+|---|---|---|
+| Session registry | Multi-session index (`sessionsByID`, `sessionOrder`, `activeSessionID`) + event-driven create/update/delete | `/sessions` resume, child-session navigation, share/revert badges |
+| Session status | Per-session `idle`/`busy`/`retry` with retry metadata (`attempt`, `next`, `message`) | Footer retry indicators (deferred from Phase 4), safe interrupt UX |
+| Message timeline | Canonical message store keyed by `sessionID` with sorted insert/update/remove, full `Message` metadata (timestamps, model/provider/variant, cost/tokens, errors) | Timeline fidelity, metadata toggles, model/cost/context indicators |
+| Message parts | Part map keyed by `messageID` with union types (`text`, `reasoning`, `tool`, `file`, `snapshot`, `patch`, `retry`), incremental delta patching, part lifecycle | Thinking/tool-details toggles (Phase 5), structured tool output, patch/snapshot rendering |
+| Permission requests | Pending queue by session with `id`, `permission`, `patterns`, tool context, reply actions (allow once/always/reject) | Permission prompt UI (below), footer permissions count (deferred from Phase 4) |
+| Question requests | Multi-question payloads with options, custom input, multi-select, response/reject actions | Interactive agent questions and branch decisions |
+| Workspace/path/vcs info | Directory/path segments, branch, formatter availability | Footer/status contextual parity |
+| Live MCP health | Upgrade config stores to live status (`connected`/`failed`/`needs_auth`) + resource catalog + event refresh | Sidebar MCP health indicators, `@` MCP resource mentions |
+| Live LSP health | Upgrade config stores to live state (connected/error clients, roots) + event refresh | Sidebar LSP health indicators |
+| Prompt/attachment parts | Prompt-part state model (`text`/`file`/`agent`/`subtask`) + attachment ingestion pipeline | `@`/file paste/editor parity (Phase 5), reliable prompt composition |
+
+### 7b — Bootstrap & Event Infrastructure
+
+| Item | Description |
+|---|---|
+| Blocking bootstrap | Resolve providers, provider list, agents, config, and session list before session screen is ready |
+| Non-blocking hydration | Progressively populate commands, LSP/MCP status, formatter status, session statuses, provider auth, VCS/path info |
+| Per-session hydrate | On open/switch: load session, messages (paginated), todo, diff |
+| Event-driven reconciliation | Subscribe to event stream; patch store incrementally for message/part/status/permission/question/todo/diff/lsp/mcp/session updates |
+
+### 7c — UI Features Deferred from Earlier Phases
+
+| Feature | Origin | Description |
+|---|---|---|
+| Footer permissions count (`△ N`) | Phase 4 | Show count of pending permission requests; requires permission request store |
+| Footer retry indicators | Phase 4 | Show retry attempt/next info; requires session status store |
+| Footer backdrop animations | Phase 4 | Optional tick-based animation on overlay close |
+| Permission/question prompt UI | P2 gap matrix (unassigned) | Inline permission UI with allow once/always/reject + pattern confirmation + diff view for edits; question UI with multi-question tabs, single/multi-select, custom input |
+| Session hierarchy UX | P2 gap matrix (unassigned) | Parent/child session navigation (`up`/`down`/`left`/`right` keys), subagent session indicators, session tree traversal |
+
+### 7d — P3 Polish (Not Covered by Phase 6)
+
+| Feature | Description |
+|---|---|
+| Mouse interactions | Rich mouse hover/click actions in timeline/sidebar + message click to open actions dialog |
+| Empty/loading states | Polished loading and no-result states across all dialogs for consistency |
+| Mobile/narrow ergonomics | Pointer affordance polish and hit-target hints in overlay mode |
+
+Acceptance criteria:
+- All data stores from the Data Prerequisites table have backing implementations.
+- Bootstrap sequence loads critical data before rendering session screen.
+- Event-driven reconciliation keeps UI state consistent with backend changes.
+- Footer shows permissions count, MCP count, LSP count, and retry indicators when data is available.
+- Permission and question prompts function inline during agent tool-call loops.
+- Session hierarchy navigation works for parent/child sessions.
+- No UI sections rely on stubbed or synthetic data.
 
 ## Data Prerequisites (UI/UX Parity Blockers)
 
@@ -470,12 +536,13 @@ Full keybind inventory from opencode config (80+ bindings):
 
 ## Execution Order Recommendation
 
-1. Phase 1
-2. Phase 2
-3. Phase 3
-4. Phase 4
+1. Phase 1 ✅
+2. Phase 2 ✅
+3. Phase 3 ✅
+4. Phase 4 ✅
 5. Phase 5
 6. Phase 6
+7. Phase 7
 
 Reason:
 - Prompt + command ergonomics are the highest daily friction and unblock all other parity work.
@@ -483,3 +550,6 @@ Reason:
 - Session/time-travel UX is the next most visible behavior gap.
 - Model/provider and sidebar/rendering depth can iterate without destabilizing core input flow.
 - Keybind/theme config is last because it's customization of surfaces that must exist first.
+- Data foundation is last because it builds the backend for surfaces that must exist first. Phase 5 may pull some data store work forward (message parts, prompt parts) if building those stores inline is more practical than deferring.
+
+Note: Phase 7a/7b data stores may be built incrementally alongside Phases 5–6 where a UI feature directly requires its backing store. The phase exists to ensure nothing falls through the cracks, not to mandate strict sequential ordering.

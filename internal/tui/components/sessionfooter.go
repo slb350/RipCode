@@ -1,6 +1,7 @@
 package components
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -13,6 +14,8 @@ type SessionFooter struct {
 	workDir   string
 	streaming bool
 	connected bool
+	mcpCount  int
+	lspCount  int
 }
 
 // NewSessionFooter creates a new footer component.
@@ -47,6 +50,16 @@ func (f *SessionFooter) SetConnected(connected bool) {
 	f.connected = connected
 }
 
+// SetMCPCount sets the number of enabled MCP servers.
+func (f *SessionFooter) SetMCPCount(n int) {
+	f.mcpCount = n
+}
+
+// SetLSPCount sets the number of enabled LSP clients.
+func (f *SessionFooter) SetLSPCount(n int) {
+	f.lspCount = n
+}
+
 // View renders footer row.
 func (f SessionFooter) View() string {
 	if f.width == 0 {
@@ -61,7 +74,15 @@ func (f SessionFooter) View() string {
 	} else if f.streaming {
 		right = "● Running · Esc interrupt"
 	} else {
-		right = "/models · /help · ^B sidebar"
+		var parts []string
+		if f.mcpCount > 0 {
+			parts = append(parts, fmt.Sprintf("⊙ %d", f.mcpCount))
+		}
+		if f.lspCount > 0 {
+			parts = append(parts, fmt.Sprintf("• %d", f.lspCount))
+		}
+		parts = append(parts, "/help", "^B sidebar")
+		right = strings.Join(parts, " · ")
 	}
 
 	gap := f.width - lipgloss.Width(left) - lipgloss.Width(right)

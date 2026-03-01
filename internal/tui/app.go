@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -49,8 +50,12 @@ type App struct {
 	toolpanel components.ToolPanel
 	home      components.Home
 
-	// Model preferences
+	// Preferences and config
 	modelPrefs *store.ModelPrefs
+	mcpConfig  *store.MCPConfig
+	lspConfig  *store.LSPConfig
+	uiPrefs    *store.UIPrefs
+	todoTool   *tool.TodoTool
 
 	// Agent state
 	provider          provider.Provider
@@ -150,11 +155,18 @@ type App struct {
 	forkDialogOpen   bool
 	forkDialogSelect int
 
+	// MCP dialog
+	mcpDialogOpen   bool
+	mcpDialogSelect int
+
 	// Prompt stash
 	stash               *components.PromptStash
 	stashDialogOpen     bool
 	stashDialogSelect   int
 	stashPendingContent string // content to stash (captured before input reset)
+
+	// Modified files tracking
+	modifiedFiles []string
 }
 
 type inlineEntry struct {
@@ -210,11 +222,23 @@ func renderPickerList(header string, items []pickerItem, selected, maxRows int) 
 // NewApp creates the initial application model.
 func NewApp() App {
 	prefs, _ := store.LoadModelPrefs()
+	mcpCfg, _ := store.LoadMCPConfig()
+	lspCfg, _ := store.LoadLSPConfig()
+	uiPrefs, _ := store.LoadUIPrefs()
+
+	footer := components.NewSessionFooter()
+	if mcpCfg != nil {
+		footer.SetMCPCount(mcpCfg.CountEnabled())
+	}
+	if lspCfg != nil {
+		footer.SetLSPCount(lspCfg.CountEnabled())
+	}
+
 	a := App{
 		chat:          components.NewChat(),
 		input:         components.NewInput(),
 		statusbar:     components.NewStatusBar(),
-		footer:        components.NewSessionFooter(),
+		footer:        footer,
 		toolpanel:     components.NewToolPanel(),
 		home:          components.NewHome(),
 		state:         StateHome,
@@ -223,6 +247,9 @@ func NewApp() App {
 		toasts:        components.NewToastManager(),
 		stash:         loadPromptStash(),
 		modelPrefs:    prefs,
+		mcpConfig:     mcpCfg,
+		lspConfig:     lspCfg,
+		uiPrefs:       uiPrefs,
 	}
 	a.initRegistry()
 	return a
@@ -243,6 +270,7 @@ func (a *App) closeAllDialogs() {
 	a.timelineDialogOpen = false
 	a.forkDialogOpen = false
 	a.stashDialogOpen = false
+	a.mcpDialogOpen = false
 	a.inlineOpen = false
 	a.input.Blur()
 }
@@ -278,6 +306,7 @@ func (a *App) initRegistry() {
 		Handler: func(a *App) tea.Cmd {
 			a.chat.Clear()
 			a.toolpanel.Clear()
+			a.modifiedFiles = nil
 			if a.session != nil {
 				a.session.Reset()
 				a.statusbar.SetTitle(shortSessionTitle(a.session.ID))
@@ -386,6 +415,18 @@ func (a *App) initRegistry() {
 			a.closeAllDialogs()
 			a.connectDialogOpen = true
 			a.connectDialogInput = ""
+			return nil
+		},
+	})
+
+	r.Register(Command{
+		Name: "mcp", Category: CategorySystem,
+		Title: "MCP Servers", Description: "Manage MCP server connections",
+		Execute: true,
+		Handler: func(a *App) tea.Cmd {
+			a.closeAllDialogs()
+			a.mcpDialogOpen = true
+			a.mcpDialogSelect = 0
 			return nil
 		},
 	})
@@ -723,6 +764,11 @@ func (a *App) SetProvider(p provider.Provider) {
 // SetRegistry configures the tool registry.
 func (a *App) SetRegistry(r *tool.Registry) {
 	a.registry = r
+	if t, ok := r.Get("todo"); ok {
+		if td, ok := t.(*tool.TodoTool); ok {
+			a.todoTool = td
+		}
+	}
 }
 
 // SetSession configures the session.
@@ -779,6 +825,28 @@ func (a *App) setStreaming(streaming bool) {
 	a.streaming = streaming
 	a.statusbar.SetSpinning(streaming)
 	a.footer.SetStreaming(streaming)
+}
+
+// showGettingStarted returns whether the getting started card should appear.
+func (a App) showGettingStarted() bool {
+	if a.uiPrefs == nil || a.uiPrefs.GettingStartedDismissed {
+		return false
+	}
+	// Hide when user has session history
+	if a.sessionsDialogLoaded && len(a.sessionsDialogEntries) > 0 {
+		return false
+	}
+	return true
+}
+
+// trackModifiedFile adds a file path to the modified files list, deduplicating.
+func (a *App) trackModifiedFile(path string) {
+	for _, f := range a.modifiedFiles {
+		if f == path {
+			return
+		}
+	}
+	a.modifiedFiles = append(a.modifiedFiles, path)
 }
 
 // Init implements tea.Model.
@@ -886,6 +954,9 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	case a.connectDialogOpen:
 		return a.handleConnectDialogKey(msg)
+
+	case a.mcpDialogOpen:
+		return a.handleMCPDialogKey(msg)
 
 	case a.themesDialogOpen:
 		return a.handleThemesDialogKey(msg)
@@ -1865,6 +1936,19 @@ func (a App) handleSidebarOverlayKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.sidebarOverlay = false
 		if !a.streaming {
 			a.input.Focus()
+		}
+		return a, nil
+	case msg.Code >= '1' && msg.Code <= '6' && msg.Mod == 0:
+		idx := int(msg.Code - '1')
+		if a.uiPrefs != nil && idx < len(sidebarSectionKeys) {
+			a.uiPrefs.ToggleCollapsed(sidebarSectionKeys[idx])
+			_ = a.uiPrefs.Save()
+		}
+		return a, nil
+	case msg.Code == 'd' && msg.Mod == 0:
+		if a.uiPrefs != nil {
+			a.uiPrefs.DismissGettingStarted()
+			_ = a.uiPrefs.Save()
 		}
 		return a, nil
 	default:
@@ -3182,6 +3266,79 @@ func (a App) renderConnectDialog() string {
 	return sb.String()
 }
 
+func (a App) handleMCPDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	serverCount := 0
+	if a.mcpConfig != nil {
+		serverCount = len(a.mcpConfig.Servers)
+	}
+
+	switch {
+	case msg.Code == tea.KeyEscape || msg.Code == tea.KeyEnter:
+		a.mcpDialogOpen = false
+		a.input.Focus()
+		return a, nil
+
+	case msg.Code == tea.KeyUp:
+		if a.mcpDialogSelect > 0 {
+			a.mcpDialogSelect--
+		}
+		return a, nil
+
+	case msg.Code == tea.KeyDown:
+		if a.mcpDialogSelect < serverCount-1 {
+			a.mcpDialogSelect++
+		}
+		return a, nil
+
+	case msg.Code == ' ':
+		if a.mcpConfig != nil && a.mcpDialogSelect < serverCount {
+			srv := a.mcpConfig.Servers[a.mcpDialogSelect]
+			newState := a.mcpConfig.ToggleEnabled(srv.Name)
+			_ = a.mcpConfig.Save()
+			a.footer.SetMCPCount(a.mcpConfig.CountEnabled())
+			label := "disabled"
+			if newState {
+				label = "enabled"
+			}
+			a.toasts.Show(fmt.Sprintf("%s %s", srv.Name, label), components.ToastInfo, 3*time.Second)
+		}
+		return a, nil
+
+	default:
+		return a, nil
+	}
+}
+
+func (a App) renderMCPDialog() string {
+	var sb strings.Builder
+	sb.WriteString("MCP Servers (Space toggle, Esc close)\n")
+
+	if a.mcpConfig == nil || len(a.mcpConfig.Servers) == 0 {
+		sb.WriteString("\n  No MCP servers configured")
+		sb.WriteString("\n  Add servers to ~/.ripcode/state/mcp.json")
+		return sb.String()
+	}
+
+	for i, srv := range a.mcpConfig.Servers {
+		prefix := "  "
+		if i == a.mcpDialogSelect {
+			prefix = "> "
+		}
+		icon := enabledIcon(srv.Enabled)
+		detail := srv.Command
+		if detail == "" {
+			detail = srv.URL
+		}
+		sb.WriteString(fmt.Sprintf("\n%s%s %s", prefix, icon, srv.Name))
+		if detail != "" {
+			sb.WriteString(fmt.Sprintf(" — %s", detail))
+		}
+	}
+
+	sb.WriteString(fmt.Sprintf("\n\n  %d/%d enabled", a.mcpConfig.CountEnabled(), len(a.mcpConfig.Servers)))
+	return sb.String()
+}
+
 // --- Agent dialog ---
 
 func (a App) filteredAgents() []agent.AgentInfo {
@@ -3648,6 +3805,14 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 				Output: event.Tool.Output,
 				Error:  event.Tool.Error,
 			})
+			if event.Tool.Name == "write" || event.Tool.Name == "edit" {
+				var parsed struct {
+					FilePath string `json:"file_path"`
+				}
+				if json.Unmarshal([]byte(event.Tool.Args), &parsed) == nil && parsed.FilePath != "" {
+					a.trackModifiedFile(parsed.FilePath)
+				}
+			}
 		}
 		return a, listenForEvents(a.eventCh)
 
@@ -3839,6 +4004,54 @@ func renderSideBySide(main, side string, mainW, sideW int) string {
 	return sb.String()
 }
 
+func enabledIcon(enabled bool) string {
+	if enabled {
+		return "●"
+	}
+	return "○"
+}
+
+// sidebarSection keys for collapse state.
+const (
+	sectionContext  = "context"
+	sectionMCP      = "mcp"
+	sectionLSP      = "lsp"
+	sectionTodo     = "todo"
+	sectionModified = "modified"
+	sectionTools    = "tools"
+)
+
+// sidebarSectionKeys maps 1-indexed number keys to section names.
+var sidebarSectionKeys = []string{
+	sectionContext,
+	sectionMCP,
+	sectionLSP,
+	sectionTodo,
+	sectionModified,
+	sectionTools,
+}
+
+func (a App) renderSidebarSection(title string, sectionKey string, count int, content []string) []string {
+	muted := styles.DefaultTheme.TextMutedStyle
+	text := styles.DefaultTheme.TextStyle
+
+	collapsed := a.uiPrefs != nil && a.uiPrefs.IsCollapsed(sectionKey)
+	indicator := "▾"
+	if collapsed {
+		indicator = "▸"
+	}
+
+	header := fmt.Sprintf("%s %s (%d)", indicator, title, count)
+	lines := []string{text.Render(header)}
+
+	if !collapsed {
+		lines = append(lines, content...)
+	}
+	lines = append(lines, muted.Render(repeatStr("─", 34)))
+	lines = append(lines, "")
+	return lines
+}
+
 func (a App) renderSidebar() string {
 	if !a.sidebarVisible() {
 		return ""
@@ -3852,6 +4065,8 @@ func (a App) renderSidebar() string {
 	modeColor := lipgloss.NewStyle().Foreground(styles.DefaultTheme.ModeColor(a.agent.Name)).Bold(true)
 
 	var lines []string
+
+	// Session header (not collapsible)
 	headerTitle := "Session"
 	if a.session != nil {
 		headerTitle = shortSessionTitle(a.session.ID)
@@ -3867,18 +4082,35 @@ func (a App) renderSidebar() string {
 	lines = append(lines, muted.Render(repeatStr("─", 34)))
 	lines = append(lines, "")
 
-	lines = append(lines, text.Render("Context"))
+	// Getting Started card
+	if a.showGettingStarted() {
+		lines = append(lines, text.Render("Getting Started"))
+		lines = append(lines, muted.Render("  Type a message to begin"))
+		lines = append(lines, muted.Render("  / for commands"))
+		lines = append(lines, muted.Render("  @ for file references"))
+		lines = append(lines, muted.Render("  Tab to switch agents"))
+		lines = append(lines, muted.Render("  Press d to dismiss"))
+		lines = append(lines, muted.Render(repeatStr("─", 34)))
+		lines = append(lines, "")
+	}
+
+	// Context section (collapsible)
 	tokens := 0
 	if a.session != nil {
 		tokens = a.session.Tokens.Input + a.session.Tokens.Output
 	}
-	lines = append(lines, muted.Render(fmt.Sprintf("%s tokens", components.FormatTokens(tokens))))
+	msgCount := 0
+	if a.session != nil {
+		msgCount = len(a.session.Messages)
+	}
+	var contextContent []string
+	contextContent = append(contextContent, muted.Render(fmt.Sprintf("%s tokens", components.FormatTokens(tokens))))
 	const assumedContextLimit = 200_000
 	percent := clamp((tokens*100)/assumedContextLimit, 0, 100)
 	const barWidth = 20
 	filled := clamp((percent*barWidth)/100, 0, barWidth)
 	bar := "[" + repeatStr("■", filled) + repeatStr("·", barWidth-filled) + "]"
-	lines = append(lines, muted.Render(bar)+" "+muted.Render(fmt.Sprintf("%d%%", percent)))
+	contextContent = append(contextContent, muted.Render(bar)+" "+muted.Render(fmt.Sprintf("%d%%", percent)))
 	modeName := strings.TrimSpace(a.agent.Name)
 	if modeName == "" {
 		modeName = agent.NameBuild
@@ -3887,18 +4119,60 @@ func (a App) renderSidebar() string {
 	if len(modeName) > 0 {
 		modeLabel = strings.ToUpper(modeName[:1]) + modeName[1:]
 	}
-	lines = append(lines, modeColor.Render(modeLabel)+" "+muted.Render("agent"))
+	contextContent = append(contextContent, modeColor.Render(modeLabel)+" "+muted.Render("agent"))
 	if a.model != "" {
-		lines = append(lines, muted.Render(a.model))
+		contextContent = append(contextContent, muted.Render(a.model))
 	}
-	if a.session != nil {
-		msgCount := len(a.session.Messages)
-		lines = append(lines, muted.Render(fmt.Sprintf("%d messages", msgCount)))
-	}
-	lines = append(lines, muted.Render(repeatStr("─", 34)))
-	lines = append(lines, "")
+	contextContent = append(contextContent, muted.Render(fmt.Sprintf("%d messages", msgCount)))
+	lines = append(lines, a.renderSidebarSection("Context", sectionContext, msgCount, contextContent)...)
 
-	lines = append(lines, text.Render("Recent tools"))
+	// MCP section (collapsible)
+	if a.mcpConfig != nil && len(a.mcpConfig.Servers) > 0 {
+		var mcpContent []string
+		for _, srv := range a.mcpConfig.Servers {
+			mcpContent = append(mcpContent, muted.Render(fmt.Sprintf("  %s %s", enabledIcon(srv.Enabled), srv.Name)))
+		}
+		lines = append(lines, a.renderSidebarSection("MCP", sectionMCP, len(a.mcpConfig.Servers), mcpContent)...)
+	}
+
+	// LSP section (collapsible)
+	if a.lspConfig != nil && len(a.lspConfig.Clients) > 0 {
+		var lspContent []string
+		for _, cl := range a.lspConfig.Clients {
+			lspContent = append(lspContent, muted.Render(fmt.Sprintf("  %s %s", enabledIcon(cl.Enabled), cl.Name)))
+		}
+		lines = append(lines, a.renderSidebarSection("LSP", sectionLSP, len(a.lspConfig.Clients), lspContent)...)
+	}
+
+	// Todo section (collapsible)
+	if a.todoTool != nil {
+		items := a.todoTool.Items()
+		if len(items) > 0 {
+			var todoContent []string
+			for _, item := range items {
+				marker := "[ ]"
+				switch item.Status {
+				case "completed":
+					marker = "[x]"
+				case "in_progress":
+					marker = "[~]"
+				}
+				todoContent = append(todoContent, muted.Render(fmt.Sprintf("  %s %s", marker, item.Subject)))
+			}
+			lines = append(lines, a.renderSidebarSection("Todo", sectionTodo, len(items), todoContent)...)
+		}
+	}
+
+	// Modified files section (collapsible)
+	if len(a.modifiedFiles) > 0 {
+		var modContent []string
+		for _, f := range a.modifiedFiles {
+			modContent = append(modContent, muted.Render("  "+filepath.Base(f)))
+		}
+		lines = append(lines, a.renderSidebarSection("Modified", sectionModified, len(a.modifiedFiles), modContent)...)
+	}
+
+	// Tools section (collapsible)
 	events := a.toolpanel.Events()
 	successCount := 0
 	errorCount := 0
@@ -3913,6 +4187,7 @@ func (a App) renderSidebar() string {
 			pendingCount++
 		}
 	}
+	var toolsContent []string
 	summary := fmt.Sprintf("✓ %d", successCount)
 	if errorCount > 0 {
 		summary += fmt.Sprintf("  ✗ %d", errorCount)
@@ -3920,30 +4195,24 @@ func (a App) renderSidebar() string {
 	if pendingCount > 0 {
 		summary += fmt.Sprintf("  ⋯ %d", pendingCount)
 	}
-	lines = append(lines, muted.Render(summary))
+	toolsContent = append(toolsContent, muted.Render(summary))
 	if len(events) == 0 {
-		lines = append(lines, muted.Render("No tool activity yet"))
+		toolsContent = append(toolsContent, muted.Render("No tool activity yet"))
 	} else {
 		start := max(0, len(events)-8)
 		for i := start; i < len(events); i++ {
 			ev := events[i]
 			switch {
 			case ev.Error != "":
-				lines = append(lines, errorStyle.Render("✗ "+ev.Name))
+				toolsContent = append(toolsContent, errorStyle.Render("✗ "+ev.Name))
 			case ev.Output != "":
-				lines = append(lines, success.Render("✓ "+ev.Name))
+				toolsContent = append(toolsContent, success.Render("✓ "+ev.Name))
 			default:
-				lines = append(lines, warning.Render("⋯ "+ev.Name))
+				toolsContent = append(toolsContent, warning.Render("⋯ "+ev.Name))
 			}
 		}
 	}
-	lines = append(lines, muted.Render(repeatStr("─", 34)))
-	lines = append(lines, "")
-
-	lines = append(lines, text.Render("Quick actions"))
-	lines = append(lines, muted.Render("/models"))
-	lines = append(lines, muted.Render("/help"))
-	lines = append(lines, muted.Render("^B toggle sidebar"))
+	lines = append(lines, a.renderSidebarSection("Tools", sectionTools, len(events), toolsContent)...)
 
 	return strings.Join(lines, "\n")
 }
@@ -4037,6 +4306,10 @@ func (a App) renderSessionView() string {
 	}
 	if a.connectDialogOpen {
 		sb.WriteString(a.renderConnectDialog())
+		sb.WriteByte('\n')
+	}
+	if a.mcpDialogOpen {
+		sb.WriteString(a.renderMCPDialog())
 		sb.WriteByte('\n')
 	}
 	if a.themesDialogOpen {

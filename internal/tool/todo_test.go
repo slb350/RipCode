@@ -79,3 +79,34 @@ func TestTodo_Parameters(t *testing.T) {
 	assert.Contains(t, props, "action")
 	assert.Contains(t, props, "items")
 }
+
+func TestTodoTool_Items_Empty(t *testing.T) {
+	td := NewTodoTool()
+	items := td.Items()
+	assert.Empty(t, items)
+}
+
+func TestTodoTool_Items_AfterWrite(t *testing.T) {
+	td := NewTodoTool()
+	ctx := newTestCtx(t)
+	td.Execute(ctx, `{"action":"write","items":[{"subject":"Task A","status":"pending"},{"subject":"Task B","status":"completed"}]}`)
+
+	items := td.Items()
+	require.Len(t, items, 2)
+	assert.Equal(t, "Task A", items[0].Subject)
+	assert.Equal(t, "pending", items[0].Status)
+	assert.Equal(t, "Task B", items[1].Subject)
+	assert.Equal(t, "completed", items[1].Status)
+}
+
+func TestTodoTool_Items_ReturnsCopy(t *testing.T) {
+	td := NewTodoTool()
+	ctx := newTestCtx(t)
+	td.Execute(ctx, `{"action":"write","items":[{"subject":"Task A","status":"pending"}]}`)
+
+	items := td.Items()
+	items[0].Subject = "mutated"
+
+	fresh := td.Items()
+	assert.Equal(t, "Task A", fresh[0].Subject)
+}

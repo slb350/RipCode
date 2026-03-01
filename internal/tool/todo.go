@@ -95,6 +95,15 @@ func (td *TodoTool) read() Result {
 	return Result{Output: sb.String()}
 }
 
+// Items returns a copy of the current todo items.
+func (td *TodoTool) Items() []TodoItem {
+	td.mu.Lock()
+	defer td.mu.Unlock()
+	out := make([]TodoItem, len(td.items))
+	copy(out, td.items)
+	return out
+}
+
 func (td *TodoTool) write(items []TodoItem) Result {
 	td.mu.Lock()
 	defer td.mu.Unlock()
