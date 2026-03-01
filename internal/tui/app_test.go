@@ -486,6 +486,174 @@ func TestApp_ShellMode_Submit_AddsToHistory(t *testing.T) {
 	assert.Equal(t, "!echo test", a.input.Value())
 }
 
+// --- Command Registry Integration tests ---
+
+func TestApp_SlashCompact_ShowsToast(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	model, cmd := a.Update(components.InputSubmitMsg{Value: "/compact"})
+	a = model.(App)
+	assert.NotNil(t, cmd, "/compact should return toast dismiss cmd")
+	assert.NotNil(t, a.toasts.Current())
+	assert.Contains(t, a.toasts.Current().Message, "Not yet implemented")
+}
+
+func TestApp_SlashDetails_TogglesShowDetails(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	assert.False(t, a.showDetails)
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/details"})
+	a = model.(App)
+	assert.True(t, a.showDetails)
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/details"})
+	a = model.(App)
+	assert.False(t, a.showDetails)
+}
+
+func TestApp_SlashThinking_TogglesShowThinking(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	assert.False(t, a.showThinking)
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/thinking"})
+	a = model.(App)
+	assert.True(t, a.showThinking)
+}
+
+func TestApp_SlashTimestamps_TogglesShowTimestamps(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	assert.False(t, a.showTimestamps)
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/timestamps"})
+	a = model.(App)
+	assert.True(t, a.showTimestamps)
+}
+
+func TestApp_SlashRename_ShowsToast(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	model, cmd := a.Update(components.InputSubmitMsg{Value: "/rename"})
+	a = model.(App)
+	assert.NotNil(t, cmd)
+	assert.Contains(t, a.toasts.Current().Message, "Not yet implemented")
+}
+
+func TestApp_CommandPalette_ShowsCategories(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
+	a = model.(App)
+
+	view := a.View()
+	assert.Contains(t, view.Content, "Session")
+	assert.Contains(t, view.Content, "View")
+	assert.Contains(t, view.Content, "System")
+}
+
+func TestApp_CommandPalette_ShowsKeybindLabels(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
+	a = model.(App)
+
+	view := a.View()
+	assert.Contains(t, view.Content, "Ctrl+B")
+}
+
+func TestApp_CommandPalette_ShowsSuggestedSection(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
+	a = model.(App)
+
+	view := a.View()
+	assert.Contains(t, view.Content, "Suggested")
+}
+
+func TestApp_InlineSlash_UsesRegistryCommands(t *testing.T) {
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.state = StateSession
+
+	// Type "/" to trigger inline autocomplete
+	model, _ = a.Update(tea.KeyPressMsg{Text: "/"})
+	a = model.(App)
+	assert.True(t, a.inlineOpen)
+
+	// The inline entries should include registry commands like /compact
+	view := a.View()
+	assert.Contains(t, view.Content, "/compact")
+}
+
 func TestApp_ContentDelta_ContinuesListening(t *testing.T) {
 	app := NewApp()
 	ch := make(chan agent.Event, 1)

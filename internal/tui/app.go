@@ -77,13 +77,10 @@ type App struct {
 	promptHistory     *components.PromptHistory
 	toasts            components.ToastManager
 	shellMode         bool
-}
-
-type commandEntry struct {
-	Title       string
-	Command     string
-	Description string
-	Execute     bool
+	cmdRegistry       *CommandRegistry
+	showDetails       bool
+	showThinking      bool
+	showTimestamps    bool
 }
 
 type inlineEntry struct {
@@ -138,7 +135,7 @@ func renderPickerList(header string, items []pickerItem, selected, maxRows int) 
 
 // NewApp creates the initial application model.
 func NewApp() App {
-	return App{
+	a := App{
 		chat:          components.NewChat(),
 		input:         components.NewInput(),
 		statusbar:     components.NewStatusBar(),
@@ -150,6 +147,230 @@ func NewApp() App {
 		promptHistory: components.NewPromptHistory(200),
 		toasts:        components.NewToastManager(),
 	}
+	a.initRegistry()
+	return a
+}
+
+// stubToast returns a handler that shows a "Not yet implemented" toast.
+func stubToast(name string) func(a *App) tea.Cmd {
+	return func(a *App) tea.Cmd {
+		return a.ShowToast(fmt.Sprintf("/%s: Not yet implemented", name), components.ToastInfo)
+	}
+}
+
+func (a *App) initRegistry() {
+	r := NewCommandRegistry()
+
+	r.Register(Command{
+		Name: "help", Aliases: []string{"commands"}, Category: CategorySystem,
+		Title: "Help", Description: "Show available commands",
+		Suggested: true, Execute: true,
+		Handler: func(a *App) tea.Cmd {
+			var lines []string
+			lines = append(lines, "Commands:")
+			for _, c := range a.cmdRegistry.All() {
+				lines = append(lines, "/"+c.Name+" - "+c.Description)
+			}
+			a.chat.AddEntry(components.ChatEntry{
+				Role:    "system",
+				Content: strings.Join(lines, "\n"),
+			})
+			return nil
+		},
+	})
+
+	r.Register(Command{
+		Name: "new", Aliases: []string{"clear"}, Category: CategorySession,
+		Title: "New session", Description: "Clear chat and tool history",
+		Suggested: true, Execute: true,
+		Handler: func(a *App) tea.Cmd {
+			a.chat.Clear()
+			a.toolpanel.Clear()
+			if a.session != nil {
+				a.session.Reset()
+				a.statusbar.SetTitle(shortSessionTitle(a.session.ID))
+				a.statusbar.SetTokens(0)
+			}
+			a.chat.AddEntry(components.ChatEntry{
+				Role:    "system",
+				Content: "Conversation cleared.",
+			})
+			return nil
+		},
+	})
+
+	r.Register(Command{
+		Name: "models", Category: CategoryAgent,
+		Title: "Select model", Description: "Search and switch models",
+		Suggested: true, Execute: true,
+		Handler: func(a *App) tea.Cmd {
+			// Re-use existing models command logic
+			return nil // special-cased in handleSlashCommand
+		},
+	})
+
+	r.Register(Command{
+		Name: "agent", Category: CategoryAgent,
+		Title: "Switch agent", Description: "Toggle build/plan agent",
+		Keybind: "Tab", Execute: true,
+		Handler: func(a *App) tea.Cmd {
+			return nil // special-cased (needs args)
+		},
+	})
+
+	r.Register(Command{
+		Name: "sidebar", Category: CategoryView,
+		Title: "Toggle sidebar", Description: "Show or hide session sidebar",
+		Keybind: "Ctrl+B", Execute: true,
+		Handler: func(a *App) tea.Cmd {
+			*a = a.toggleSidebar()
+			state := "hidden"
+			if a.sidebarVisible() {
+				state = "shown"
+			}
+			a.chat.AddEntry(components.ChatEntry{
+				Role:    "system",
+				Content: fmt.Sprintf("Sidebar %s.", state),
+			})
+			return nil
+		},
+	})
+
+	r.Register(Command{
+		Name: "model", Category: CategoryAgent,
+		Title: "Set model", Description: "Type full provider/model-id and submit",
+		Execute: false,
+		Handler: func(a *App) tea.Cmd { return nil },
+	})
+
+	r.Register(Command{
+		Name: "exit", Aliases: []string{"quit", "q"}, Category: CategorySystem,
+		Title: "Exit", Description: "Quit ripcode",
+		Execute: true,
+		Handler: func(_ *App) tea.Cmd { return tea.Quit },
+	})
+
+	r.Register(Command{
+		Name: "compact", Aliases: []string{"summarize"}, Category: CategorySession,
+		Title: "Compact", Description: "Compact session history",
+		Execute: true, Handler: stubToast("compact"),
+	})
+
+	r.Register(Command{
+		Name: "connect", Category: CategorySession,
+		Title: "Connect", Description: "Connect to remote session",
+		Execute: true, Handler: stubToast("connect"),
+	})
+
+	r.Register(Command{
+		Name: "copy", Category: CategorySession,
+		Title: "Copy", Description: "Copy last response to clipboard",
+		Execute: true, Handler: stubToast("copy"),
+	})
+
+	r.Register(Command{
+		Name: "details", Category: CategoryView,
+		Title: "Details", Description: "Toggle tool detail display",
+		Execute: true,
+		Handler: func(a *App) tea.Cmd {
+			a.showDetails = !a.showDetails
+			state := "shown"
+			if !a.showDetails {
+				state = "hidden"
+			}
+			return a.ShowToast(fmt.Sprintf("Tool details %s", state), components.ToastInfo)
+		},
+	})
+
+	r.Register(Command{
+		Name: "editor", Category: CategorySession,
+		Title: "Editor", Description: "Open in external editor",
+		Execute: true, Handler: stubToast("editor"),
+	})
+
+	r.Register(Command{
+		Name: "export", Category: CategorySession,
+		Title: "Export", Description: "Export conversation transcript",
+		Execute: true, Handler: stubToast("export"),
+	})
+
+	r.Register(Command{
+		Name: "rename", Category: CategorySession,
+		Title: "Rename", Description: "Rename current session",
+		Execute: true, Handler: stubToast("rename"),
+	})
+
+	r.Register(Command{
+		Name: "sessions", Category: CategorySession,
+		Title: "Sessions", Description: "List saved sessions",
+		Suggested: true, Execute: true, Handler: stubToast("sessions"),
+	})
+
+	r.Register(Command{
+		Name: "skills", Category: CategorySession,
+		Title: "Skills", Description: "List available skills",
+		Execute: true, Handler: stubToast("skills"),
+	})
+
+	r.Register(Command{
+		Name: "status", Category: CategorySystem,
+		Title: "Status", Description: "View system status",
+		Execute: true, Handler: stubToast("status"),
+	})
+
+	r.Register(Command{
+		Name: "themes", Category: CategoryView,
+		Title: "Themes", Description: "Switch color theme",
+		Execute: true, Handler: stubToast("themes"),
+	})
+
+	r.Register(Command{
+		Name: "thinking", Aliases: []string{"toggle-thinking"}, Category: CategoryView,
+		Title: "Thinking", Description: "Toggle thinking block display",
+		Execute: true,
+		Handler: func(a *App) tea.Cmd {
+			a.showThinking = !a.showThinking
+			state := "shown"
+			if !a.showThinking {
+				state = "hidden"
+			}
+			return a.ShowToast(fmt.Sprintf("Thinking blocks %s", state), components.ToastInfo)
+		},
+	})
+
+	r.Register(Command{
+		Name: "timeline", Category: CategorySession,
+		Title: "Timeline", Description: "View session timeline",
+		Execute: true, Handler: stubToast("timeline"),
+	})
+
+	r.Register(Command{
+		Name: "timestamps", Aliases: []string{"toggle-timestamps"}, Category: CategoryView,
+		Title: "Timestamps", Description: "Toggle message timestamps",
+		Execute: true,
+		Handler: func(a *App) tea.Cmd {
+			a.showTimestamps = !a.showTimestamps
+			state := "shown"
+			if !a.showTimestamps {
+				state = "hidden"
+			}
+			return a.ShowToast(fmt.Sprintf("Timestamps %s", state), components.ToastInfo)
+		},
+	})
+
+	r.Register(Command{
+		Name: "undo", Category: CategorySession,
+		Title: "Undo", Description: "Undo last action",
+		Execute: true, Handler: stubToast("undo"),
+	})
+
+	r.Register(Command{
+		Name: "redo", Category: CategorySession,
+		Title: "Redo", Description: "Redo last action",
+		Execute: true, Handler: stubToast("redo"),
+	})
+
+	a.cmdRegistry = r
 }
 
 // SetProvider configures the LLM provider.
@@ -486,65 +707,26 @@ func (a App) handleSlashCommand(input string) (App, tea.Cmd, bool) {
 		return a, nil, false
 	}
 
-	switch strings.ToLower(parts[0]) {
-	case "/models":
+	name := strings.TrimPrefix(strings.ToLower(parts[0]), "/")
+
+	// Special cases that need args or special handling
+	switch name {
+	case "models":
 		model, cmd := a.handleModelsCommand(input)
 		return model.(App), cmd, true
-
-	case "/help", "/commands":
-		a.chat.AddEntry(components.ChatEntry{Role: "user", Content: input})
-		var lines []string
-		lines = append(lines, "Commands:")
-		for _, c := range a.commandEntries() {
-			lines = append(lines, c.Command+" - "+c.Description)
-		}
-		a.chat.AddEntry(components.ChatEntry{
-			Role:    "system",
-			Content: strings.Join(lines, "\n"),
-		})
-		return a, nil, true
-
-	case "/clear", "/new":
-		a.chat.Clear()
-		a.toolpanel.Clear()
-		if a.session != nil {
-			a.session.Reset()
-			a.statusbar.SetTitle(shortSessionTitle(a.session.ID))
-			a.statusbar.SetTokens(0)
-		}
-		a.chat.AddEntry(components.ChatEntry{
-			Role:    "system",
-			Content: "Conversation cleared.",
-		})
-		return a, nil, true
-
-	case "/exit", "/quit", "/q":
-		return a, tea.Quit, true
-
-	case "/sidebar":
-		a = a.toggleSidebar()
-		state := "hidden"
-		if a.sidebarVisible() {
-			state = "shown"
-		}
-		a.chat.AddEntry(components.ChatEntry{Role: "user", Content: input})
-		a.chat.AddEntry(components.ChatEntry{
-			Role:    "system",
-			Content: fmt.Sprintf("Sidebar %s.", state),
-		})
-		return a, nil, true
-
-	case "/agent":
+	case "agent":
 		return a.handleAgentCommand(input, parts[1:]), nil, true
-
-	case "/model":
+	case "model":
 		if len(parts) == 1 {
 			model, cmd := a.handleModelsCommand("/models")
 			return model.(App), cmd, true
 		}
 		return a.handleModelCommand(input, parts[1:]), nil, true
+	}
 
-	default:
+	// Registry lookup
+	cmd := a.cmdRegistry.Get(name)
+	if cmd == nil {
 		a.chat.AddEntry(components.ChatEntry{Role: "user", Content: input})
 		a.chat.AddEntry(components.ChatEntry{
 			Role:    "error",
@@ -552,6 +734,10 @@ func (a App) handleSlashCommand(input string) (App, tea.Cmd, bool) {
 		})
 		return a, nil, true
 	}
+
+	a.chat.AddEntry(components.ChatEntry{Role: "user", Content: input})
+	teaCmd := cmd.Handler(&a)
+	return a, teaCmd, true
 }
 
 func (a App) handleAgentCommand(input string, args []string) App {
@@ -810,71 +996,30 @@ func modelLine(m provider.ModelInfo) string {
 	return m.ID + " - " + m.Name
 }
 
-func (a App) commandEntries() []commandEntry {
-	return []commandEntry{
-		{
-			Title:       "Help",
-			Command:     "/help",
-			Description: "Show available commands",
-			Execute:     true,
-		},
-		{
-			Title:       "New session",
-			Command:     "/new",
-			Description: "Clear chat and tool history",
-			Execute:     true,
-		},
-		{
-			Title:       "Select model",
-			Command:     "/models",
-			Description: "Search and switch models",
-			Execute:     true,
-		},
-		{
-			Title:       "Switch to build agent",
-			Command:     "/agent build",
-			Description: "Enable full tool access mode",
-			Execute:     true,
-		},
-		{
-			Title:       "Switch to plan agent",
-			Command:     "/agent plan",
-			Description: "Enable read-only planning mode",
-			Execute:     true,
-		},
-		{
-			Title:       "Toggle sidebar",
-			Command:     "/sidebar",
-			Description: "Show or hide session sidebar",
-			Execute:     true,
-		},
-		{
-			Title:       "Set model",
-			Command:     "/model ",
-			Description: "Type full provider/model-id and submit",
-			Execute:     false,
-		},
-		{
-			Title:       "Exit",
-			Command:     "/exit",
-			Description: "Quit ripcode",
-			Execute:     true,
-		},
-	}
-}
-
-func (a App) filteredCommands() []commandEntry {
-	all := a.commandEntries()
-	if strings.TrimSpace(a.commandQuery) == "" {
-		return all
+// paletteEntries returns commands in the order displayed in the command palette.
+// When filtering, this is the flat filtered list. When unfiltered, this is
+// suggested commands first, then remaining commands grouped by category order.
+func (a App) paletteEntries() []*Command {
+	q := strings.TrimSpace(a.commandQuery)
+	if q != "" {
+		return a.cmdRegistry.Filter(q)
 	}
 
-	q := strings.ToLower(strings.TrimSpace(a.commandQuery))
-	out := make([]commandEntry, 0, len(all))
-	for _, c := range all {
-		haystack := strings.ToLower(c.Title + " " + c.Command + " " + c.Description)
-		if strings.Contains(haystack, q) {
-			out = append(out, c)
+	suggested := a.cmdRegistry.Suggested()
+	suggestedSet := make(map[string]bool, len(suggested))
+	for _, s := range suggested {
+		suggestedSet[s.Name] = true
+	}
+
+	out := make([]*Command, 0, len(a.cmdRegistry.commands))
+	out = append(out, suggested...)
+
+	byCategory := a.cmdRegistry.ByCategory()
+	for _, cat := range categoryOrder {
+		for _, cmd := range byCategory[cat] {
+			if !suggestedSet[cmd.Name] {
+				out = append(out, cmd)
+			}
 		}
 	}
 	return out
@@ -951,17 +1096,17 @@ func (a App) inlineEntries() []inlineEntry {
 
 	query := strings.ToLower(strings.TrimSpace(a.inlineQuery))
 	if a.inlineMode == "/" {
-		commands := a.commandEntries()
+		var commands []*Command
+		if query == "" {
+			commands = a.cmdRegistry.All()
+		} else {
+			commands = a.cmdRegistry.Filter(query)
+		}
 		out := make([]inlineEntry, 0, len(commands))
 		for _, cmd := range commands {
-			name := strings.TrimSpace(strings.TrimPrefix(cmd.Command, "/"))
-			haystack := strings.ToLower(name + " " + cmd.Description)
-			if query != "" && !strings.Contains(haystack, query) {
-				continue
-			}
 			out = append(out, inlineEntry{
-				Display:     cmd.Command,
-				Insert:      cmd.Command,
+				Display:     "/" + cmd.Name,
+				Insert:      "/" + cmd.Name,
 				Description: cmd.Description,
 				Execute:     cmd.Execute,
 			})
@@ -1291,7 +1436,7 @@ func (a App) handleCommandPaletteKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case msg.Code == tea.KeyEnter:
-		entries := a.filteredCommands()
+		entries := a.paletteEntries()
 		if len(entries) == 0 {
 			a.commandOpen = false
 			a.commandQuery = ""
@@ -1311,14 +1456,14 @@ func (a App) handleCommandPaletteKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.commandSelect = 0
 		a.input.Focus()
 		if entry.Execute {
-			return a.handleSubmit(entry.Command)
+			return a.handleSubmit("/" + entry.Name)
 		}
-		a.input.SetValue(entry.Command)
+		a.input.SetValue("/" + entry.Name + " ")
 		cacheCmd := a.updateInlineSuggestions()
 		return a, cacheCmd
 
 	case msg.Code == tea.KeyUp:
-		entries := a.filteredCommands()
+		entries := a.paletteEntries()
 		if len(entries) == 0 {
 			return a, nil
 		}
@@ -1329,7 +1474,7 @@ func (a App) handleCommandPaletteKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case msg.Code == tea.KeyDown:
-		entries := a.filteredCommands()
+		entries := a.paletteEntries()
 		if len(entries) == 0 {
 			return a, nil
 		}
@@ -1358,22 +1503,63 @@ func (a App) handleCommandPaletteKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (a App) renderCommandPalette() string {
-	entries := a.filteredCommands()
+	entries := a.paletteEntries()
 	query := strings.TrimSpace(a.commandQuery)
-	if query == "" {
-		if len(entries) == 0 {
-			query = "(empty)"
-		} else {
-			query = "all"
-		}
-	}
-	header := "Commands (Ctrl+P/Ctrl+K, Esc close) - filter: " + query
 
-	items := make([]pickerItem, len(entries))
-	for i, e := range entries {
-		items[i] = pickerItem{Label: e.Command, Description: e.Description}
+	var sb strings.Builder
+	sb.WriteString("Commands (Ctrl+P/Ctrl+K, Esc close)")
+	if query != "" {
+		sb.WriteString(" - filter: ")
+		sb.WriteString(query)
 	}
-	return renderPickerList(header, items, a.commandSelect, 7)
+
+	if len(entries) == 0 {
+		sb.WriteString("\n  no matches")
+		return sb.String()
+	}
+
+	// When filtering, show a flat list (no categories).
+	if query != "" {
+		for i, e := range entries {
+			a.writePaletteEntry(&sb, e, i)
+		}
+		return sb.String()
+	}
+
+	// Unfiltered: show Suggested, then categories with headers.
+	numSuggested := len(a.cmdRegistry.Suggested())
+	lastCategory := CommandCategory("")
+
+	for i, e := range entries {
+		if i < numSuggested {
+			if i == 0 {
+				sb.WriteString("\n\n  Suggested")
+			}
+		} else if e.Category != lastCategory {
+			lastCategory = e.Category
+			sb.WriteString("\n\n  ")
+			sb.WriteString(string(e.Category))
+		}
+		a.writePaletteEntry(&sb, e, i)
+	}
+
+	return sb.String()
+}
+
+// writePaletteEntry writes a single palette row with selection marker and optional keybind.
+func (a App) writePaletteEntry(sb *strings.Builder, e *Command, idx int) {
+	prefix := "  "
+	if idx == a.commandSelect {
+		prefix = "> "
+	}
+	sb.WriteString("\n")
+	sb.WriteString(prefix)
+	sb.WriteString(fmt.Sprintf("%-20s %s", "/"+e.Name, e.Description))
+	if e.Keybind != "" {
+		sb.WriteString("  [")
+		sb.WriteString(e.Keybind)
+		sb.WriteString("]")
+	}
 }
 
 func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
