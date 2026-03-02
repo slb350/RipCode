@@ -12,6 +12,7 @@ import (
 )
 
 // EventType identifies the kind of agent loop event.
+// Ordinals differ from provider.EventType — these are separate iota sequences.
 type EventType int
 
 const (

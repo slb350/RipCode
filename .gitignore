@@ -29,6 +29,9 @@ Thumbs.db
 # Temporary files
 .tmp*
 
+# Build/test cache
+.cache/
+
 # Reference repos (cloned for study, not part of this project)
 reference/
 

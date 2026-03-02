@@ -2,6 +2,7 @@ package components
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -32,6 +33,20 @@ type CompleteMeta struct {
 	Mode     string
 	Model    string
 	Duration time.Duration
+}
+
+// PartType identifies the kind of content in a message part.
+type PartType string
+
+const (
+	PartText      PartType = "text"
+	PartReasoning PartType = "reasoning"
+)
+
+// MessagePart is a single content segment within an assistant message.
+type MessagePart struct {
+	Type    PartType
+	Content string
 }
 
 // ChatEntry represents a single rendered entry in the chat.
@@ -147,8 +162,10 @@ func (c *Chat) StreamPart(typ PartType, delta string) {
 
 // CommitStream finalizes streaming content as an assistant entry.
 // Handles both legacy streaming (single string) and part-based streaming.
+// If both paths are populated (shouldn't happen in normal use), parts take
+// precedence and legacy streaming is cleared to avoid data ambiguity.
 func (c *Chat) CommitStream() {
-	// Part-based streaming path
+	// Part-based streaming path — takes precedence over legacy
 	if len(c.streamingParts) > 0 {
 		// Single text part — fall back to Content field for backward compat
 		if len(c.streamingParts) == 1 && c.streamingParts[0].Type == PartText {
@@ -330,11 +347,12 @@ func (c Chat) View() string {
 	visibleLines := c.height
 
 	maxScroll := max(0, totalLines-visibleLines)
-	if c.scrollPos > maxScroll {
-		c.scrollPos = maxScroll
+	scrollPos := c.scrollPos
+	if scrollPos > maxScroll {
+		scrollPos = maxScroll
 	}
 
-	start := c.scrollPos
+	start := scrollPos
 	end := min(start+visibleLines, totalLines)
 
 	if start >= totalLines {
@@ -445,6 +463,7 @@ func (c Chat) renderAssistantParts(parts []MessagePart, t *styles.Theme) []strin
 	}
 
 	var result []string
+	inConcealedBlock := false
 	for _, p := range parts {
 		switch p.Type {
 		case PartReasoning:
@@ -459,7 +478,7 @@ func (c Chat) renderAssistantParts(parts []MessagePart, t *styles.Theme) []strin
 		default: // PartText and any future types
 			text := p.Content
 			if !c.showCodeBlocks {
-				text = concealCodeBlocks(text)
+				text, inConcealedBlock = concealCodeBlocksWithState(text, inConcealedBlock)
 			}
 			wrapped := wrapText(text, maxWidth)
 			for _, line := range strings.Split(wrapped, "\n") {
@@ -468,7 +487,15 @@ func (c Chat) renderAssistantParts(parts []MessagePart, t *styles.Theme) []strin
 		}
 	}
 	if len(result) == 0 {
-		result = append(result, "   ")
+		// All parts were hidden reasoning — show muted indicator
+		hasReasoning := slices.ContainsFunc(parts, func(p MessagePart) bool {
+			return p.Type == PartReasoning
+		})
+		if hasReasoning && !c.showThinking {
+			result = append(result, "   "+t.TextMutedStyle.Render("[thinking]"))
+		} else {
+			result = append(result, "   ")
+		}
 	}
 	return result
 }
@@ -589,9 +616,15 @@ func (c Chat) renderCompleteEntry(entry ChatEntry, t *styles.Theme) []string {
 // concealCodeBlocks replaces fenced code blocks (``` ... ```) with a placeholder.
 // Inline `code` is not affected. Unclosed blocks are concealed to end of string.
 func concealCodeBlocks(text string) string {
+	out, _ := concealCodeBlocksWithState(text, false)
+	return out
+}
+
+// concealCodeBlocksWithState replaces fenced code blocks while preserving
+// whether concealment is currently inside an unclosed fence.
+func concealCodeBlocksWithState(text string, inBlock bool) (string, bool) {
 	lines := strings.Split(text, "\n")
 	var result []string
-	inBlock := false
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if !inBlock && strings.HasPrefix(trimmed, "```") {
@@ -613,7 +646,7 @@ func concealCodeBlocks(text string) string {
 		}
 		result = append(result, line)
 	}
-	return strings.Join(result, "\n")
+	return strings.Join(result, "\n"), inBlock
 }
 
 // prependTimestamp prepends a 12-hour timestamp prefix to a line if timestamps are enabled

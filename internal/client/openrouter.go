@@ -307,6 +307,7 @@ func (c *OpenRouter) streamResponse(ctx context.Context, resp *http.Response, ch
 			case reasoningTypeEncrypted:
 				text = "[REDACTED]"
 			default:
+				store.LogError("unknown reasoning detail type: "+rd.Type, nil)
 				continue
 			}
 			if text != "" {

@@ -420,6 +420,26 @@ func TestApp_CopyCommand_MixedPartsNotTreatedAsEmpty(t *testing.T) {
 	assert.NotContains(t, toast.Message, "No assistant response")
 }
 
+func TestApp_CopyCommand_AllReasoningEntry_IsCopyable(t *testing.T) {
+	a := makeSessionApp(t)
+	a.chat.Clear()
+	// Add an entry with only reasoning parts (no text parts)
+	a.chat.AddEntry(components.ChatEntry{
+		Role: components.RoleAssistant,
+		Parts: []components.MessagePart{
+			{Type: components.PartReasoning, Content: "deep reasoning only"},
+		},
+	})
+
+	model, cmd := a.Update(components.InputSubmitMsg{Value: "/copy"})
+	a = model.(App)
+	assert.NotNil(t, cmd)
+	toast := a.toasts.Current()
+	assert.NotNil(t, toast)
+	// Should NOT warn about no response — CopyableContent() falls back to parts
+	assert.NotContains(t, toast.Message, "No assistant response")
+}
+
 func TestApp_CompactCommand_ShowsToast(t *testing.T) {
 	a := makeSessionAppWithHistory(t)
 	model, _ := a.Update(components.InputSubmitMsg{Value: "/compact"})

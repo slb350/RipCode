@@ -1,6 +1,7 @@
 package components
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -335,4 +336,27 @@ func TestChat_PrevUserMessage_UsesRenderedHeights(t *testing.T) {
 	c.PrevUserMessage()
 
 	assert.Equal(t, firstOffset, c.scrollPos)
+}
+
+func TestChat_ConcealCodeAcrossInterleavedParts(t *testing.T) {
+	c := NewChat()
+	c.SetSize(100, 20)
+	c.SetShowCodeBlocks(false)
+	c.SetShowThinking(true)
+
+	c.AddEntry(ChatEntry{
+		Role: RoleAssistant,
+		Parts: []MessagePart{
+			{Type: PartText, Content: "```go\nfmt"},
+			{Type: PartReasoning, Content: "thinking"},
+			{Type: PartText, Content: ".Println(1)\n```\nAfter"},
+		},
+	})
+
+	view := c.View()
+	assert.Contains(t, view, "[code block hidden]")
+	assert.Equal(t, 1, strings.Count(view, "[code block hidden]"))
+	assert.NotContains(t, view, "Println(1)")
+	assert.Contains(t, view, "thinking")
+	assert.Contains(t, view, "After")
 }

@@ -173,7 +173,7 @@ func (a *App) initRegistry() {
 			var last string
 			for i := len(entries) - 1; i >= 0; i-- {
 				if entries[i].Role == components.RoleAssistant {
-					last = entries[i].Content
+					last = entries[i].CopyableContent()
 					break
 				}
 			}
