@@ -4,7 +4,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
+	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -15,6 +17,19 @@ func TestChat_AddEntry(t *testing.T) {
 	c.AddEntry(ChatEntry{Role: RoleUser, Content: "hello"})
 	view := c.View()
 	assert.Contains(t, view, "hello")
+}
+
+func TestChat_AddEntry_SetsCreatedAtWhenUnset(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+
+	before := time.Now()
+	c.AddEntry(ChatEntry{Role: RoleUser, Content: "hello"})
+
+	entries := c.Entries()
+	assert.Len(t, entries, 1)
+	assert.False(t, entries[0].CreatedAt.IsZero(), "add entry should default CreatedAt")
+	assert.False(t, entries[0].CreatedAt.Before(before), "CreatedAt should be set at add time")
 }
 
 func TestChat_UserMessage_HasAccentBorder(t *testing.T) {
@@ -412,4 +427,35 @@ func TestChat_HiddenReasoning_PreservesAssistantTextFlow(t *testing.T) {
 
 	view := c.View()
 	assert.Contains(t, view, "The sea is calm tonight.")
+}
+
+func TestChat_RenderUserEntry_TimestampedFirstLine_RespectsViewportWidth(t *testing.T) {
+	c := NewChat()
+	c.SetSize(40, 20)
+	c.SetShowTimestamps(true)
+
+	lines := c.renderUserEntry(ChatEntry{
+		Role:      RoleUser,
+		Content:   strings.TrimSpace(strings.Repeat("word ", 9)),
+		CreatedAt: time.Date(2026, time.January, 1, 15, 4, 0, 0, time.UTC),
+	}, c.effectiveTheme())
+
+	assert.NotEmpty(t, lines)
+	assert.LessOrEqual(t, lipgloss.Width(lines[0]), c.width, "timestamp prefix should be accounted for in wrapping")
+}
+
+func TestChat_RenderToolEntry_DetailsTruncation_PreservesUTF8(t *testing.T) {
+	c := NewChat()
+	c.SetSize(28, 20) // details width = 20
+	c.SetShowDetails(true)
+
+	lines := c.renderToolEntry(ChatEntry{
+		Role:       RoleTool,
+		Content:    strings.Repeat("a", 19) + "éz",
+		ToolName:   "read",
+		ToolStatus: StatusSuccess,
+	}, c.effectiveTheme())
+
+	assert.GreaterOrEqual(t, len(lines), 2, "details line should render")
+	assert.True(t, utf8.ValidString(lines[1]), "detail truncation should not cut through UTF-8 bytes")
 }

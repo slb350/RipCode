@@ -746,3 +746,56 @@ func TestEvent_Valid_UnknownType(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown event type")
 }
+
+// --- Constructor tests ---
+
+func TestNewContentEvent(t *testing.T) {
+	e := NewContentEvent("hello")
+	assert.Equal(t, EventContentDelta, e.Type)
+	assert.Equal(t, "hello", e.Content)
+	assert.NoError(t, e.Valid())
+}
+
+func TestNewReasoningEvent(t *testing.T) {
+	e := NewReasoningEvent("thinking")
+	assert.Equal(t, EventReasoningDelta, e.Type)
+	assert.Equal(t, "thinking", e.Content)
+	assert.NoError(t, e.Valid())
+}
+
+func TestNewToolStartEvent(t *testing.T) {
+	te := &ToolEvent{ID: "1", Name: "bash"}
+	e := NewToolStartEvent(te)
+	assert.Equal(t, EventToolStart, e.Type)
+	assert.Equal(t, te, e.Tool)
+	assert.NoError(t, e.Valid())
+}
+
+func TestNewToolEndEvent(t *testing.T) {
+	te := &ToolEvent{ID: "1", Name: "bash", Output: "ok"}
+	e := NewToolEndEvent(te)
+	assert.Equal(t, EventToolEnd, e.Type)
+	assert.Equal(t, te, e.Tool)
+	assert.NoError(t, e.Valid())
+}
+
+func TestNewDoneEvent(t *testing.T) {
+	e := NewDoneEvent(nil)
+	assert.Equal(t, EventDone, e.Type)
+	assert.NoError(t, e.Valid())
+}
+
+func TestNewDoneEvent_WithMeta(t *testing.T) {
+	meta := &provider.Metadata{InputTokens: 10, OutputTokens: 5}
+	e := NewDoneEvent(meta)
+	assert.Equal(t, EventDone, e.Type)
+	assert.Equal(t, meta, e.Meta)
+	assert.NoError(t, e.Valid())
+}
+
+func TestNewErrorEvent(t *testing.T) {
+	e := NewErrorEvent(fmt.Errorf("fail"))
+	assert.Equal(t, EventError, e.Type)
+	assert.EqualError(t, e.Error, "fail")
+	assert.NoError(t, e.Valid())
+}

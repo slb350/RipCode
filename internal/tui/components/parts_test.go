@@ -595,6 +595,41 @@ func TestChat_StreamingParts_ReasoningHiddenWhenThinkingOff(t *testing.T) {
 	assert.Contains(t, view, "visible text")
 }
 
+// --- Narrow width rendering ---
+
+func TestChat_RenderAssistantParts_NarrowWidth(t *testing.T) {
+	c := NewChat()
+	c.SetSize(20, 10) // at minContentWidth boundary
+	c.SetShowThinking(true)
+
+	c.AddEntry(ChatEntry{
+		Role: RoleAssistant,
+		Parts: []MessagePart{
+			{Type: PartReasoning, Content: "very long thinking text that wraps"},
+			{Type: PartText, Content: "answer"},
+		},
+	})
+
+	view := c.View()
+	assert.NotEmpty(t, view, "should render without panic at narrow width")
+	assert.Contains(t, view, "answer")
+}
+
+func TestChat_RenderAssistantParts_ZeroWidth_NoOutput(t *testing.T) {
+	c := NewChat()
+	c.SetSize(0, 10) // degenerate case
+
+	c.AddEntry(ChatEntry{
+		Role: RoleAssistant,
+		Parts: []MessagePart{
+			{Type: PartText, Content: "hello"},
+		},
+	})
+
+	view := c.View()
+	assert.Empty(t, view, "zero width should produce empty view")
+}
+
 // --- Toggle setters ---
 
 func TestChat_SetShowThinking(t *testing.T) {

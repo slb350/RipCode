@@ -429,5 +429,43 @@ func TestApp_ExportDialog_OnlyReasoningParts_ExcludeThinking_EmptyAssistant(t *t
 	assert.Contains(t, content, "question")
 }
 
+func TestApp_ExportDialog_SkippedEntries_ShowsWarningToast(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	sess := session.New(t.TempDir())
+	app.SetSession(sess)
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	a.chat.Clear()
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: "hello"})
+	// Add an entry with an unknown role — should be skipped during export
+	a.chat.AddEntry(components.ChatEntry{Role: "future_role", Content: "unknown"})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleAssistant, Content: "world"})
+
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/export"})
+	a = model.(App)
+	a.exportDialog.filename = "skipped-export.md"
+	a.exportDialog.focusedField = 3
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+
+	toast := a.toasts.Current()
+	require.NotNil(t, toast, "should show toast")
+	assert.Contains(t, toast.Message, "skipped", "toast should mention skipped entries")
+
+	// Verify the file was still written
+	data, err := os.ReadFile(filepath.Join(sess.WorkDir, "skipped-export.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "hello")
+	assert.Contains(t, string(data), "world")
+	assert.NotContains(t, string(data), "unknown", "skipped entry content should not appear")
+}
+
 // Ensure unused imports don't cause issues
 var _ = provider.ModelInfo{}

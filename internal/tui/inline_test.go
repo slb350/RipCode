@@ -329,4 +329,7 @@ func TestApp_InlineFileAutocomplete_MultibytePrefixReplacement(t *testing.T) {
 
 	assert.False(t, a.inline.open)
 	assert.Equal(t, "日本 @main.go ", a.input.Value())
+	// Cursor should be positioned after the inserted "@main.go " (rune index 12)
+	// 日(1) 本(2) ' '(3) @(4) m(5) a(6) i(7) n(8) .(9) g(10) o(11) ' '(12)
+	assert.Equal(t, 12, a.input.CursorOffset(), "cursor should be at end of inserted text")
 }

@@ -149,6 +149,34 @@ func TestChat_ConcealAcrossInterleavedParts(t *testing.T) {
 	assert.Contains(t, view, "After")
 }
 
+func TestChat_StreamingParts_ConcealCodeBlock(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+	c.SetShowCodeBlocks(false)
+
+	c.StreamPart(PartText, "Before\n```go\nfunc main() {}\n```\nAfter")
+
+	view := c.View()
+	assert.Contains(t, view, "Before")
+	assert.Contains(t, view, "[code block hidden]")
+	assert.NotContains(t, view, "func main")
+	assert.Contains(t, view, "After")
+}
+
+func TestChat_StreamingParts_ConcealUnclosedBlock(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+	c.SetShowCodeBlocks(false)
+
+	// Code block opened but not closed during streaming
+	c.StreamPart(PartText, "Before\n```go\nfunc main")
+
+	view := c.View()
+	assert.Contains(t, view, "Before")
+	assert.Contains(t, view, "[code block hidden]")
+	assert.NotContains(t, view, "func main")
+}
+
 func TestConcealCodeBlocks_FenceAtEndOfText(t *testing.T) {
 	input := "Before\n```"
 	result := concealCodeBlocks(input)

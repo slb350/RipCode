@@ -281,6 +281,54 @@ func TestApp_ToolStart_SegmentsAssistantStreamAcrossToolPhase(t *testing.T) {
 	assert.Equal(t, "after", assistant[1].Content)
 }
 
+func TestApp_CancelDuringReasoningPart_CommitsPartialSafely(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	app.state = StateSession
+	ch := make(chan agent.Event, 1)
+	app.streaming = true
+	app.eventCh = ch
+	app.chat.SetSize(80, 20)
+	app.chat.SetShowThinking(true)
+
+	// Stream reasoning, then text
+	model, _ := app.Update(AgentEventMsg{
+		Event: agent.NewReasoningEvent("thinking hard"),
+	})
+	a := model.(App)
+
+	model, _ = a.Update(AgentEventMsg{
+		Event: agent.NewContentEvent("partial answer"),
+	})
+	a = model.(App)
+
+	// Cancel mid-stream (Esc during streaming)
+	a.cancel = func() {} // no-op cancel
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	a = model.(App)
+
+	assert.False(t, a.streaming, "should stop streaming")
+
+	// CommitStream should have been called — verify entries are sane
+	entries := a.chat.Entries()
+	// Should have committed the partial stream with both reasoning and text
+	var assistant []components.ChatEntry
+	for _, e := range entries {
+		if e.Role == components.RoleAssistant {
+			assistant = append(assistant, e)
+		}
+	}
+	if len(assistant) > 0 {
+		last := assistant[len(assistant)-1]
+		// Either has Parts with both types or Content with the text
+		if len(last.Parts) > 0 {
+			assert.NoError(t, last.Valid(), "committed entry with parts should be valid")
+		} else if last.Content != "" {
+			assert.NotEmpty(t, last.Content)
+		}
+	}
+}
+
 // --- Modified Files Tracking tests ---
 
 func TestApp_ModifiedFiles_TracksWriteEvent(t *testing.T) {

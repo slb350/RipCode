@@ -103,7 +103,7 @@ const (
 	EventToolCall
 	EventFinish
 	EventError
-	EventReasoningDelta // Appended last to preserve existing ordinals for backward compat
+	EventReasoningDelta // Added after original constants to preserve their ordinals (0-3)
 )
 
 // StreamEvent is a single event in a streaming LLM response.
@@ -119,9 +119,9 @@ type StreamEvent struct {
 func (e StreamEvent) Valid() error {
 	switch e.Type {
 	case EventContentDelta:
-		// Content may be empty (e.g. whitespace-only delta)
+		// Content may be empty (whitespace-only deltas are valid in SSE streams)
 	case EventReasoningDelta:
-		// Content may be empty (e.g. whitespace-only delta)
+		// Content may be empty (whitespace-only deltas are valid in SSE streams)
 	case EventToolCall:
 		if e.ToolCall == nil {
 			return fmt.Errorf("tool call event missing ToolCall")

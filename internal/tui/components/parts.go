@@ -34,7 +34,9 @@ func validRole(r string) bool {
 }
 
 // Valid checks that the ChatEntry has a recognized role, valid parts, and
-// consistent Content/Parts fields.
+// consistent Content/Parts fields. When both Parts and Content are populated,
+// Content must equal the concatenation of text-only parts — this catches
+// bugs where Content is set independently rather than derived from Parts.
 func (e ChatEntry) Valid() error {
 	if !validRole(e.Role) {
 		return fmt.Errorf("invalid role: %q", e.Role)
@@ -78,7 +80,9 @@ func (e ChatEntry) FullContent() string {
 }
 
 // CopyableContent returns the best content for clipboard copy.
-// Uses Content if non-empty; otherwise concatenates all parts (including reasoning).
+// Uses Content if non-empty (text-only responses); otherwise concatenates
+// all parts including reasoning. This ensures reasoning-only entries
+// (where Content is empty) are still copyable.
 func (e ChatEntry) CopyableContent() string {
 	if e.Content != "" {
 		return e.Content

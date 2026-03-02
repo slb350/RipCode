@@ -146,7 +146,7 @@ func listenForEvents(ch <-chan agent.Event) tea.Cmd {
 	return func() tea.Msg {
 		event, ok := <-ch
 		if !ok {
-			return AgentEventMsg{Event: agent.Event{Type: agent.EventDone}}
+			return AgentEventMsg{Event: agent.NewDoneEvent(nil)}
 		}
 		return AgentEventMsg{Event: event}
 	}

@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tui/styles"
 )
@@ -37,11 +38,13 @@ type CompleteMeta struct {
 }
 
 // PartType identifies the kind of content in a message part.
+// When adding new variants, update Valid() and all switch statements
+// in parts.go and chat.go.
 type PartType string
 
 const (
-	PartText      PartType = "text"
-	PartReasoning PartType = "reasoning"
+	PartText      PartType = "text"      // user-visible assistant response content
+	PartReasoning PartType = "reasoning" // model reasoning/thinking (may be hidden)
 )
 
 // MessagePart is a single content segment within an assistant message.
@@ -130,6 +133,9 @@ func (c Chat) ShowCodeBlocks() bool { return c.showCodeBlocks }
 
 // AddEntry adds a completed message to the chat.
 func (c *Chat) AddEntry(entry ChatEntry) {
+	if entry.CreatedAt.IsZero() {
+		entry.CreatedAt = time.Now()
+	}
 	c.entries = append(c.entries, entry)
 	c.streaming = ""
 	c.scrollToBottom()
@@ -175,8 +181,12 @@ func (c *Chat) StreamPart(typ PartType, delta string) {
 //   - Legacy: StreamContent() accumulates raw deltas (pre-Phase 5 path)
 //   - Parts: StreamPart() accumulates typed content segments (text/reasoning)
 //
+// When using the parts path with a single text-only part, the entry uses only
+// the Content field (not Parts) for backward compatibility with code that
+// expects plain Content-based entries.
+//
 // If both paths are populated (shouldn't happen in normal use), parts take
-// precedence and legacy streaming is cleared to avoid data ambiguity.
+// precedence and legacy streaming is cleared with a warning log.
 func (c *Chat) CommitStream() {
 	now := time.Now()
 
@@ -430,14 +440,20 @@ func (c Chat) renderUserEntry(entry ChatEntry, t *styles.Theme) []string {
 		maxWidth = minContentWidth
 	}
 
-	wrapped := wrapText(entry.Content, maxWidth)
+	tsPrefix := c.timestampPrefix(entry, t)
+	firstLineWidth := maxWidth - lipgloss.Width(tsPrefix)
+	if firstLineWidth < 1 {
+		firstLineWidth = 1
+	}
+
+	wrapped := wrapTextWithFirstLineWidth(entry.Content, firstLineWidth, maxWidth)
 	contentLines := strings.Split(wrapped, "\n")
 
 	result := make([]string, 0, len(contentLines)+1)
 	for i, line := range contentLines {
 		rendered := accentStyle.Render("┃") + " " + line
 		if i == 0 {
-			rendered = c.prependTimestamp(rendered, entry, t)
+			rendered = tsPrefix + rendered
 		}
 		result = append(result, rendered)
 	}
@@ -483,6 +499,8 @@ func (c Chat) renderAssistantEntry(entry ChatEntry, t *styles.Theme) []string {
 }
 
 // renderAssistantParts renders a parts-based assistant message.
+// Unknown PartTypes are logged as errors but rendered as text to preserve
+// content visibility — graceful degradation over data loss.
 func (c Chat) renderAssistantParts(parts []MessagePart, t *styles.Theme) []string {
 	maxWidth := c.contentWidth()
 
@@ -597,7 +615,7 @@ func (c Chat) renderToolEntry(entry ChatEntry, t *styles.Theme) []string {
 		}
 		for _, dl := range strings.Split(entry.Content, "\n") {
 			if lipgloss.Width(dl) > maxW {
-				dl = dl[:maxW]
+				dl = ansi.Truncate(dl, maxW, "")
 			}
 			lines = append(lines, "      "+t.TextMutedStyle.Render(dl))
 		}
@@ -659,7 +677,15 @@ func concealCodeBlocks(text string) string {
 }
 
 // concealCodeBlocksWithState replaces fenced code blocks while preserving
-// whether concealment is currently inside an unclosed fence.
+// whether concealment is currently inside an unclosed fence. This enables
+// processing text across multiple message parts where a code block may
+// start in one part and end in another.
+//
+// State machine:
+//   - inBlock=false: output lines until ``` opens a block
+//   - inBlock=true: skip lines until ``` closes the block
+//   - One-line blocks (```code```) are detected and handled
+//   - Unclosed blocks at end of text remain in inBlock=true state
 func concealCodeBlocksWithState(text string, inBlock bool) (string, bool) {
 	lines := strings.Split(text, "\n")
 	var result []string
@@ -690,11 +716,14 @@ func concealCodeBlocksWithState(text string, inBlock bool) (string, bool) {
 // prependTimestamp prepends a 12-hour timestamp prefix to a line if timestamps are enabled
 // and the entry has a non-zero CreatedAt.
 func (c Chat) prependTimestamp(line string, entry ChatEntry, t *styles.Theme) string {
+	return c.timestampPrefix(entry, t) + line
+}
+
+func (c Chat) timestampPrefix(entry ChatEntry, t *styles.Theme) string {
 	if !c.showTimestamps || entry.CreatedAt.IsZero() {
-		return line
+		return ""
 	}
-	ts := entry.CreatedAt.Format("3:04 PM")
-	return t.TextMutedStyle.Render(ts+"  ") + line
+	return t.TextMutedStyle.Render(entry.CreatedAt.Format("3:04 PM") + "  ")
 }
 
 func (c *Chat) scrollToBottom() {
@@ -715,17 +744,42 @@ func (c Chat) totalLines() int {
 }
 
 func wrapText(text string, width int) string {
+	return wrapTextWithFirstLineWidth(text, width, width)
+}
+
+// wrapTextWithFirstLineWidth wraps text with a custom width for the first
+// rendered line, and a separate width for all subsequent lines.
+func wrapTextWithFirstLineWidth(text string, firstWidth, width int) string {
 	if width <= 0 {
 		return text
 	}
+	if firstWidth < 1 {
+		firstWidth = 1
+	}
+	if firstWidth > width {
+		firstWidth = width
+	}
 
 	var result strings.Builder
+	firstRendered := true
+	appendLine := func(line string) {
+		if result.Len() > 0 {
+			result.WriteByte('\n')
+		}
+		result.WriteString(line)
+		firstRendered = false
+	}
+	currentLimit := func() int {
+		if firstRendered {
+			return firstWidth
+		}
+		return width
+	}
+
 	for _, line := range strings.Split(text, "\n") {
-		if lipgloss.Width(line) <= width {
-			if result.Len() > 0 {
-				result.WriteByte('\n')
-			}
-			result.WriteString(line)
+		limit := currentLimit()
+		if lipgloss.Width(line) <= limit {
+			appendLine(line)
 			continue
 		}
 
@@ -734,21 +788,16 @@ func wrapText(text string, width int) string {
 		for _, word := range words {
 			if currentLine == "" {
 				currentLine = word
-			} else if lipgloss.Width(currentLine+" "+word) <= width {
+			} else if lipgloss.Width(currentLine+" "+word) <= limit {
 				currentLine += " " + word
 			} else {
-				if result.Len() > 0 {
-					result.WriteByte('\n')
-				}
-				result.WriteString(currentLine)
+				appendLine(currentLine)
+				limit = currentLimit()
 				currentLine = word
 			}
 		}
 		if currentLine != "" {
-			if result.Len() > 0 {
-				result.WriteByte('\n')
-			}
-			result.WriteString(currentLine)
+			appendLine(currentLine)
 		}
 	}
 	return result.String()

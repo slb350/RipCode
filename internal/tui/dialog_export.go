@@ -83,6 +83,7 @@ func (a App) handleExportDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (a *App) executeExport() tea.Cmd {
 	entries := a.chat.Entries()
 	var sb strings.Builder
+	var skipped int
 
 	sb.WriteString("# Session Export\n\n")
 	for _, e := range entries {
@@ -113,6 +114,7 @@ func (a *App) executeExport() tea.Cmd {
 			sb.WriteString("*" + e.Content + "*\n\n")
 		default:
 			store.LogErrorf("export: unknown entry role %q skipped", e.Role)
+			skipped++
 		}
 	}
 
@@ -126,6 +128,9 @@ func (a *App) executeExport() tea.Cmd {
 	}
 	if err := writeExportFile(exportPath, []byte(sb.String())); err != nil {
 		return a.ShowToast("Export failed: "+err.Error(), components.ToastError)
+	}
+	if skipped > 0 {
+		return a.ShowToast(fmt.Sprintf("Exported to %s (%d entries skipped)", exportPath, skipped), components.ToastWarning)
 	}
 	return a.ShowToast("Exported to "+exportPath, components.ToastSuccess)
 }
