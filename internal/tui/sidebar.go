@@ -186,7 +186,8 @@ func (a App) renderSidebar() string {
 	// Context section
 	tokens := 0
 	if a.session != nil {
-		tokens = a.session.Tokens.Input + a.session.Tokens.Output
+		tc := a.session.TokenCount()
+		tokens = tc.Input + tc.Output
 	}
 	msgCount := 0
 	if a.session != nil {
@@ -255,12 +256,12 @@ func (a App) renderSidebar() string {
 	}
 
 	// Modified files section
-	if len(a.modifiedFiles) > 0 {
+	if a.modifiedFiles.len() > 0 {
 		var modContent []string
-		for _, f := range a.modifiedFiles {
+		for _, f := range a.modifiedFiles.paths() {
 			modContent = append(modContent, muted.Render("  "+filepath.Base(f)))
 		}
-		lines = append(lines, a.renderSidebarSection("Modified", sectionModified, len(a.modifiedFiles), modContent)...)
+		lines = append(lines, a.renderSidebarSection("Modified", sectionModified, a.modifiedFiles.len(), modContent)...)
 	}
 
 	// Tools section

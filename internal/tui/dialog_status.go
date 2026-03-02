@@ -76,8 +76,9 @@ func (a App) renderStatusDialog() string {
 	workDir := "(not set)"
 	if a.session != nil {
 		msgCount = a.session.Len()
-		tokIn = a.session.Tokens.Input
-		tokOut = a.session.Tokens.Output
+		tc := a.session.TokenCount()
+		tokIn = tc.Input
+		tokOut = tc.Output
 		workDir = a.session.WorkDir
 	}
 	sb.WriteString(fmt.Sprintf("\n  Messages    %d messages", msgCount))

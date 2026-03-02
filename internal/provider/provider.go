@@ -73,8 +73,14 @@ func NewUserMessage(content string) Message {
 }
 
 // NewAssistantMessage creates an assistant message with optional tool calls.
+// The toolCalls slice is copied to prevent aliasing.
 func NewAssistantMessage(content string, toolCalls []ToolCall) Message {
-	return Message{Role: RoleAssistant, Content: content, ToolCalls: toolCalls}
+	var tc []ToolCall
+	if len(toolCalls) > 0 {
+		tc = make([]ToolCall, len(toolCalls))
+		copy(tc, toolCalls)
+	}
+	return Message{Role: RoleAssistant, Content: content, ToolCalls: tc}
 }
 
 // NewToolResultMessage creates a tool result message.

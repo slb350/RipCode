@@ -103,6 +103,7 @@ func Save(s *session.Session) error {
 	}
 
 	records := s.Records()
+	tc := s.TokenCount()
 	f := sessionFile{
 		Version:      1,
 		ID:           s.ID,
@@ -112,10 +113,7 @@ func Save(s *session.Session) error {
 		CreatedAt:    s.CreatedAt,
 		UpdatedAt:    s.UpdatedAt,
 		MessageCount: len(records),
-		Tokens: tokenCountFile{
-			Input:  s.Tokens.Input,
-			Output: s.Tokens.Output,
-		},
+		Tokens:       tokenCountFile{Input: tc.Input, Output: tc.Output},
 	}
 
 	for _, rec := range records {
@@ -186,11 +184,8 @@ func Load(id string) (*session.Session, error) {
 		WorkDir:   f.WorkDir,
 		CreatedAt: f.CreatedAt,
 		UpdatedAt: f.UpdatedAt,
-		Tokens: session.TokenCount{
-			Input:  f.Tokens.Input,
-			Output: f.Tokens.Output,
-		},
 	}
+	s.AddTokens(f.Tokens.Input, f.Tokens.Output)
 
 	skipped := 0
 	for _, mf := range f.Messages {

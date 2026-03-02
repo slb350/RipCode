@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tool"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 )
@@ -140,7 +141,9 @@ func writeExportFile(path string, data []byte) error {
 	}
 	tmp := f.Name()
 	cleanup := func() {
-		_ = os.Remove(tmp)
+		if rmErr := os.Remove(tmp); rmErr != nil && !os.IsNotExist(rmErr) {
+			store.LogError("export cleanup", rmErr)
+		}
 	}
 
 	if _, err := f.Write(data); err != nil {

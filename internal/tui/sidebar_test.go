@@ -190,7 +190,8 @@ func TestSidebar_TodoSection_ShowsItems(t *testing.T) {
 
 func TestSidebar_ModifiedFiles_ShowsFiles(t *testing.T) {
 	a := makeSidebarApp(t)
-	a.modifiedFiles = []string{"/tmp/foo.go", "/tmp/bar.go"}
+	a.modifiedFiles.add("/tmp/foo.go")
+	a.modifiedFiles.add("/tmp/bar.go")
 	sidebar := a.renderSidebar()
 	assert.Contains(t, sidebar, "Modified")
 	assert.Contains(t, sidebar, "foo.go")

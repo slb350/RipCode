@@ -181,7 +181,7 @@ func TestApp_ModifiedFiles_TracksWriteEvent(t *testing.T) {
 		},
 	})
 	a := model.(App)
-	assert.Contains(t, a.modifiedFiles, "/tmp/foo.go")
+	assert.Contains(t, a.modifiedFiles.paths(), "/tmp/foo.go")
 }
 
 func TestApp_ModifiedFiles_TracksEditEvent(t *testing.T) {
@@ -203,7 +203,7 @@ func TestApp_ModifiedFiles_TracksEditEvent(t *testing.T) {
 		},
 	})
 	a := model.(App)
-	assert.Contains(t, a.modifiedFiles, "/tmp/bar.go")
+	assert.Contains(t, a.modifiedFiles.paths(), "/tmp/bar.go")
 }
 
 func TestApp_ModifiedFiles_FailedWrite_NotTracked(t *testing.T) {
@@ -225,7 +225,7 @@ func TestApp_ModifiedFiles_FailedWrite_NotTracked(t *testing.T) {
 		},
 	})
 	a := model.(App)
-	assert.Empty(t, a.modifiedFiles, "failed write should not be tracked")
+	assert.Empty(t, a.modifiedFiles.paths(), "failed write should not be tracked")
 }
 
 func TestApp_ModifiedFiles_FailedEdit_NotTracked(t *testing.T) {
@@ -247,7 +247,7 @@ func TestApp_ModifiedFiles_FailedEdit_NotTracked(t *testing.T) {
 		},
 	})
 	a := model.(App)
-	assert.Empty(t, a.modifiedFiles, "failed edit should not be tracked")
+	assert.Empty(t, a.modifiedFiles.paths(), "failed edit should not be tracked")
 }
 
 func TestApp_ModifiedFiles_Deduplicates(t *testing.T) {
@@ -287,7 +287,7 @@ func TestApp_ModifiedFiles_Deduplicates(t *testing.T) {
 	a = model.(App)
 
 	count := 0
-	for _, f := range a.modifiedFiles {
+	for _, f := range a.modifiedFiles.paths() {
 		if f == "/tmp/foo.go" {
 			count++
 		}

@@ -237,6 +237,16 @@ func TestNewAssistantMessage_WithToolCalls(t *testing.T) {
 	assert.NoError(t, m.Valid())
 }
 
+func TestNewAssistantMessage_CopiesToolCalls(t *testing.T) {
+	original := []ToolCall{{ID: "1", Name: "bash", Args: `{"cmd":"ls"}`}}
+	m := NewAssistantMessage("calling tool", original)
+
+	// Mutate the original slice — message should be unaffected.
+	original[0].Name = "MUTATED"
+	assert.Equal(t, "bash", m.ToolCalls[0].Name,
+		"NewAssistantMessage should copy tool calls, not alias the slice")
+}
+
 func TestNewToolResultMessage(t *testing.T) {
 	m := NewToolResultMessage("call_1", "output here")
 	assert.Equal(t, RoleTool, m.Role)

@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/stephenbrandon/ripcode/internal/fileutil"
 )
 
 // EditTool performs precise string replacements in files.
@@ -115,7 +117,8 @@ func (e *EditTool) Execute(ctx Context, argsJSON string) Result {
 }
 
 // writeAtomic writes data to path atomically via a temp file, rejecting symlinks.
-// Atomic write-to-temp-then-rename prevents corruption on crash or close failure.
+// Atomic write-to-temp-then-replace prevents corruption on crash or close failure.
+// On Windows, replaceFile handles existing targets explicitly for parity.
 // Each call uses a unique temp file so concurrent writes to the same path are safe.
 //
 // OpenNoFollow above protects the read path by rejecting symlinks at open time.
@@ -158,11 +161,11 @@ func writeAtomic(path string, data []byte, perm os.FileMode) error {
 		os.Remove(tmp)
 		return err
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := fileutil.ReplaceFile(tmp, path); err != nil {
 		if rmErr := os.Remove(tmp); rmErr != nil {
-			return fmt.Errorf("rename temp file: %w (cleanup also failed: %v)", err, rmErr)
+			return fmt.Errorf("replace temp file: %w (cleanup also failed: %v)", err, rmErr)
 		}
-		return fmt.Errorf("rename temp file: %w", err)
+		return fmt.Errorf("replace temp file: %w", err)
 	}
 	return nil
 }

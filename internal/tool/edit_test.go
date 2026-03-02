@@ -342,3 +342,15 @@ func TestEdit_WhitespaceFallback_NonUnique(t *testing.T) {
 	require.Error(t, result.Error)
 	assert.Contains(t, result.Error.Error(), "no match")
 }
+
+func TestWriteAtomic_ReplacesExistingFile(t *testing.T) {
+	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "replace.txt")
+	require.NoError(t, os.WriteFile(path, []byte("old"), 0o644))
+
+	require.NoError(t, writeAtomic(path, []byte("new"), 0o644))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "new", string(data))
+}

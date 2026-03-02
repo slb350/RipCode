@@ -284,3 +284,37 @@ func formatContextLength(n int) string {
 	}
 	return fmt.Sprintf("%dK", n/1000)
 }
+
+// fileTracker maintains an ordered, deduplicated list of file paths.
+type fileTracker struct {
+	list []string
+	set  map[string]bool
+}
+
+// add records a file path if not already tracked.
+func (ft *fileTracker) add(path string) {
+	if ft.set[path] {
+		return
+	}
+	if ft.set == nil {
+		ft.set = make(map[string]bool)
+	}
+	ft.set[path] = true
+	ft.list = append(ft.list, path)
+}
+
+// reset clears all tracked files.
+func (ft *fileTracker) reset() {
+	ft.list = nil
+	ft.set = nil
+}
+
+// paths returns the ordered list of tracked file paths.
+func (ft *fileTracker) paths() []string {
+	return ft.list
+}
+
+// len returns the number of tracked files.
+func (ft *fileTracker) len() int {
+	return len(ft.list)
+}

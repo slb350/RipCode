@@ -310,8 +310,8 @@ func TestLoop_SessionUpdated(t *testing.T) {
 	assert.Equal(t, "stop", sess.Records()[1].Meta.FinishReason)
 
 	// Tokens should be tracked
-	assert.Equal(t, 10, sess.Tokens.Input)
-	assert.Equal(t, 5, sess.Tokens.Output)
+	assert.Equal(t, 10, sess.TokenCount().Input)
+	assert.Equal(t, 5, sess.TokenCount().Output)
 }
 
 func TestLoop_StreamEventError(t *testing.T) {

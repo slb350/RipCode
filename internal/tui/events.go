@@ -78,7 +78,8 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 		a.chat.CommitStream()
 		a.input.Focus()
 		if a.session != nil {
-			a.statusbar.SetTokens(a.session.Tokens.Input + a.session.Tokens.Output)
+			tc := a.session.TokenCount()
+			a.statusbar.SetTokens(tc.Input + tc.Output)
 			a.warnOnErr(store.Save(a.session), "session")
 		}
 		dur := time.Since(a.responseStart)

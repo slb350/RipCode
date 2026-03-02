@@ -333,8 +333,8 @@ func TestApp_ClearCommand_ResetsSession(t *testing.T) {
 	a = model.(App)
 
 	assert.Empty(t, a.session.Records(), "/clear should reset session messages")
-	assert.Equal(t, 0, a.session.Tokens.Input, "/clear should reset token count")
-	assert.Equal(t, 0, a.session.Tokens.Output)
+	assert.Equal(t, 0, a.session.TokenCount().Input, "/clear should reset token count")
+	assert.Equal(t, 0, a.session.TokenCount().Output)
 	assert.NotEqual(t, oldID, a.session.ID, "/clear should generate new session ID")
 	assert.Contains(t, a.View().Content, "Conversation cleared.")
 }
@@ -357,7 +357,7 @@ func TestApp_NewCommand_ResetsSession(t *testing.T) {
 	a = model.(App)
 
 	assert.Empty(t, a.session.Records())
-	assert.Equal(t, 0, a.session.Tokens.Input)
+	assert.Equal(t, 0, a.session.TokenCount().Input)
 	assert.Contains(t, a.View().Content, "Conversation cleared.")
 }
 
@@ -633,13 +633,14 @@ func TestApp_RedoCommand_PersistsSession(t *testing.T) {
 
 func TestApp_ModifiedFiles_ClearedOnNewSession(t *testing.T) {
 	a := makeSessionApp(t)
-	a.modifiedFiles = []string{"/tmp/foo.go", "/tmp/bar.go"}
+	a.modifiedFiles.add("/tmp/foo.go")
+	a.modifiedFiles.add("/tmp/bar.go")
 
 	cmd := a.cmdRegistry.Get("new")
 	require.NotNil(t, cmd)
 	cmd.Handler(&a)
 
-	assert.Empty(t, a.modifiedFiles)
+	assert.Empty(t, a.modifiedFiles.paths())
 }
 
 func TestApp_ShellSubmit_SetsCancelAndStreaming(t *testing.T) {

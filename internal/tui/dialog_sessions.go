@@ -141,8 +141,7 @@ func (a App) resumeSession(id string) (tea.Model, tea.Cmd) {
 	// Session workdir changed; invalidate stale @-mention cache.
 	a.resetFileCache()
 	// Clear session-scoped sidebar state from the previous session.
-	a.modifiedFiles = nil
-	a.modifiedFilesSet = nil
+	a.modifiedFiles.reset()
 	a.toolpanel.Clear()
 	a.sessionsDialog.open = false
 	a.input.Focus()
@@ -156,7 +155,8 @@ func (a App) resumeSession(id string) (tea.Model, tea.Cmd) {
 		title = shortSessionTitle(loaded.ID)
 	}
 	a.statusbar.SetTitle(title)
-	a.statusbar.SetTokens(loaded.Tokens.Input + loaded.Tokens.Output)
+	tc := loaded.TokenCount()
+	a.statusbar.SetTokens(tc.Input + tc.Output)
 
 	toastMsg := "Session resumed"
 	toastVariant := components.ToastSuccess

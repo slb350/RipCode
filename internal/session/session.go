@@ -19,7 +19,7 @@ type Session struct {
 	WorkDir      string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
-	Tokens       TokenCount
+	tokens       TokenCount
 	systemPrompt string
 	redoStack    []revertPoint
 	mu           sync.RWMutex
@@ -169,7 +169,7 @@ func (s *Session) Reset() {
 	s.ParentID = ""
 	s.messages = nil
 	s.redoStack = nil
-	s.Tokens = TokenCount{}
+	s.tokens = TokenCount{}
 	now := time.Now()
 	s.CreatedAt = now
 	s.UpdatedAt = now
@@ -251,12 +251,19 @@ func (s *Session) LoadRecord(rec MessageRecord) error {
 	return nil
 }
 
+// TokenCount returns the current token usage. Safe for concurrent use.
+func (s *Session) TokenCount() TokenCount {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.tokens
+}
+
 // AddTokens accumulates token usage.
 func (s *Session) AddTokens(input, output int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.Tokens.Input += input
-	s.Tokens.Output += output
+	s.tokens.Input += input
+	s.tokens.Output += output
 }
 
 // generatePrefixedID generates a random ID with the given prefix. Panics if

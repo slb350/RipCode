@@ -9,6 +9,8 @@ import (
 	"unicode"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/stephenbrandon/ripcode/internal/store"
 )
 
 func (a *App) requestFileCache() tea.Cmd {
@@ -27,7 +29,7 @@ func loadFileCacheCmd(root string) tea.Cmd {
 		// Best-effort file collection for @ autocomplete.
 		// Individual entry errors (permission denied, broken symlinks) are
 		// skipped so the cache populates with accessible files.
-		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return nil
 			}
@@ -53,6 +55,9 @@ func loadFileCacheCmd(root string) tea.Cmd {
 			}
 			return nil
 		})
+		if walkErr != nil {
+			store.LogError("file cache walk", walkErr)
+		}
 
 		sort.Strings(files)
 		return FileCacheLoadedMsg{Files: files}

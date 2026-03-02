@@ -238,8 +238,8 @@ func TestSaveLoad_PreservesTokens(t *testing.T) {
 
 	loaded, err := Load(sess.ID)
 	require.NoError(t, err)
-	assert.Equal(t, 100, loaded.Tokens.Input)
-	assert.Equal(t, 50, loaded.Tokens.Output)
+	assert.Equal(t, 100, loaded.TokenCount().Input)
+	assert.Equal(t, 50, loaded.TokenCount().Output)
 }
 
 func TestSaveLoad_PreservesTitle(t *testing.T) {
@@ -383,6 +383,18 @@ func TestAtomicWrite_Success(t *testing.T) {
 	// Temp file should be cleaned up.
 	_, err = os.Stat(path + ".tmp")
 	assert.True(t, os.IsNotExist(err))
+}
+
+func TestAtomicWrite_ReplacesExistingFile(t *testing.T) {
+	dir := testDir(t)
+	path := filepath.Join(dir, "replace.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"v":1}`), 0o644))
+
+	require.NoError(t, atomicWrite(path, []byte(`{"v":2}`), 0o644))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, `{"v":2}`, string(data))
 }
 
 func TestAtomicWrite_PreservesOriginalOnFailure(t *testing.T) {
@@ -563,7 +575,7 @@ func TestAtomicWrite_RenameFailure_CleansUpTemp(t *testing.T) {
 
 	err := atomicWrite(targetDir, []byte("data"), 0o644)
 	assert.Error(t, err, "rename to a directory should fail")
-	assert.Contains(t, err.Error(), "rename temp file")
+	assert.Contains(t, err.Error(), "replace temp file")
 
 	// No leftover temp files
 	entries, err := os.ReadDir(dir)

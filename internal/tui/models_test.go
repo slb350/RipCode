@@ -171,3 +171,38 @@ func TestFilterModels_MatchesBothIDAndName(t *testing.T) {
 	result = filterModels(models, "hidden")
 	assert.Len(t, result, 1)
 }
+
+func TestFileTracker_Add(t *testing.T) {
+	var ft fileTracker
+	ft.add("/tmp/a.go")
+	ft.add("/tmp/b.go")
+	assert.Equal(t, 2, ft.len())
+	assert.Equal(t, []string{"/tmp/a.go", "/tmp/b.go"}, ft.paths())
+}
+
+func TestFileTracker_Deduplicates(t *testing.T) {
+	var ft fileTracker
+	ft.add("/tmp/a.go")
+	ft.add("/tmp/a.go")
+	ft.add("/tmp/b.go")
+	assert.Equal(t, 2, ft.len())
+}
+
+func TestFileTracker_Reset(t *testing.T) {
+	var ft fileTracker
+	ft.add("/tmp/a.go")
+	ft.reset()
+	assert.Equal(t, 0, ft.len())
+	assert.Empty(t, ft.paths())
+	// Should work again after reset.
+	ft.add("/tmp/b.go")
+	assert.Equal(t, 1, ft.len())
+}
+
+func TestFileTracker_ZeroValue(t *testing.T) {
+	var ft fileTracker
+	assert.Equal(t, 0, ft.len())
+	assert.Nil(t, ft.paths())
+	ft.add("/tmp/x.go")
+	assert.Equal(t, 1, ft.len())
+}

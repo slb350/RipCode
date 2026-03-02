@@ -100,8 +100,7 @@ type App struct {
 	stash *components.PromptStash
 
 	// Modified files tracking
-	modifiedFiles    []string
-	modifiedFilesSet map[string]bool
+	modifiedFiles fileTracker
 
 	// Startup warnings (e.g. corrupted config files)
 	startupWarnings      []string
@@ -316,14 +315,7 @@ func (a App) showGettingStarted() bool {
 
 // trackModifiedFile adds a file path to the modified files list, deduplicating.
 func (a *App) trackModifiedFile(path string) {
-	if a.modifiedFilesSet[path] {
-		return
-	}
-	if a.modifiedFilesSet == nil {
-		a.modifiedFilesSet = make(map[string]bool)
-	}
-	a.modifiedFilesSet[path] = true
-	a.modifiedFiles = append(a.modifiedFiles, path)
+	a.modifiedFiles.add(path)
 }
 
 // Init implements tea.Model.

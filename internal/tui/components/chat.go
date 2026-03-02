@@ -146,45 +146,52 @@ func (c Chat) LineOffsetForUserMessage(idx int) (int, bool) {
 		return 0, false
 	}
 
-	userIdx := 0
+	offsets := c.userMessageOffsets()
+	if idx >= len(offsets) {
+		return 0, false
+	}
+	return offsets[idx], true
+}
+
+// userMessageOffsets returns rendered line offsets for each user message.
+// Offsets mirror View rendering: each entry contributes renderEntry lines plus
+// one blank separator line.
+func (c Chat) userMessageOffsets() []int {
+	offsets := make([]int, 0, len(c.entries)/2+1)
 	linePos := 0
 	for _, entry := range c.entries {
 		if entry.Role == RoleUser {
-			if userIdx == idx {
-				return linePos, true
-			}
-			userIdx++
+			offsets = append(offsets, linePos)
 		}
-		// Mirror View rendering: entry lines + one blank separator line.
 		linePos += len(c.renderEntry(entry)) + 1
 	}
-	return 0, false
+	return offsets
 }
 
-// NextUserMessage jumps scroll to the next user message entry after current view
-// (uses 2-line-per-entry approximation).
+// NextUserMessage jumps scroll to the next rendered user-message offset.
 func (c *Chat) NextUserMessage() {
 	linePos := 0
 	for _, entry := range c.entries {
-		entryLines := 2 // entry + blank (approximate)
 		if entry.Role == RoleUser && linePos > c.scrollPos {
 			c.scrollPos = linePos
 			return
 		}
-		linePos += entryLines
+		linePos += len(c.renderEntry(entry)) + 1
 	}
 }
 
-// PrevUserMessage jumps scroll to the previous user message entry before current view
-// (uses 2-line-per-entry approximation).
+// PrevUserMessage jumps scroll to the previous rendered user-message offset.
 func (c *Chat) PrevUserMessage() {
-	linePos := 0
 	lastUser := -1
+	linePos := 0
 	for _, entry := range c.entries {
-		if entry.Role == RoleUser && linePos < c.scrollPos {
+		if entry.Role == RoleUser {
+			if linePos >= c.scrollPos {
+				break
+			}
 			lastUser = linePos
 		}
-		linePos += 2 // entry + blank (approximate)
+		linePos += len(c.renderEntry(entry)) + 1
 	}
 	if lastUser >= 0 {
 		c.scrollPos = lastUser
@@ -424,8 +431,8 @@ func (c *Chat) scrollToBottom() {
 
 func (c Chat) totalLines() int {
 	count := 0
-	for range c.entries {
-		count += 2 // entry + blank line (approximate)
+	for _, entry := range c.entries {
+		count += len(c.renderEntry(entry)) + 1
 	}
 	if c.streaming != "" {
 		count++

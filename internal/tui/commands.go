@@ -38,8 +38,7 @@ func (a *App) initRegistry() {
 		Handler: func(a *App) tea.Cmd {
 			a.chat.Clear()
 			a.toolpanel.Clear()
-			a.modifiedFiles = nil
-			a.modifiedFilesSet = nil
+			a.modifiedFiles.reset()
 			if a.session != nil {
 				a.session.Reset()
 				a.statusbar.SetTitle(shortSessionTitle(a.session.ID))

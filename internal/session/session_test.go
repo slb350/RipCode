@@ -90,8 +90,8 @@ func TestAddTokens(t *testing.T) {
 	s.AddTokens(100, 50)
 	s.AddTokens(200, 75)
 
-	assert.Equal(t, 300, s.Tokens.Input)
-	assert.Equal(t, 125, s.Tokens.Output)
+	assert.Equal(t, 300, s.TokenCount().Input)
+	assert.Equal(t, 125, s.TokenCount().Output)
 }
 
 func TestHistory_ReturnsCopy(t *testing.T) {
@@ -622,8 +622,8 @@ func TestFork_PreservesTokens(t *testing.T) {
 	forked, err := s.Fork(1)
 	require.NoError(t, err)
 	// Forked session starts with zero tokens — it's a new session
-	assert.Equal(t, 0, forked.Tokens.Input)
-	assert.Equal(t, 0, forked.Tokens.Output)
+	assert.Equal(t, 0, forked.TokenCount().Input)
+	assert.Equal(t, 0, forked.TokenCount().Output)
 }
 
 func TestFork_PreservesMessageMeta(t *testing.T) {
@@ -697,6 +697,25 @@ func TestSession_ConcurrentReadWrite(t *testing.T) {
 
 	<-done
 	assert.True(t, s.Len() > 0)
+}
+
+func TestSession_TokenCount_ThreadSafe(t *testing.T) {
+	s := New("/tmp")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 100; i++ {
+			s.AddTokens(10, 5)
+		}
+	}()
+	for i := 0; i < 100; i++ {
+		tc := s.TokenCount()
+		_ = tc.Input + tc.Output
+	}
+	<-done
+	tc := s.TokenCount()
+	assert.Equal(t, 1000, tc.Input)
+	assert.Equal(t, 500, tc.Output)
 }
 
 func TestSession_ConcurrentRevertAndAdd(t *testing.T) {

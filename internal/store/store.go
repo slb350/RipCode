@@ -7,6 +7,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/stephenbrandon/ripcode/internal/fileutil"
 )
 
 // Dir returns the ripcode data directory.
@@ -45,17 +47,18 @@ func loadState[T any](filename, desc string) (*T, error) {
 		if errors.Is(err, fs.ErrNotExist) {
 			return new(T), nil
 		}
-		return new(T), fmt.Errorf("read %s: %w", desc, err)
+		return new(T), fmt.Errorf("read %s (%s): %w", desc, path, err)
 	}
 	var v T
 	if err := json.Unmarshal(data, &v); err != nil {
-		return new(T), fmt.Errorf("parse %s: %w", desc, err)
+		return new(T), fmt.Errorf("parse %s (%s): %w", desc, path, err)
 	}
 	return &v, nil
 }
 
-// atomicWrite writes data to path atomically via write-to-temp-then-rename.
-// On POSIX, os.Rename is atomic, so the target is either intact or fully replaced.
+// atomicWrite writes data to path atomically via write-to-temp-then-replace.
+// On POSIX, the final rename is atomic, so the target is either intact or fully replaced.
+// On Windows, replaceFile handles existing targets explicitly for parity.
 // Each call uses a unique temp file so concurrent writes to the same path are safe.
 //
 // Unlike tool/edit.go's writeAtomic, this does not reject symlinks because
@@ -80,11 +83,11 @@ func atomicWrite(path string, data []byte, perm os.FileMode) error {
 		os.Remove(tmp)
 		return fmt.Errorf("chmod temp file: %w", err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := fileutil.ReplaceFile(tmp, path); err != nil {
 		if rmErr := os.Remove(tmp); rmErr != nil {
-			return fmt.Errorf("rename temp file: %w (cleanup also failed: %v)", err, rmErr)
+			return fmt.Errorf("replace temp file: %w (cleanup also failed: %v)", err, rmErr)
 		}
-		return fmt.Errorf("rename temp file: %w", err)
+		return fmt.Errorf("replace temp file: %w", err)
 	}
 	return nil
 }

@@ -92,8 +92,8 @@ func TestIntegration_SingleTurnConversation(t *testing.T) {
 
 	// Session should have 2 messages
 	assert.Len(t, sess.Records(), 2)
-	assert.Equal(t, 15, sess.Tokens.Input)
-	assert.Equal(t, 8, sess.Tokens.Output)
+	assert.Equal(t, 15, sess.TokenCount().Input)
+	assert.Equal(t, 8, sess.TokenCount().Output)
 }
 
 // TestIntegration_ToolExecution verifies the agent can execute tools and continue.
@@ -146,8 +146,8 @@ func TestIntegration_ToolExecution(t *testing.T) {
 
 	// Session should have: user, assistant+tool_call, tool_result, assistant
 	assert.Len(t, sess.Records(), 4)
-	assert.Equal(t, 50, sess.Tokens.Input)
-	assert.Equal(t, 25, sess.Tokens.Output)
+	assert.Equal(t, 50, sess.TokenCount().Input)
+	assert.Equal(t, 25, sess.TokenCount().Output)
 }
 
 // TestIntegration_BashToolSafety verifies blocked commands are rejected.

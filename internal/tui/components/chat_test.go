@@ -276,9 +276,11 @@ func TestChat_NextUserMessage_JumpsToNextUser(t *testing.T) {
 	c.AddEntry(ChatEntry{Role: RoleUser, Content: "first"})
 	c.AddEntry(ChatEntry{Role: RoleAssistant, Content: "reply"})
 	c.AddEntry(ChatEntry{Role: RoleUser, Content: "second"})
+	expected, ok := c.LineOffsetForUserMessage(1)
+	assert.True(t, ok)
 	c.scrollPos = 0
 	c.NextUserMessage()
-	assert.True(t, c.scrollPos > 0, "should jump past first user message")
+	assert.Equal(t, expected, c.scrollPos, "should jump to the next user message offset")
 }
 
 func TestChat_PrevUserMessage_JumpsToPrevUser(t *testing.T) {
@@ -287,7 +289,50 @@ func TestChat_PrevUserMessage_JumpsToPrevUser(t *testing.T) {
 	c.AddEntry(ChatEntry{Role: RoleUser, Content: "first"})
 	c.AddEntry(ChatEntry{Role: RoleAssistant, Content: "reply"})
 	c.AddEntry(ChatEntry{Role: RoleUser, Content: "second"})
-	c.scrollPos = 10
+	secondOffset, ok := c.LineOffsetForUserMessage(1)
+	assert.True(t, ok)
+	firstOffset, ok := c.LineOffsetForUserMessage(0)
+	assert.True(t, ok)
+	c.scrollPos = secondOffset
 	c.PrevUserMessage()
-	assert.True(t, c.scrollPos < 10, "should jump back to previous user message")
+	assert.Equal(t, firstOffset, c.scrollPos, "should jump to the previous user message offset")
+}
+
+func TestChat_NextUserMessage_UsesRenderedHeights(t *testing.T) {
+	c := NewChat()
+	c.SetSize(20, 10)
+	c.AddEntry(ChatEntry{Role: RoleUser, Content: "first"})
+	c.AddEntry(ChatEntry{
+		Role:    RoleAssistant,
+		Content: "this assistant message wraps over many rendered lines to verify real-offset navigation",
+	})
+	c.AddEntry(ChatEntry{Role: RoleUser, Content: "second"})
+
+	expected, ok := c.LineOffsetForUserMessage(1)
+	assert.True(t, ok)
+	c.scrollPos = 0
+	c.NextUserMessage()
+
+	assert.Equal(t, expected, c.scrollPos)
+}
+
+func TestChat_PrevUserMessage_UsesRenderedHeights(t *testing.T) {
+	c := NewChat()
+	c.SetSize(20, 10)
+	c.AddEntry(ChatEntry{Role: RoleUser, Content: "first"})
+	c.AddEntry(ChatEntry{
+		Role:    RoleAssistant,
+		Content: "this assistant message wraps over many rendered lines to verify real-offset navigation",
+	})
+	c.AddEntry(ChatEntry{Role: RoleUser, Content: "second"})
+
+	secondOffset, ok := c.LineOffsetForUserMessage(1)
+	assert.True(t, ok)
+	firstOffset, ok := c.LineOffsetForUserMessage(0)
+	assert.True(t, ok)
+
+	c.scrollPos = secondOffset
+	c.PrevUserMessage()
+
+	assert.Equal(t, firstOffset, c.scrollPos)
 }
