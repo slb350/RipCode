@@ -127,11 +127,43 @@ func (c Context) Valid() error {
 	return nil
 }
 
+// maxDiffContentSize caps before/after content at 50KB to prevent memory bloat.
+const maxDiffContentSize = 50 * 1024
+
+// DiffInfo holds before/after file content for diff rendering.
+// Transient — exists only in runtime objects, not persisted in session JSON.
+type DiffInfo struct {
+	Path   string
+	Before string // empty for new files; "[truncated]" suffix if over 50KB
+	After  string
+	Binary bool // true if binary detected (skip diff rendering)
+}
+
+// isBinaryContent checks for null bytes in the first 8KB.
+func isBinaryContent(data []byte) bool {
+	limit := min(len(data), 8192)
+	for _, b := range data[:limit] {
+		if b == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// capDiffContent truncates content at maxDiffContentSize, appending a marker.
+func capDiffContent(s string) string {
+	if len(s) > maxDiffContentSize {
+		return s[:maxDiffContentSize] + "\n[truncated]"
+	}
+	return s
+}
+
 // Result holds the output of a tool execution.
 type Result struct {
 	Output string
 	Title  string
 	Error  error
+	Diff   *DiffInfo // non-nil for edit/write operations
 }
 
 // Tool defines the interface that all tools must implement.

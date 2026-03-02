@@ -85,6 +85,8 @@ func (e *EditTool) Execute(ctx Context, argsJSON string) Result {
 	// Try exact match first
 	count := strings.Count(content, args.OldString)
 
+	binary := isBinaryContent(data)
+
 	if count == 0 {
 		// Whitespace-flexible fallback: normalize whitespace and retry
 		newContent, ok := whitespaceFlexibleReplace(content, args.OldString, args.NewString)
@@ -97,6 +99,7 @@ func (e *EditTool) Execute(ctx Context, argsJSON string) Result {
 		return Result{
 			Output: fmt.Sprintf("Edited %s (whitespace-flexible match)", validated),
 			Title:  validated,
+			Diff:   &DiffInfo{Path: validated, Before: capDiffContent(content), After: capDiffContent(newContent), Binary: binary},
 		}
 	}
 
@@ -113,6 +116,7 @@ func (e *EditTool) Execute(ctx Context, argsJSON string) Result {
 	return Result{
 		Output: fmt.Sprintf("Edited %s", validated),
 		Title:  validated,
+		Diff:   &DiffInfo{Path: validated, Before: capDiffContent(content), After: capDiffContent(newContent), Binary: binary},
 	}
 }
 

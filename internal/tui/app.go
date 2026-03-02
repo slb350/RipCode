@@ -17,6 +17,13 @@ import (
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 )
 
+// Layout constants used by layout() and chatBounds().
+const (
+	layoutStatusH = 1
+	layoutInputH  = 5
+	layoutFooterH = 1
+)
+
 // AppState represents which screen is active.
 type AppState int
 
@@ -76,12 +83,16 @@ type App struct {
 	forkDialog     forkDialogState
 	mcpDialog      mcpDialogState
 	stashDialog    stashDialogState
+	messageActions messageActionsState
+
+	clipboard Clipboarder
 
 	sidebarHidden    bool
 	sidebarOverlay   bool
 	fileCache        []string
 	fileCacheLoaded  bool
 	fileCacheLoading bool
+	frecency         *store.FileFrecency
 	responseStart    time.Time
 	cancel           context.CancelFunc
 	eventCh          <-chan agent.Event
@@ -142,6 +153,10 @@ func NewApp() App {
 	if err != nil {
 		warnings = append(warnings, fmt.Sprintf("prompt stash: %v, using defaults", err))
 	}
+	frecency, err := store.LoadFrecency()
+	if err != nil {
+		warnings = append(warnings, fmt.Sprintf("frecency: %v, using defaults", err))
+	}
 	summaries, corrupted, err := store.List()
 	if err != nil {
 		warnings = append(warnings, fmt.Sprintf("session list: %v, using defaults", err))
@@ -166,6 +181,8 @@ func NewApp() App {
 		mcpConfig:     mcpCfg,
 		lspConfig:     lspCfg,
 		uiPrefs:       uiPrefs,
+		frecency:      frecency,
+		clipboard:     realClipboard{},
 		sessionsDialog: sessionsDialogState{
 			entries: summaries,
 			loaded:  err == nil,
@@ -192,6 +209,7 @@ func (a *App) closeAllDialogs() {
 	a.forkDialog.open = false
 	a.stashDialog.open = false
 	a.mcpDialog.open = false
+	a.messageActions.open = false
 	a.inline.open = false
 	a.input.Blur()
 }
@@ -406,6 +424,28 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		}
+		// Chat area click → message actions dialog
+		if a.state == StateSession && !a.streaming {
+			m := msg.Mouse()
+			top, bottom := a.chatBounds()
+			maxX := a.mainContentWidth()
+			if m.Y >= top && m.Y < bottom && m.X < maxX {
+				chatY := m.Y - top + a.chat.ScrollPos()
+				if idx, ok := a.chat.EntryAtLine(chatY); ok {
+					entries := a.chat.Entries()
+					if idx < len(entries) {
+						role := entries[idx].Role
+						if actionsForRole(role) != nil {
+							a.messageActions.open = true
+							a.messageActions.messageIdx = idx
+							a.messageActions.entryRole = role
+							a.messageActions.selected = 0
+							a.input.Blur()
+						}
+					}
+				}
+			}
+		}
 		return a, nil
 
 	case tea.MouseWheelMsg:
@@ -424,19 +464,15 @@ func (a *App) layout() {
 		return
 	}
 
-	statusH := 1
-	inputH := 5
-	footerH := 1
-
 	mainW := a.mainContentWidth()
-	chatH := a.height - statusH - inputH - footerH
+	chatH := a.height - layoutStatusH - layoutInputH - layoutFooterH
 	if chatH < 1 {
 		chatH = 1
 	}
 
 	a.statusbar.SetSize(mainW)
 	a.chat.SetSize(mainW, chatH)
-	a.input.SetSize(mainW, inputH)
+	a.input.SetSize(mainW, layoutInputH)
 	a.footer.SetSize(mainW)
 	if a.sidebarWideVisible() {
 		a.toolpanel.SetSize(a.sidebarWidth())

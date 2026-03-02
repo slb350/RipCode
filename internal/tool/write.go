@@ -3,6 +3,7 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -62,6 +63,17 @@ func (w *WriteTool) Execute(ctx Context, argsJSON string) Result {
 		return Result{Error: fmt.Errorf("stat file: %w", err)}
 	}
 
+	// Capture existing content via OpenNoFollow (symlink-safe) for diff rendering.
+	var before string
+	var beforeBinary bool
+	if f, err := OpenNoFollow(validated, os.O_RDONLY, 0); err == nil {
+		if existingData, err := io.ReadAll(f); err == nil {
+			before = capDiffContent(string(existingData))
+			beforeBinary = isBinaryContent(existingData)
+		}
+		f.Close()
+	}
+
 	// Create parent directories
 	dir := filepath.Dir(validated)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -75,5 +87,11 @@ func (w *WriteTool) Execute(ctx Context, argsJSON string) Result {
 	return Result{
 		Output: fmt.Sprintf("Wrote %d bytes to %s", len(args.Content), validated),
 		Title:  validated,
+		Diff: &DiffInfo{
+			Path:   validated,
+			Before: before,
+			After:  capDiffContent(args.Content),
+			Binary: beforeBinary || isBinaryContent([]byte(args.Content)),
+		},
 	}
 }

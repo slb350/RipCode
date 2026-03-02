@@ -107,15 +107,47 @@ func (a App) inlineEntries() []inlineEntry {
 	}
 
 	if a.inline.mode == inlineModeFile {
-		out := make([]inlineEntry, 0, 10)
+		// Parse query: split on ":" to get filename and optional line range
+		fileQuery := query
+		lineRange := ""
+		if idx := strings.IndexByte(query, ':'); idx >= 0 {
+			fileQuery = query[:idx]
+			lineRange = query[idx:] // includes the colon
+		}
+		lowerFileQuery := strings.ToLower(fileQuery)
+
+		// Directory expansion: when query ends with "/", show directory contents
+		dirExpand := strings.HasSuffix(fileQuery, "/")
+
+		// Collect matching paths
+		var matched []string
 		for _, path := range a.fileCache {
 			p := strings.ToLower(path)
-			if query != "" && !strings.Contains(p, query) {
-				continue
+			if dirExpand {
+				if strings.HasPrefix(p, lowerFileQuery) {
+					matched = append(matched, path)
+				}
+			} else if lowerFileQuery == "" || strings.Contains(p, lowerFileQuery) {
+				matched = append(matched, path)
+			}
+		}
+
+		// Rank by frecency (frequently used files first)
+		if a.frecency != nil && len(matched) > 0 {
+			matched = a.frecency.Rank(matched)
+		}
+
+		// Build entries with line range preserved in insertion
+		out := make([]inlineEntry, 0, 10)
+		for _, path := range matched {
+			insert := "@" + path + lineRange + " "
+			display := path
+			if lineRange != "" {
+				display = path + lineRange
 			}
 			out = append(out, inlineEntry{
-				Display: path,
-				Insert:  "@" + path + " ",
+				Display: display,
+				Insert:  insert,
 			})
 			if len(out) >= 10 {
 				break
@@ -231,6 +263,17 @@ func (a App) handleInlineKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return a.handleSubmit(choice.Insert)
 		}
 
+		// Record frecency for file selections
+		if a.inline.mode == inlineModeFile && a.frecency != nil {
+			// Extract path from Insert (strip leading @ and trailing space/line range)
+			inserted := strings.TrimPrefix(choice.Insert, "@")
+			inserted = strings.TrimRight(inserted, " ")
+			if idx := strings.IndexByte(inserted, ':'); idx >= 0 {
+				inserted = inserted[:idx]
+			}
+			a.frecency.Record(inserted)
+			a.warnOnErr(a.frecency.Save(), "frecency")
+		}
 		a.input.ReplaceRange(a.inline.start, a.inline.end, choice.Insert)
 		a = a.closeInlineSuggestions()
 		cacheCmd := a.updateInlineSuggestions()

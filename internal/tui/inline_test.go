@@ -4,12 +4,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/stephenbrandon/ripcode/internal/agent"
 	"github.com/stephenbrandon/ripcode/internal/provider"
 	"github.com/stephenbrandon/ripcode/internal/session"
+	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tool"
 	"github.com/stretchr/testify/assert"
 )
@@ -332,4 +334,164 @@ func TestApp_InlineFileAutocomplete_MultibytePrefixReplacement(t *testing.T) {
 	// Cursor should be positioned after the inserted "@main.go " (rune index 12)
 	// 日(1) 本(2) ' '(3) @(4) m(5) a(6) i(7) n(8) .(9) g(10) o(11) ' '(12)
 	assert.Equal(t, 12, a.input.CursorOffset(), "cursor should be at end of inserted text")
+}
+
+// --- Sub-Phase 6.7: Rich @ Autocomplete ---
+
+func makeInlineFileApp(t *testing.T, files []string) App {
+	t.Helper()
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+	a.fileCache = files
+	a.fileCacheLoaded = true
+	return a
+}
+
+func TestInlineFile_FrecencyRanking(t *testing.T) {
+	a := makeInlineFileApp(t, []string{"a.go", "b.go", "c.go"})
+	a.frecency = &store.FileFrecency{Entries: map[string]store.FrecencyEntry{
+		"c.go": {Count: 5, LastUsed: time.Now()},
+		"a.go": {Count: 1, LastUsed: time.Now()},
+	}}
+	a.inline.open = true
+	a.inline.mode = inlineModeFile
+	a.inline.query = ""
+
+	entries := a.inlineEntries()
+	assert.GreaterOrEqual(t, len(entries), 3)
+	// c.go (highest score) should come first
+	assert.Equal(t, "c.go", entries[0].Display)
+	assert.Equal(t, "a.go", entries[1].Display)
+	// b.go (unscored) last
+	assert.Equal(t, "b.go", entries[2].Display)
+}
+
+func TestInlineFile_LineRange_MatchAndInsert(t *testing.T) {
+	a := makeInlineFileApp(t, []string{"main.go", "util.go"})
+	a.inline.open = true
+	a.inline.mode = inlineModeFile
+	a.inline.query = "main.go:10"
+
+	entries := a.inlineEntries()
+	assert.Len(t, entries, 1)
+	assert.Equal(t, "main.go:10", entries[0].Display)
+	assert.Equal(t, "@main.go:10 ", entries[0].Insert)
+}
+
+func TestInlineFile_LineRange_WithRange(t *testing.T) {
+	a := makeInlineFileApp(t, []string{"main.go"})
+	a.inline.open = true
+	a.inline.mode = inlineModeFile
+	a.inline.query = "main.go:10-20"
+
+	entries := a.inlineEntries()
+	assert.Len(t, entries, 1)
+	assert.Equal(t, "main.go:10-20", entries[0].Display)
+	assert.Equal(t, "@main.go:10-20 ", entries[0].Insert)
+}
+
+func TestInlineFile_DirectoryExpansion(t *testing.T) {
+	a := makeInlineFileApp(t, []string{"src/a.go", "src/b.go", "lib/c.go"})
+	a.inline.open = true
+	a.inline.mode = inlineModeFile
+	a.inline.query = "src/"
+
+	entries := a.inlineEntries()
+	assert.Len(t, entries, 2)
+	assert.Equal(t, "src/a.go", entries[0].Display)
+	assert.Equal(t, "src/b.go", entries[1].Display)
+}
+
+func TestInlineFile_DirectoryExpansion_WithPrefix(t *testing.T) {
+	a := makeInlineFileApp(t, []string{"src/comp/a.go", "src/comp/b.go", "src/other.go"})
+	a.inline.open = true
+	a.inline.mode = inlineModeFile
+	a.inline.query = "src/comp"
+
+	entries := a.inlineEntries()
+	assert.Len(t, entries, 2)
+}
+
+func TestInlineFile_SelectionRecordsFrecency(t *testing.T) {
+	a := makeInlineFileApp(t, []string{"main.go"})
+	a.frecency = &store.FileFrecency{Entries: make(map[string]store.FrecencyEntry)}
+	a.inline.open = true
+	a.inline.mode = inlineModeFile
+	a.inline.query = "main"
+	a.inline.start = 0
+	a.inline.end = 5
+	a.input.SetValue("@main")
+
+	model, _ := a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+	assert.Equal(t, 1, a.frecency.Entries["main.go"].Count, "selection should record frecency")
+}
+
+func TestInlineFile_FrecencyIntegration_RecentlyUsedFirst(t *testing.T) {
+	a := makeInlineFileApp(t, []string{"alpha.go", "beta.go", "gamma.go"})
+	a.frecency = &store.FileFrecency{Entries: map[string]store.FrecencyEntry{
+		"gamma.go": {Count: 10, LastUsed: time.Now()},
+	}}
+	a.inline.open = true
+	a.inline.mode = inlineModeFile
+	a.inline.query = ""
+
+	entries := a.inlineEntries()
+	assert.GreaterOrEqual(t, len(entries), 3)
+	assert.Equal(t, "gamma.go", entries[0].Display, "frecency-ranked file should appear first")
+}
+
+func TestInlineFile_MixedQuery_FrecencyThenAlpha(t *testing.T) {
+	a := makeInlineFileApp(t, []string{"match_a.go", "match_b.go", "match_c.go"})
+	a.frecency = &store.FileFrecency{Entries: map[string]store.FrecencyEntry{
+		"match_b.go": {Count: 3, LastUsed: time.Now()},
+	}}
+	a.inline.open = true
+	a.inline.mode = inlineModeFile
+	a.inline.query = "match"
+
+	entries := a.inlineEntries()
+	assert.Equal(t, "match_b.go", entries[0].Display, "frecency match should come first")
+	assert.Equal(t, "match_a.go", entries[1].Display, "unscored should maintain original order")
+}
+
+func TestInlineFile_NoFrecency_FallbackAlphabetical(t *testing.T) {
+	a := makeInlineFileApp(t, []string{"z.go", "a.go", "m.go"})
+	a.frecency = nil // no frecency loaded
+	a.inline.open = true
+	a.inline.mode = inlineModeFile
+	a.inline.query = ""
+
+	entries := a.inlineEntries()
+	// Should preserve fileCache order (which was alphabetical from WalkDir + sort)
+	assert.Equal(t, "z.go", entries[0].Display)
+	assert.Equal(t, "a.go", entries[1].Display)
+	assert.Equal(t, "m.go", entries[2].Display)
+}
+
+func TestInlineFile_LineRange_NoMatch(t *testing.T) {
+	a := makeInlineFileApp(t, []string{"main.go"})
+	a.inline.open = true
+	a.inline.mode = inlineModeFile
+	a.inline.query = "nonexistent.go:10"
+
+	entries := a.inlineEntries()
+	assert.Empty(t, entries)
+}
+
+func TestInlineFile_DirectoryExpansion_EmptyDir(t *testing.T) {
+	a := makeInlineFileApp(t, []string{"src/a.go"})
+	a.inline.open = true
+	a.inline.mode = inlineModeFile
+	a.inline.query = "lib/"
+
+	entries := a.inlineEntries()
+	assert.Empty(t, entries)
 }

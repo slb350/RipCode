@@ -1,7 +1,6 @@
 package tool
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -115,11 +114,7 @@ func (g *GrepTool) Execute(ctx Context, argsJSON string) Result {
 		}
 
 		// Skip binary files
-		checkLen := len(data)
-		if checkLen > 8192 {
-			checkLen = 8192
-		}
-		if bytes.ContainsRune(data[:checkLen], 0) {
+		if isBinaryContent(data) {
 			return nil
 		}
 

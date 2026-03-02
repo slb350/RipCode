@@ -436,6 +436,10 @@ func (a App) renderSessionView() string {
 		sb.WriteString(a.renderCommandPalette())
 		sb.WriteByte('\n')
 	}
+	if a.messageActions.open {
+		sb.WriteString(a.renderMessageActionsDialog())
+		sb.WriteByte('\n')
+	}
 	if a.inline.open {
 		sb.WriteString(a.renderInlineSuggestions())
 		sb.WriteByte('\n')

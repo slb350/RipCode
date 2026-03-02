@@ -32,6 +32,7 @@ type ToolEvent struct {
 	Args   string
 	Output string
 	Error  string
+	Diff   *tool.DiffInfo // optional, for write/edit tool results
 }
 
 // Event is a single event emitted by the agentic loop.
@@ -275,6 +276,7 @@ func (l *Loop) executeTool(ctx context.Context, tc provider.ToolCall, ch chan<- 
 		Args:   tc.Args,
 		Output: output,
 		Error:  errStr,
+		Diff:   result.Diff,
 	})
 }
 

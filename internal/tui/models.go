@@ -117,6 +117,18 @@ type stashDialogState struct {
 	pendingContent string // content to stash (captured before input reset)
 }
 
+type messageActionsState struct {
+	open       bool
+	selected   int
+	messageIdx int    // index into chat entries
+	entryRole  string // role of the clicked entry
+}
+
+// Clipboarder abstracts clipboard write for testability.
+type Clipboarder interface {
+	WriteAll(text string) error
+}
+
 // applyVariant updates activeVariant, the status bar badge, and the provider's
 // reasoning effort in one place.
 func (a *App) applyVariant(variant string) {

@@ -2,6 +2,8 @@ package components
 
 import (
 	"fmt"
+	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -53,6 +55,16 @@ type MessagePart struct {
 	Content string
 }
 
+// DiffInfo holds before/after content for tool diff rendering.
+// Intentionally separate from tool.DiffInfo for layer separation — TUI components
+// should not import from the tool package.
+type DiffInfo struct {
+	Path   string
+	Before string
+	After  string
+	Binary bool // if true, render "[Binary file changed]" instead of diff
+}
+
 // ChatEntry represents a single rendered entry in the chat.
 type ChatEntry struct {
 	Role       string // RoleUser, RoleAssistant, RoleTool, RoleError, RoleSystem, RoleComplete
@@ -63,6 +75,8 @@ type ChatEntry struct {
 	ToolName   string        // tool name (bash, read, write, etc.)
 	ToolStatus string        // StatusPending, StatusSuccess, StatusError
 	Meta       *CompleteMeta // for RoleComplete entries
+	Diff       *DiffInfo     // optional, for write/edit tool entries (transient, not persisted)
+	FileRefs   []string      // cached @file references (parsed once at creation)
 }
 
 // minContentWidth is the floor for wrapped content width, preventing
@@ -135,6 +149,10 @@ func (c Chat) ShowCodeBlocks() bool { return c.showCodeBlocks }
 func (c *Chat) AddEntry(entry ChatEntry) {
 	if entry.CreatedAt.IsZero() {
 		entry.CreatedAt = time.Now()
+	}
+	// Parse @file refs once at creation for user entries (avoids regex on every render).
+	if entry.Role == RoleUser && entry.FileRefs == nil {
+		entry.FileRefs = ParseFileRefs(entry.Content)
 	}
 	c.entries = append(c.entries, entry)
 	c.streaming = ""
@@ -328,6 +346,25 @@ func (c *Chat) PrevUserMessage() {
 	}
 }
 
+// EntryAtLine maps a rendered line position to a chat entry index.
+// Returns the entry index and true if found, or (0, false) if the line
+// is out of range or there are no entries.
+func (c Chat) EntryAtLine(linePos int) (int, bool) {
+	if linePos < 0 || len(c.entries) == 0 {
+		return 0, false
+	}
+	pos := 0
+	for i, entry := range c.entries {
+		lines := c.renderEntry(entry)
+		entryLines := len(lines) + 1 // +1 for blank separator
+		if linePos < pos+entryLines {
+			return i, true
+		}
+		pos += entryLines
+	}
+	return 0, false
+}
+
 // Entries returns the current chat entries.
 func (c Chat) Entries() []ChatEntry {
 	out := make([]ChatEntry, len(c.entries))
@@ -449,7 +486,7 @@ func (c Chat) renderUserEntry(entry ChatEntry, t *styles.Theme) []string {
 	wrapped := wrapTextWithFirstLineWidth(entry.Content, firstLineWidth, maxWidth)
 	contentLines := strings.Split(wrapped, "\n")
 
-	result := make([]string, 0, len(contentLines)+1)
+	result := make([]string, 0, len(contentLines)+2)
 	for i, line := range contentLines {
 		rendered := accentStyle.Render("┃") + " " + line
 		if i == 0 {
@@ -457,6 +494,20 @@ func (c Chat) renderUserEntry(entry ChatEntry, t *styles.Theme) []string {
 		}
 		result = append(result, rendered)
 	}
+
+	// File attachment badges (pre-parsed at entry creation)
+	if len(entry.FileRefs) > 0 {
+		badgeLine := accentStyle.Render("┃") + " "
+		shown := min(len(entry.FileRefs), maxFileBadges)
+		for _, ref := range entry.FileRefs[:shown] {
+			badgeLine += t.TextMutedStyle.Render("📎 "+filepath.Base(ref)) + "  "
+		}
+		if len(entry.FileRefs) > maxFileBadges {
+			badgeLine += t.TextMutedStyle.Render(fmt.Sprintf("+%d more", len(entry.FileRefs)-maxFileBadges))
+		}
+		result = append(result, badgeLine)
+	}
+
 	result = append(result, accentStyle.Render("╹"))
 	return result
 }
@@ -608,16 +659,27 @@ func (c Chat) renderToolEntry(entry ChatEntry, t *styles.Theme) []string {
 
 	lines := []string{line}
 
-	if c.showDetails && entry.Content != "" && entry.ToolStatus != StatusPending {
-		maxW := c.width - 8
-		if maxW < minContentWidth {
-			maxW = minContentWidth
-		}
-		for _, dl := range strings.Split(entry.Content, "\n") {
-			if lipgloss.Width(dl) > maxW {
-				dl = ansi.Truncate(dl, maxW, "")
+	if c.showDetails && entry.ToolStatus != StatusPending {
+		if entry.Diff != nil && entry.ToolStatus == StatusSuccess {
+			if entry.Diff.Binary {
+				lines = append(lines, "      "+t.TextMutedStyle.Render("[Binary file changed]"))
+			} else if diffLines := ComputeDiff(entry.Diff.Before, entry.Diff.After, 3); len(diffLines) > 0 {
+				for _, dl := range diffLines {
+					lines = append(lines, "      "+RenderDiffLine(dl, t))
+				}
 			}
-			lines = append(lines, "      "+t.TextMutedStyle.Render(dl))
+			// Empty diff (Before == After): skip diff block entirely
+		} else if entry.Content != "" {
+			maxW := c.width - 8
+			if maxW < minContentWidth {
+				maxW = minContentWidth
+			}
+			for _, dl := range strings.Split(entry.Content, "\n") {
+				if lipgloss.Width(dl) > maxW {
+					dl = ansi.Truncate(dl, maxW, "")
+				}
+				lines = append(lines, "      "+t.TextMutedStyle.Render(dl))
+			}
 		}
 	}
 
@@ -725,6 +787,33 @@ func (c Chat) timestampPrefix(entry ChatEntry, t *styles.Theme) string {
 	}
 	return t.TextMutedStyle.Render(entry.CreatedAt.Format("3:04 PM") + "  ")
 }
+
+// fileRefPattern matches @file references: requires start-of-string or whitespace before @,
+// captures the path (no spaces or @), with optional :N or :N-M line range suffix.
+// Rejects emails (user@host) because [^\s@] prevents @ in the path portion.
+var fileRefPattern = regexp.MustCompile(`(?:^|\s)@([^\s@:]+)(?::\d+(?:-\d+)?)?`)
+
+// ParseFileRefs extracts @file references from text.
+// Returns unique file paths found. Handles @path/to/file and @path/to/file:10-20 syntax.
+func ParseFileRefs(text string) []string {
+	matches := fileRefPattern.FindAllStringSubmatch(text, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(matches))
+	var refs []string
+	for _, m := range matches {
+		path := m[1]
+		if !seen[path] {
+			seen[path] = true
+			refs = append(refs, path)
+		}
+	}
+	return refs
+}
+
+// maxFileBadges is the maximum number of file badges shown before overflow.
+const maxFileBadges = 3
 
 func (c *Chat) scrollToBottom() {
 	c.scrollPos = max(0, c.totalLines()-c.height)
