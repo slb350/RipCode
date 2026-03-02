@@ -38,6 +38,21 @@ func (a App) handleSubmit(input string) (tea.Model, tea.Cmd) {
 
 	trimmed := strings.TrimSpace(input)
 	if strings.HasPrefix(trimmed, "/") {
+		// Preserve stash content when /stash is invoked via palette/automation
+		// (input text still contains the draft) or with inline args
+		// (e.g. "/stash draft text"). Typed "/stash" with no draft remains empty.
+		if lower := strings.ToLower(trimmed); lower == "/stash" || strings.HasPrefix(lower, "/stash ") {
+			parts := strings.Fields(trimmed)
+			if tail := strings.TrimSpace(strings.TrimPrefix(trimmed, parts[0])); tail != "" {
+				a.stashDialog.pendingContent = tail
+			} else {
+				current := strings.TrimSpace(a.input.Value())
+				if current != "" && current != trimmed {
+					a.stashDialog.pendingContent = a.input.Value()
+				}
+			}
+		}
+
 		next, cmd, handled := a.handleSlashCommand(trimmed)
 		if handled {
 			return next, cmd

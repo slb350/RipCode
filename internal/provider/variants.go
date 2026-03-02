@@ -2,7 +2,7 @@ package provider
 
 // KnownVariants maps model IDs to their available thinking budget variants.
 // NOTE: hardcoded; update when new thinking-budget models are added.
-// TODO: parse from API metadata when OpenRouter exposes variant info.
+// See #2: parse from API metadata when OpenRouter exposes variant info.
 var KnownVariants = map[string][]string{
 	"anthropic/claude-sonnet-4-thinking": {"low", "medium", "high"},
 	"anthropic/claude-opus-4-thinking":   {"low", "medium", "high"},

@@ -93,6 +93,12 @@ func (l *Loop) run(ctx context.Context, input string, ch chan<- Event) {
 		streamStart := time.Now()
 		content, toolCalls, meta := l.consumeStream(ctx, streamCh, ch)
 
+		// If cancelled mid-stream, discard partial tool calls to avoid
+		// executing incomplete instructions. Still record any content.
+		if ctx.Err() != nil {
+			toolCalls = nil
+		}
+
 		var am *session.AssistantMeta
 		if meta != nil {
 			am = &session.AssistantMeta{

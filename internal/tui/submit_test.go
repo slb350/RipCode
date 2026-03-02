@@ -475,6 +475,15 @@ func TestApp_StashCommand_EmptyInput_ShowsWarning(t *testing.T) {
 	assert.Contains(t, toast.Message, "Nothing to stash")
 }
 
+func TestApp_StashCommand_UsesSlashArgsWhenInputCleared(t *testing.T) {
+	app := makeSessionApp(t)
+	// Simulate submitted slash command after input reset.
+	model, _ := app.Update(components.InputSubmitMsg{Value: "/stash draft from slash args"})
+	a := model.(App)
+	assert.Len(t, a.stash.List(), 1)
+	assert.Equal(t, "draft from slash args", a.stash.List()[0].Content)
+}
+
 func TestApp_StashPopCommand_RestoresToInput(t *testing.T) {
 	app := makeSessionApp(t)
 	app.stash.Push("saved prompt")

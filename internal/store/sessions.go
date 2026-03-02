@@ -156,6 +156,10 @@ func Save(s *session.Session) error {
 }
 
 // Load reads a session from disk by ID.
+// If some individual message records fail validation, they are skipped and
+// the session is still returned with a non-nil error indicating the skip count.
+// Callers should check both return values: a non-nil session with a non-nil
+// error indicates partial success.
 func Load(id string) (*session.Session, error) {
 	if err := validateSessionID(id); err != nil {
 		return nil, err
@@ -245,6 +249,11 @@ func List() ([]SessionSummary, []string, error) {
 		}
 
 		id := strings.TrimSuffix(entry.Name(), ".json")
+		if err := validateSessionID(id); err != nil {
+			LogError("sessions: invalid filename: "+entry.Name(), err)
+			corrupted = append(corrupted, entry.Name())
+			continue
+		}
 		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
 		if err != nil {
 			LogError("sessions: corrupted file: "+entry.Name(), err)

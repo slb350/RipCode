@@ -70,12 +70,11 @@ func (g *GrepTool) Execute(ctx Context, argsJSON string) Result {
 		root = ctx.WorkDir
 	}
 
-	// Validate root is within workDir
-	if root != ctx.WorkDir {
-		if _, err := ValidatePath(root, ctx.WorkDir, true); err != nil {
-			return Result{Error: err}
-		}
+	validatedRoot, err := ValidatePath(root, ctx.WorkDir, true)
+	if err != nil {
+		return Result{Error: err}
 	}
+	root = validatedRoot
 
 	var sb strings.Builder
 	fileCount := 0

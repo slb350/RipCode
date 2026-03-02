@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
@@ -62,7 +63,12 @@ func (r *ReadTool) Execute(ctx Context, argsJSON string) Result {
 		return Result{Error: err}
 	}
 
-	data, err := os.ReadFile(validated)
+	f, err := OpenNoFollow(validated, os.O_RDONLY, 0)
+	if err != nil {
+		return Result{Error: fmt.Errorf("open file: %w", err)}
+	}
+	defer f.Close()
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return Result{Error: fmt.Errorf("read file: %w", err)}
 	}

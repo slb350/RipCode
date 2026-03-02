@@ -726,6 +726,33 @@ func TestFork_DoesNotMutateOriginal(t *testing.T) {
 	assert.Len(t, s.messages, 4, "original session should be unchanged")
 }
 
+func TestFork_ToolCalls_IndependentCopy(t *testing.T) {
+	s := New("/tmp")
+	s.AddUser("do something")
+	s.AddAssistant("sure", []provider.ToolCall{
+		{ID: "call_1", Name: "bash", Args: `{"cmd":"ls"}`},
+		{ID: "call_2", Name: "read", Args: `{"path":"/tmp"}`},
+	}, nil)
+
+	forked, err := s.Fork(1)
+	require.NoError(t, err)
+
+	// Mutate forked ToolCalls
+	forked.messages[1].Message.ToolCalls[0].Name = "MUTATED"
+	forked.messages[1].Message.ToolCalls[0].Args = "MUTATED"
+
+	// Original ToolCalls should be unchanged
+	assert.Equal(t, "bash", s.messages[1].Message.ToolCalls[0].Name,
+		"original ToolCall name should be unchanged after forked mutation")
+	assert.Equal(t, `{"cmd":"ls"}`, s.messages[1].Message.ToolCalls[0].Args,
+		"original ToolCall args should be unchanged after forked mutation")
+
+	// Also verify the second tool call is independent
+	forked.messages[1].Message.ToolCalls[1].ID = "MUTATED"
+	assert.Equal(t, "call_2", s.messages[1].Message.ToolCalls[1].ID,
+		"second ToolCall should also be independent")
+}
+
 func TestMessageRecord_Valid_ValidUser(t *testing.T) {
 	rec := MessageRecord{
 		ID:        "msg-001",

@@ -203,6 +203,57 @@ func TestEdit_SymlinkWrite_Blocked(t *testing.T) {
 	assert.Equal(t, "original content", string(data))
 }
 
+func TestEdit_WhitespaceFallback_CRLFLineEndings(t *testing.T) {
+	e := NewEditTool()
+	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "crlf.txt")
+	// File has CRLF line endings
+	require.NoError(t, os.WriteFile(path, []byte("line1\r\nline2\r\nline3\r\n"), 0644))
+
+	// Exact match with CRLF should work
+	result := e.Execute(ctx, `{"file_path":"`+path+`","old_string":"line2\r\n","new_string":"replaced\r\n"}`)
+	require.NoError(t, result.Error)
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "line1\r\nreplaced\r\nline3\r\n", string(data))
+}
+
+func TestEdit_WhitespaceFallback_MixedTabsAndSpaces(t *testing.T) {
+	e := NewEditTool()
+	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "mixed.go")
+	// File has mixed indentation: some lines tabs, some spaces
+	content := "func main() {\n\tif true {\n\t    fmt.Println(\"mixed\")\n\t}\n}\n"
+	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
+
+	// Provide search with all-spaces — should match via whitespace normalization
+	result := e.Execute(ctx, `{"file_path":"`+path+`","old_string":"        fmt.Println(\"mixed\")","new_string":"\t\tfmt.Println(\"fixed\")"}`)
+	require.NoError(t, result.Error)
+	assert.Contains(t, result.Output, "whitespace-flexible")
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "fmt.Println(\"fixed\")")
+}
+
+func TestEdit_WhitespaceFallback_TabSpaceMix_InSearchString(t *testing.T) {
+	e := NewEditTool()
+	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "tabs.go")
+	// File has 2-tab indentation
+	require.NoError(t, os.WriteFile(path, []byte("func f() {\n\t\treturn 42\n}\n"), 0644))
+
+	// Search with 8 spaces (matching 2 tabs × 4 spaces each) — should match via fallback
+	result := e.Execute(ctx, `{"file_path":"`+path+`","old_string":"        return 42","new_string":"\t\treturn 0"}`)
+	require.NoError(t, result.Error)
+	assert.Contains(t, result.Output, "whitespace-flexible")
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "return 0")
+}
+
 func TestEdit_MapNormPos_TabBoundary(t *testing.T) {
 	orig := "\thello"
 	norm := normalizeWhitespace(orig)

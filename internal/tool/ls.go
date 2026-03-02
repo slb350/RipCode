@@ -50,12 +50,11 @@ func (l *LsTool) Execute(ctx Context, argsJSON string) Result {
 		dir = ctx.WorkDir
 	}
 
-	// Validate dir is within workDir
-	if dir != ctx.WorkDir {
-		if _, err := ValidatePath(dir, ctx.WorkDir, true); err != nil {
-			return Result{Error: err}
-		}
+	validatedDir, err := ValidatePath(dir, ctx.WorkDir, true)
+	if err != nil {
+		return Result{Error: err}
 	}
+	dir = validatedDir
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {

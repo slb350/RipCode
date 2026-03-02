@@ -143,3 +143,20 @@ func TestRead_SymlinkOutsideBlocked(t *testing.T) {
 	assert.Error(t, result.Error)
 	assert.Contains(t, result.Error.Error(), "outside")
 }
+
+func TestRead_SymlinkWithinWorkDir_Blocked(t *testing.T) {
+	r := NewReadTool()
+	ctx := newTestCtx(t)
+
+	// Create a real file and a symlink to it, both within workdir
+	target := filepath.Join(ctx.WorkDir, "real.txt")
+	require.NoError(t, os.WriteFile(target, []byte("secret content\n"), 0644))
+
+	link := filepath.Join(ctx.WorkDir, "link.txt")
+	require.NoError(t, os.Symlink(target, link))
+
+	// Read via symlink should be blocked (O_NOFOLLOW rejects symlinks)
+	result := r.Execute(ctx, `{"file_path":"`+link+`"}`)
+	require.Error(t, result.Error)
+	assert.Contains(t, result.Error.Error(), "symlink")
+}

@@ -113,3 +113,23 @@ func TestLs_SkipInfoErrors_ReportsCount(t *testing.T) {
 	// No errors to skip — no warning should appear
 	assert.NotContains(t, result.Output, "skipped")
 }
+
+func TestLs_RelativePath_ResolvesFromWorkDir(t *testing.T) {
+	l := NewLsTool()
+	ctx := newTestCtx(t)
+	sub := filepath.Join(ctx.WorkDir, "sub")
+	require.NoError(t, os.MkdirAll(sub, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(sub, "nested.txt"), []byte("x"), 0o644))
+
+	other := t.TempDir()
+	oldWD, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(other))
+	t.Cleanup(func() {
+		_ = os.Chdir(oldWD)
+	})
+
+	result := l.Execute(ctx, `{"path":"sub","all":true}`)
+	require.NoError(t, result.Error)
+	assert.Contains(t, result.Output, "nested.txt")
+}

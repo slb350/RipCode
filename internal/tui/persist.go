@@ -74,9 +74,12 @@ func persistHistory(h *components.PromptHistory) error {
 
 	// Avoid appending duplicate consecutive entries when history push was
 	// deduplicated in-memory.
-	existing, _, err := store.LoadHistory()
+	existing, skippedCount, err := store.LoadHistory()
 	if err != nil {
 		return err
+	}
+	if skippedCount > 0 {
+		store.LogError("persistHistory: dedup check", fmt.Errorf("%d malformed entries skipped", skippedCount))
 	}
 	if len(existing) > 0 {
 		prev := existing[len(existing)-1]

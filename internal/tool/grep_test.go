@@ -150,3 +150,23 @@ func TestGrep_SkipErrors_ReportsCount(t *testing.T) {
 	assert.Contains(t, result.Output, "paths skipped:")
 	assert.Contains(t, result.Output, "permission denied")
 }
+
+func TestGrep_RelativePath_ResolvesFromWorkDir(t *testing.T) {
+	g := NewGrepTool()
+	ctx := newTestCtx(t)
+	sub := filepath.Join(ctx.WorkDir, "sub")
+	require.NoError(t, os.MkdirAll(sub, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(sub, "nested.go"), []byte("TODO: fix\n"), 0o644))
+
+	other := t.TempDir()
+	oldWD, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(other))
+	t.Cleanup(func() {
+		_ = os.Chdir(oldWD)
+	})
+
+	result := g.Execute(ctx, `{"pattern":"TODO","path":"sub"}`)
+	require.NoError(t, result.Error)
+	assert.Contains(t, result.Output, "nested.go")
+}

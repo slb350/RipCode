@@ -86,8 +86,9 @@ func (a App) handleSessionsDeleteConfirm(msg tea.KeyPressMsg) (tea.Model, tea.Cm
 		if a.sessionsDialog.selected < len(filtered) {
 			entry := filtered[a.sessionsDialog.selected]
 			if err := store.Delete(entry.ID); err != nil {
+				store.LogError("delete session "+entry.ID, err)
 				a.sessionsDialog.confirm = false
-				a.toasts.Show("Failed to delete session", components.ToastError, 3*time.Second)
+				a.toasts.Show("Failed to delete session: "+err.Error(), components.ToastError, 3*time.Second)
 				return a, nil
 			}
 			// Remove from cached entries

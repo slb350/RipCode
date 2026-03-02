@@ -78,12 +78,7 @@ func (c *OpenRouter) ListModels(ctx context.Context) ([]provider.ModelInfo, erro
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		msg := strings.TrimSpace(string(body))
-		if msg == "" {
-			return nil, fmt.Errorf("openrouter API error: %d", resp.StatusCode)
-		}
-		return nil, fmt.Errorf("openrouter API error: %d: %s", resp.StatusCode, msg)
+		return nil, apiErrorFromResponse(resp)
 	}
 
 	var parsed apiModelsResponse
@@ -156,13 +151,9 @@ func (c *OpenRouter) Chat(ctx context.Context, msgs []provider.Message, tools []
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		err := apiErrorFromResponse(resp)
 		resp.Body.Close()
-		msg := strings.TrimSpace(string(body))
-		if msg == "" {
-			return nil, fmt.Errorf("openrouter API error: %d", resp.StatusCode)
-		}
-		return nil, fmt.Errorf("openrouter API error: %d: %s", resp.StatusCode, msg)
+		return nil, err
 	}
 
 	ch := make(chan provider.StreamEvent, 64)
@@ -354,6 +345,21 @@ func (c *OpenRouter) streamResponse(ctx context.Context, resp *http.Response, ch
 	}
 
 	send(provider.NewFinishEvent(&meta))
+}
+
+// apiErrorFromResponse reads up to 2KB from the response body and returns a
+// formatted error including the HTTP status code and body excerpt.
+// Does not close the body — caller is responsible for cleanup.
+func apiErrorFromResponse(resp *http.Response) error {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	if err != nil {
+		return fmt.Errorf("openrouter API error: %d (body unreadable: %v)", resp.StatusCode, err)
+	}
+	msg := strings.TrimSpace(string(body))
+	if msg == "" {
+		return fmt.Errorf("openrouter API error: %d", resp.StatusCode)
+	}
+	return fmt.Errorf("openrouter API error: %d: %s", resp.StatusCode, msg)
 }
 
 // --- API types ---

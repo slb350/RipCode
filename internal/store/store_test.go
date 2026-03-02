@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -444,6 +445,42 @@ func TestSaveLoad_PreservesTimestamps(t *testing.T) {
 	assert.WithinDuration(t, sess.CreatedAt, loaded.CreatedAt, time.Second)
 	assert.WithinDuration(t, sess.UpdatedAt, loaded.UpdatedAt, time.Second)
 	assert.WithinDuration(t, sess.Records()[0].CreatedAt, loaded.Records()[0].CreatedAt, time.Second)
+}
+
+func TestAtomicWrite_ConcurrentWrites_NoCorruption(t *testing.T) {
+	dir := testDir(t)
+
+	// Use separate files per goroutine to verify atomicWrite is safe for
+	// concurrent use across different paths. The shared .tmp suffix means
+	// same-path concurrent writes can race — this tests the more realistic
+	// scenario of concurrent session saves to different files.
+	const n = 20
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			path := filepath.Join(dir, fmt.Sprintf("file-%d.json", i))
+			data := []byte(fmt.Sprintf(`{"writer":%d}`, i))
+			errs <- atomicWrite(path, data, 0o644)
+		}(i)
+	}
+
+	for i := 0; i < n; i++ {
+		assert.NoError(t, <-errs, "goroutine %d", i)
+	}
+
+	// Every file should contain valid JSON with the correct writer value.
+	for i := 0; i < n; i++ {
+		path := filepath.Join(dir, fmt.Sprintf("file-%d.json", i))
+		data, err := os.ReadFile(path)
+		require.NoError(t, err, "file %d should exist", i)
+		var result map[string]any
+		require.NoError(t, json.Unmarshal(data, &result), "file %d should contain valid JSON, got: %s", i, string(data))
+		assert.Equal(t, float64(i), result["writer"], "file %d should have correct writer", i)
+
+		// No temp files should remain.
+		_, err = os.Stat(path + ".tmp")
+		assert.True(t, os.IsNotExist(err), "temp file for %d should be cleaned up", i)
+	}
 }
 
 func TestLoad_InvalidRecords_ReturnsSessionWithError(t *testing.T) {

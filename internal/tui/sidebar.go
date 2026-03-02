@@ -194,6 +194,8 @@ func (a App) renderSidebar() string {
 	}
 	var contextContent []string
 	contextContent = append(contextContent, muted.Render(fmt.Sprintf("%s tokens", components.FormatTokens(tokens))))
+	// assumedContextLimit is a reasonable default for the context progress bar.
+	// Most modern LLMs support 128K-200K tokens; this is not enforced server-side.
 	const assumedContextLimit = 200_000
 	percent := clamp((tokens*100)/assumedContextLimit, 0, 100)
 	const barWidth = 20

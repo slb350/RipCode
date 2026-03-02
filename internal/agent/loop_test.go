@@ -343,6 +343,66 @@ func TestLoop_StreamEventError(t *testing.T) {
 	assert.Contains(t, errMsg, "stream broke")
 }
 
+// slowTool blocks until the context is cancelled, simulating a long-running tool.
+type slowTool struct {
+	started chan struct{} // closed when Execute begins
+}
+
+func (s *slowTool) ID() string                 { return "slow" }
+func (s *slowTool) Description() string        { return "Blocks until cancelled" }
+func (s *slowTool) Parameters() map[string]any { return map[string]any{"type": "object"} }
+func (s *slowTool) Execute(ctx tool.Context, _ string) tool.Result {
+	close(s.started)
+	<-ctx.Abort.Done()
+	return tool.Result{Output: "cancelled"}
+}
+
+func TestLoop_CancelDuringToolExecution(t *testing.T) {
+	st := &slowTool{started: make(chan struct{})}
+
+	p := &mockProvider{
+		responses: []mockResponse{
+			{events: []provider.StreamEvent{
+				{Type: provider.EventToolCall, ToolCall: &provider.ToolCall{
+					ID: "call_slow", Name: "slow", Args: "{}",
+				}},
+				{Type: provider.EventFinish, Meta: &provider.Metadata{
+					FinishReason: "tool_calls",
+				}},
+			}},
+		},
+	}
+
+	reg := newTestRegistry(st)
+	sess := session.New("/tmp")
+	loop := NewLoop(p, reg, sess, BuildAgent(), 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ch := loop.Run(ctx, "run slow tool")
+
+	// Wait for the slow tool to start executing
+	<-st.started
+
+	// Cancel while the tool is running
+	cancel()
+
+	// Drain events
+	events := collectEvents(ch)
+
+	// Should see a ToolStart event for "slow"
+	var gotToolStart bool
+	for _, e := range events {
+		if e.Type == EventToolStart && e.Tool.Name == "slow" {
+			gotToolStart = true
+		}
+	}
+	assert.True(t, gotToolStart, "should have started the slow tool")
+
+	// The loop should terminate (channel closed) — it shouldn't hang
+	// The next iteration's ctx.Done() check prevents further provider calls
+	assert.Equal(t, 1, p.callCount, "should only call provider once before cancellation stops the loop")
+}
+
 func TestLoop_UnknownTool(t *testing.T) {
 	p := &mockProvider{
 		responses: []mockResponse{

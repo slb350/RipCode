@@ -55,16 +55,15 @@ func (g *GlobTool) Execute(ctx Context, argsJSON string) Result {
 		root = ctx.WorkDir
 	}
 
-	// Validate root is within workDir
-	if root != ctx.WorkDir {
-		if _, err := ValidatePath(root, ctx.WorkDir, true); err != nil {
-			return Result{Error: err}
-		}
+	validatedRoot, err := ValidatePath(root, ctx.WorkDir, true)
+	if err != nil {
+		return Result{Error: err}
 	}
+	root = validatedRoot
 
 	var matches []string
 	skips := newSkipTracker()
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			skips.addPath(path, err)
 			return nil
