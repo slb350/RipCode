@@ -9,6 +9,7 @@ import (
 	"github.com/stephenbrandon/ripcode/internal/session"
 	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tool"
+	"github.com/stephenbrandon/ripcode/internal/tui/components"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -160,6 +161,25 @@ func TestApp_AgentEventDone_PersistsSession(t *testing.T) {
 	assert.Equal(t, sess.ID, loaded.ID)
 }
 
+func TestApp_UnknownEventType_GracefullyIgnored(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	ch := make(chan agent.Event, 1)
+	app.streaming = true
+	app.state = StateSession
+	app.eventCh = ch
+
+	// Use an event type value beyond the known range
+	model, cmd := app.Update(AgentEventMsg{
+		Event: agent.Event{Type: agent.EventType(99), Content: "future event"},
+	})
+	a := model.(App)
+
+	// Should not panic, should not crash
+	assert.True(t, a.streaming, "streaming should remain active after unknown event")
+	assert.Nil(t, cmd, "unknown event should not return a command")
+}
+
 // --- Reasoning Event tests ---
 
 func TestApp_ReasoningDelta_ContinuesListening(t *testing.T) {
@@ -216,6 +236,49 @@ func TestApp_ReasoningDelta_StreamsPart(t *testing.T) {
 
 	view := a.chat.View()
 	assert.Contains(t, view, "deep thought")
+}
+
+func TestApp_ToolStart_SegmentsAssistantStreamAcrossToolPhase(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	app.state = StateSession
+	ch := make(chan agent.Event, 1)
+	app.streaming = true
+	app.eventCh = ch
+
+	model, _ := app.Update(AgentEventMsg{
+		Event: agent.Event{Type: agent.EventContentDelta, Content: "before "},
+	})
+	a := model.(App)
+
+	model, _ = a.Update(AgentEventMsg{
+		Event: agent.Event{
+			Type: agent.EventToolStart,
+			Tool: &agent.ToolEvent{ID: "1", Name: "read", Args: `{"file_path":"README.md"}`},
+		},
+	})
+	a = model.(App)
+
+	model, _ = a.Update(AgentEventMsg{
+		Event: agent.Event{Type: agent.EventContentDelta, Content: "after"},
+	})
+	a = model.(App)
+
+	model, _ = a.Update(AgentEventMsg{
+		Event: agent.Event{Type: agent.EventDone},
+	})
+	a = model.(App)
+
+	var assistant []components.ChatEntry
+	for _, e := range a.chat.Entries() {
+		if e.Role == components.RoleAssistant {
+			assistant = append(assistant, e)
+		}
+	}
+
+	require.Len(t, assistant, 2)
+	assert.Equal(t, "before ", assistant[0].Content)
+	assert.Equal(t, "after", assistant[1].Content)
 }
 
 // --- Modified Files Tracking tests ---

@@ -2,6 +2,7 @@ package components
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -63,6 +64,39 @@ func TestMessagePart_Valid_InvalidType(t *testing.T) {
 func TestMessagePart_Valid_EmptyType(t *testing.T) {
 	p := MessagePart{Type: "", Content: "x"}
 	assert.Error(t, p.Valid())
+}
+
+// --- StreamPart validation tests ---
+
+func TestChat_StreamPart_InvalidType_StillAccumulates(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	c := NewChat()
+	c.SetSize(80, 20)
+
+	c.StreamPart(PartType("bogus"), "content")
+
+	// Should still accumulate — logging is best-effort, not blocking
+	assert.Len(t, c.streamingParts, 1)
+	assert.Equal(t, PartType("bogus"), c.streamingParts[0].Type)
+	assert.Equal(t, "content", c.streamingParts[0].Content)
+}
+
+// --- Unknown PartType rendering ---
+
+func TestChat_RenderAssistantParts_UnknownType_RenderedAsText(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	c := NewChat()
+	c.SetSize(80, 20)
+
+	c.AddEntry(ChatEntry{
+		Role: RoleAssistant,
+		Parts: []MessagePart{
+			{Type: PartType("future_type"), Content: "future content"},
+		},
+	})
+
+	view := c.View()
+	assert.Contains(t, view, "future content", "unknown type should render as text")
 }
 
 // --- StreamPart tests ---
@@ -198,6 +232,20 @@ func TestChat_CommitStream_ClearsStreamingParts(t *testing.T) {
 	assert.Empty(t, c.streamingParts)
 }
 
+func TestChat_CommitStream_SetsCreatedAt(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+
+	before := time.Now()
+	c.StreamPart(PartText, "hello")
+	c.CommitStream()
+
+	entries := c.Entries()
+	assert.Len(t, entries, 1)
+	assert.False(t, entries[0].CreatedAt.IsZero(), "committed stream entries should have CreatedAt")
+	assert.False(t, entries[0].CreatedAt.Before(before), "CreatedAt should be set at commit time")
+}
+
 func TestChat_CommitStream_LegacyStreamContent_StillWorks(t *testing.T) {
 	c := NewChat()
 	c.SetSize(80, 20)
@@ -209,6 +257,32 @@ func TestChat_CommitStream_LegacyStreamContent_StillWorks(t *testing.T) {
 	entries := c.Entries()
 	assert.Len(t, entries, 1)
 	assert.Equal(t, "legacy content", entries[0].Content)
+}
+
+// --- CopyableContent tests ---
+
+// --- FullContent tests ---
+
+func TestChatEntry_FullContent_NoParts_ReturnsContent(t *testing.T) {
+	e := ChatEntry{Role: RoleAssistant, Content: "plain text"}
+	assert.Equal(t, "plain text", e.FullContent())
+}
+
+func TestChatEntry_FullContent_WithParts_IncludesReasoning(t *testing.T) {
+	e := ChatEntry{
+		Role:    RoleAssistant,
+		Content: "visible only",
+		Parts: []MessagePart{
+			{Type: PartReasoning, Content: "thinking deeply"},
+			{Type: PartText, Content: "visible only"},
+		},
+	}
+	assert.Equal(t, "thinking deeplyvisible only", e.FullContent())
+}
+
+func TestChatEntry_FullContent_Empty(t *testing.T) {
+	e := ChatEntry{Role: RoleAssistant}
+	assert.Equal(t, "", e.FullContent())
 }
 
 // --- CopyableContent tests ---

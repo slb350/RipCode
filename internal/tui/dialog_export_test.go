@@ -318,5 +318,77 @@ func TestWriteExportFile_RenameFailure_PreservesExistingTarget(t *testing.T) {
 	assert.Equal(t, "original", string(data))
 }
 
+func TestApp_ExportDialog_IncludeThinking_WritesReasoningParts(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	sess := session.New(t.TempDir())
+	app.SetSession(sess)
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	// Add a part-based assistant entry with reasoning
+	a.chat.Clear()
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: "question"})
+	a.chat.StreamPart(components.PartReasoning, "deep thinking")
+	a.chat.StreamPart(components.PartText, "visible answer")
+	a.chat.CommitStream()
+
+	// Open export dialog with includeThinking enabled
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/export"})
+	a = model.(App)
+	a.exportDialog.includeThinking = true
+	a.exportDialog.filename = "thinking-export.md"
+	a.exportDialog.focusedField = 3
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+
+	data, err := os.ReadFile(filepath.Join(sess.WorkDir, "thinking-export.md"))
+	require.NoError(t, err)
+	content := string(data)
+	assert.Contains(t, content, "deep thinking", "reasoning should be included when includeThinking is true")
+	assert.Contains(t, content, "visible answer")
+}
+
+func TestApp_ExportDialog_ExcludeThinking_OmitsReasoningParts(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	sess := session.New(t.TempDir())
+	app.SetSession(sess)
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	// Add a part-based assistant entry with reasoning
+	a.chat.Clear()
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: "question"})
+	a.chat.StreamPart(components.PartReasoning, "secret thinking")
+	a.chat.StreamPart(components.PartText, "visible answer")
+	a.chat.CommitStream()
+
+	// Open export dialog with includeThinking disabled
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/export"})
+	a = model.(App)
+	a.exportDialog.includeThinking = false
+	a.exportDialog.filename = "no-thinking-export.md"
+	a.exportDialog.focusedField = 3
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+
+	data, err := os.ReadFile(filepath.Join(sess.WorkDir, "no-thinking-export.md"))
+	require.NoError(t, err)
+	content := string(data)
+	assert.NotContains(t, content, "secret thinking", "reasoning should be excluded when includeThinking is false")
+	assert.Contains(t, content, "visible answer")
+}
+
 // Ensure unused imports don't cause issues
 var _ = provider.ModelInfo{}

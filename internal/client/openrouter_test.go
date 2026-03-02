@@ -1010,6 +1010,68 @@ func TestOpenRouter_ParsesUnknownReasoningType_Skip(t *testing.T) {
 	}
 }
 
+func TestOpenRouter_ParsesMultipleReasoningDetailsInSingleChunk(t *testing.T) {
+	body := sseResponse(
+		reasoningChunk(
+			map[string]any{"type": "reasoning.text", "text": "thought A"},
+			map[string]any{"type": "reasoning.summary", "summary": "summary B"},
+		),
+		chatChunkWithUsage("stop", 10, 5),
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.baseURL = srv.URL
+
+	ch, err := c.Chat(context.Background(), []provider.Message{
+		{Role: "user", Content: "hi"},
+	}, nil)
+	require.NoError(t, err)
+
+	var reasoningEvents []string
+	for e := range ch {
+		if e.Type == provider.EventReasoningDelta {
+			reasoningEvents = append(reasoningEvents, e.Content)
+		}
+	}
+
+	assert.Len(t, reasoningEvents, 2, "both reasoning details should produce separate events")
+	assert.Equal(t, "thought A", reasoningEvents[0])
+	assert.Equal(t, "summary B", reasoningEvents[1])
+}
+
+func TestOpenRouter_ParsesReasoningWithEmptyText_Skipped(t *testing.T) {
+	body := sseResponse(
+		reasoningChunk(map[string]any{"type": "reasoning.text", "text": ""}),
+		chatChunk("content", ""),
+		chatChunkWithUsage("stop", 10, 5),
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.baseURL = srv.URL
+
+	ch, err := c.Chat(context.Background(), []provider.Message{
+		{Role: "user", Content: "hi"},
+	}, nil)
+	require.NoError(t, err)
+
+	for e := range ch {
+		assert.NotEqual(t, provider.EventReasoningDelta, e.Type,
+			"empty text reasoning should not produce events")
+	}
+}
+
 func TestOpenRouter_ReasoningEffortEmpty_OmitsField(t *testing.T) {
 	c := NewOpenRouter("key", "model")
 	// No SetReasoningEffort call — effort is empty

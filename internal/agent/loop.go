@@ -8,6 +8,7 @@ import (
 
 	"github.com/stephenbrandon/ripcode/internal/provider"
 	"github.com/stephenbrandon/ripcode/internal/session"
+	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tool"
 )
 
@@ -163,6 +164,9 @@ func (l *Loop) consumeStream(ctx context.Context, streamCh <-chan provider.Strea
 		case provider.EventError:
 			ch <- Event{Type: EventError, Error: event.Error}
 			return content.String(), toolCalls, meta
+
+		default:
+			store.LogError(fmt.Sprintf("loop: unknown provider event type %d", event.Type), nil)
 		}
 	}
 

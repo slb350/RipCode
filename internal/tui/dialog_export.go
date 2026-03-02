@@ -92,7 +92,11 @@ func (a *App) executeExport() tea.Cmd {
 			sb.WriteString(e.Content + "\n\n")
 		case components.RoleAssistant:
 			sb.WriteString("## Assistant\n\n")
-			sb.WriteString(e.Content + "\n\n")
+			if a.exportDialog.includeThinking {
+				sb.WriteString(e.FullContent() + "\n\n")
+			} else {
+				sb.WriteString(e.Content + "\n\n")
+			}
 		case components.RoleTool:
 			if a.exportDialog.includeTools {
 				sb.WriteString(fmt.Sprintf("**Tool: %s** (%s)\n", e.ToolName, e.ToolStatus))

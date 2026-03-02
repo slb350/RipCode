@@ -24,6 +24,9 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 		return a, listenForEvents(a.eventCh)
 
 	case agent.EventToolStart:
+		// Tool boundaries split assistant output into distinct messages.
+		// This prevents pre-tool deltas from being merged into post-tool content.
+		a.chat.CommitStream()
 		if event.Tool != nil {
 			a.chat.AddEntry(components.ChatEntry{
 				Role:       components.RoleTool,
@@ -116,9 +119,11 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 			})
 		}
 		return a, nil
-	}
 
-	return a, nil
+	default:
+		store.LogError(fmt.Sprintf("events: unhandled agent event type %d", event.Type), nil)
+		return a, nil
+	}
 }
 
 // toolSummary extracts a short summary from tool args.

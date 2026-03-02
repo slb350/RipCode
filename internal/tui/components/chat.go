@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tui/styles"
 )
 
@@ -152,6 +153,9 @@ func (c *Chat) StreamPart(typ PartType, delta string) {
 	if delta == "" {
 		return
 	}
+	if !typ.Valid() {
+		store.LogError(fmt.Sprintf("chat: StreamPart called with invalid type %q", typ), nil)
+	}
 	if n := len(c.streamingParts); n > 0 && c.streamingParts[n-1].Type == typ {
 		c.streamingParts[n-1].Content += delta
 	} else {
@@ -165,21 +169,25 @@ func (c *Chat) StreamPart(typ PartType, delta string) {
 // If both paths are populated (shouldn't happen in normal use), parts take
 // precedence and legacy streaming is cleared to avoid data ambiguity.
 func (c *Chat) CommitStream() {
+	now := time.Now()
+
 	// Part-based streaming path — takes precedence over legacy
 	if len(c.streamingParts) > 0 {
 		// Single text part — fall back to Content field for backward compat
 		if len(c.streamingParts) == 1 && c.streamingParts[0].Type == PartText {
 			c.entries = append(c.entries, ChatEntry{
-				Role:    RoleAssistant,
-				Content: c.streamingParts[0].Content,
+				Role:      RoleAssistant,
+				Content:   c.streamingParts[0].Content,
+				CreatedAt: now,
 			})
 		} else {
 			parts := make([]MessagePart, len(c.streamingParts))
 			copy(parts, c.streamingParts)
 			c.entries = append(c.entries, ChatEntry{
-				Role:    RoleAssistant,
-				Content: plainTextFromParts(parts),
-				Parts:   parts,
+				Role:      RoleAssistant,
+				Content:   plainTextFromParts(parts),
+				Parts:     parts,
+				CreatedAt: now,
 			})
 		}
 		c.streamingParts = nil
@@ -190,8 +198,9 @@ func (c *Chat) CommitStream() {
 	// Legacy streaming path
 	if c.streaming != "" {
 		c.entries = append(c.entries, ChatEntry{
-			Role:    RoleAssistant,
-			Content: c.streaming,
+			Role:      RoleAssistant,
+			Content:   c.streaming,
+			CreatedAt: now,
 		})
 		c.streaming = ""
 	}
@@ -475,7 +484,10 @@ func (c Chat) renderAssistantParts(parts []MessagePart, t *styles.Theme) []strin
 			for _, line := range strings.Split(wrapped, "\n") {
 				result = append(result, "   "+reasoningStyle.Render(line))
 			}
-		default: // PartText and any future types
+		default: // PartText and any future types — render as text
+			if p.Type != PartText {
+				store.LogError(fmt.Sprintf("chat: unknown part type %q rendered as text", p.Type), nil)
+			}
 			text := p.Content
 			if !c.showCodeBlocks {
 				text, inConcealedBlock = concealCodeBlocksWithState(text, inConcealedBlock)

@@ -459,6 +459,37 @@ func TestLoop_CancelMidStream_DiscardsPartialToolCalls(t *testing.T) {
 	assert.False(t, toolExecuted, "tool should NOT be executed when context is cancelled mid-stream")
 }
 
+func TestLoop_CancelDuringReasoningStream_GracefulTermination(t *testing.T) {
+	p := &mockProvider{
+		responses: []mockResponse{
+			{events: []provider.StreamEvent{
+				{Type: provider.EventReasoningDelta, Content: "thinking hard"},
+				{Type: provider.EventContentDelta, Content: "answer"},
+				{Type: provider.EventFinish, Meta: &provider.Metadata{
+					InputTokens: 10, OutputTokens: 5, FinishReason: "stop",
+				}},
+			}},
+		},
+	}
+
+	reg := newTestRegistry()
+	sess := session.New("/tmp")
+	loop := NewLoop(p, reg, sess, BuildAgent(), 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	events := collectEvents(loop.Run(ctx, "cancel during reasoning"))
+
+	var hasError bool
+	for _, e := range events {
+		if e.Type == EventError {
+			hasError = true
+		}
+	}
+	assert.True(t, hasError, "should emit error when cancelled during reasoning stream")
+}
+
 func TestLoop_ReasoningDeltaEmitted(t *testing.T) {
 	p := &mockProvider{
 		responses: []mockResponse{
@@ -553,6 +584,40 @@ func TestLoop_InterleavedReasoningAndContent(t *testing.T) {
 	assert.Contains(t, types, EventReasoningDelta)
 	assert.Contains(t, types, EventContentDelta)
 	assert.Contains(t, types, EventDone)
+}
+
+func TestLoop_UnknownProviderEventType_GracefullyIgnored(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	p := &mockProvider{
+		responses: []mockResponse{
+			{events: []provider.StreamEvent{
+				{Type: provider.EventContentDelta, Content: "hello"},
+				{Type: provider.EventType(99)}, // unknown event type
+				{Type: provider.EventFinish, Meta: &provider.Metadata{
+					InputTokens: 10, OutputTokens: 5, FinishReason: "stop",
+				}},
+			}},
+		},
+	}
+
+	reg := newTestRegistry()
+	sess := session.New("/tmp")
+	loop := NewLoop(p, reg, sess, BuildAgent(), 10)
+
+	events := collectEvents(loop.Run(context.Background(), "test"))
+
+	var gotContent bool
+	var gotDone bool
+	for _, e := range events {
+		if e.Type == EventContentDelta {
+			gotContent = true
+		}
+		if e.Type == EventDone {
+			gotDone = true
+		}
+	}
+	assert.True(t, gotContent, "content delta should still be emitted")
+	assert.True(t, gotDone, "loop should complete normally after unknown event")
 }
 
 func TestLoop_UnknownTool(t *testing.T) {
