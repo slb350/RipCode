@@ -1,7 +1,6 @@
 package tool
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -80,12 +79,7 @@ func (r *ReadTool) Execute(ctx Context, argsJSON string) Result {
 		}
 	}
 
-	// Binary detection: check for null bytes in first 8KB
-	checkLen := len(data)
-	if checkLen > 8192 {
-		checkLen = 8192
-	}
-	if bytes.ContainsRune(data[:checkLen], 0) {
+	if isBinaryContent(data) {
 		return Result{
 			Output: fmt.Sprintf("(binary file, %d bytes)", len(data)),
 			Title:  validated,

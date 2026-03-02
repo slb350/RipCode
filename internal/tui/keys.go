@@ -23,6 +23,9 @@ func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case a.statusDialog.open:
 		return a.handleStatusDialogKey(msg)
 
+	case a.messageActions.open:
+		return a.handleMessageActionsDialogKey(msg)
+
 	case a.stashDialog.open:
 		return a.handleStashDialogKey(msg)
 

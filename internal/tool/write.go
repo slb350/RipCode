@@ -3,6 +3,7 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -40,6 +41,14 @@ type writeArgs struct {
 	Content  string `json:"content"`
 }
 
+func readExistingDiffSnapshot(r io.Reader) (string, bool, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxDiffContentSize+1))
+	if err != nil {
+		return "", false, err
+	}
+	return capDiffContent(string(data)), isBinaryContent(data), nil
+}
+
 func (w *WriteTool) Execute(ctx Context, argsJSON string) Result {
 	var args writeArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
@@ -62,6 +71,17 @@ func (w *WriteTool) Execute(ctx Context, argsJSON string) Result {
 		return Result{Error: fmt.Errorf("stat file: %w", err)}
 	}
 
+	// Capture existing content via OpenNoFollow (symlink-safe) for diff rendering.
+	var before string
+	var beforeBinary bool
+	if f, err := OpenNoFollow(validated, os.O_RDONLY, 0); err == nil {
+		if snap, binary, err := readExistingDiffSnapshot(f); err == nil {
+			before = snap
+			beforeBinary = binary
+		}
+		f.Close()
+	}
+
 	// Create parent directories
 	dir := filepath.Dir(validated)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -75,5 +95,11 @@ func (w *WriteTool) Execute(ctx Context, argsJSON string) Result {
 	return Result{
 		Output: fmt.Sprintf("Wrote %d bytes to %s", len(args.Content), validated),
 		Title:  validated,
+		Diff: &DiffInfo{
+			Path:   validated,
+			Before: before,
+			After:  capDiffContent(args.Content),
+			Binary: beforeBinary || isBinaryContent([]byte(args.Content)),
+		},
 	}
 }

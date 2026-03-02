@@ -419,6 +419,152 @@ func TestApp_ModifiedFiles_FailedEdit_NotTracked(t *testing.T) {
 	assert.Empty(t, a.modifiedFiles.paths(), "failed edit should not be tracked")
 }
 
+// --- ST-5: DiffInfo mapping from tool.DiffInfo → components.DiffInfo ---
+
+func TestApp_ToolEnd_DiffInfoMapping(t *testing.T) {
+	app := NewApp()
+	app.state = StateSession
+	ch := make(chan agent.Event, 1)
+	app.streaming = true
+	app.eventCh = ch
+	app.chat.SetSize(80, 20)
+
+	// Start a tool first so there's an entry to update
+	model, _ := app.Update(AgentEventMsg{
+		Event: agent.Event{
+			Type: agent.EventToolStart,
+			Tool: &agent.ToolEvent{ID: "t1", Name: "edit", Args: `{"file_path":"/tmp/test.go"}`},
+		},
+	})
+	a := model.(App)
+	a.eventCh = ch
+
+	// End the tool with DiffInfo
+	model, _ = a.Update(AgentEventMsg{
+		Event: agent.Event{
+			Type: agent.EventToolEnd,
+			Tool: &agent.ToolEvent{
+				ID:     "t1",
+				Name:   "edit",
+				Output: "edited",
+				Diff: &tool.DiffInfo{
+					Path:   "/tmp/test.go",
+					Before: "old content",
+					After:  "new content",
+					Binary: false,
+				},
+			},
+		},
+	})
+	a = model.(App)
+
+	// Find the tool entry and verify DiffInfo was mapped correctly
+	entries := a.chat.Entries()
+	var toolEntry *components.ChatEntry
+	for i, e := range entries {
+		if e.ToolID == "t1" {
+			toolEntry = &entries[i]
+			break
+		}
+	}
+	require.NotNil(t, toolEntry, "should find tool entry with ID t1")
+	require.NotNil(t, toolEntry.Diff, "tool entry should have DiffInfo")
+	assert.Equal(t, "/tmp/test.go", toolEntry.Diff.Path)
+	assert.Equal(t, "old content", toolEntry.Diff.Before)
+	assert.Equal(t, "new content", toolEntry.Diff.After)
+	assert.False(t, toolEntry.Diff.Binary)
+}
+
+func TestApp_ToolEnd_DiffInfoBinaryMapping(t *testing.T) {
+	app := NewApp()
+	app.state = StateSession
+	ch := make(chan agent.Event, 1)
+	app.streaming = true
+	app.eventCh = ch
+	app.chat.SetSize(80, 20)
+
+	model, _ := app.Update(AgentEventMsg{
+		Event: agent.Event{
+			Type: agent.EventToolStart,
+			Tool: &agent.ToolEvent{ID: "t2", Name: "write", Args: `{"file_path":"/tmp/bin.dat"}`},
+		},
+	})
+	a := model.(App)
+	a.eventCh = ch
+
+	model, _ = a.Update(AgentEventMsg{
+		Event: agent.Event{
+			Type: agent.EventToolEnd,
+			Tool: &agent.ToolEvent{
+				ID:     "t2",
+				Name:   "write",
+				Output: "wrote binary",
+				Diff: &tool.DiffInfo{
+					Path:   "/tmp/bin.dat",
+					Before: "",
+					After:  "binary\x00data",
+					Binary: true,
+				},
+			},
+		},
+	})
+	a = model.(App)
+
+	entries := a.chat.Entries()
+	var toolEntry *components.ChatEntry
+	for i, e := range entries {
+		if e.ToolID == "t2" {
+			toolEntry = &entries[i]
+			break
+		}
+	}
+	require.NotNil(t, toolEntry)
+	require.NotNil(t, toolEntry.Diff)
+	assert.True(t, toolEntry.Diff.Binary)
+}
+
+func TestApp_ToolEnd_NilDiff_NoDiffOnEntry(t *testing.T) {
+	app := NewApp()
+	app.state = StateSession
+	ch := make(chan agent.Event, 1)
+	app.streaming = true
+	app.eventCh = ch
+	app.chat.SetSize(80, 20)
+
+	model, _ := app.Update(AgentEventMsg{
+		Event: agent.Event{
+			Type: agent.EventToolStart,
+			Tool: &agent.ToolEvent{ID: "t3", Name: "bash", Args: `{"command":"ls"}`},
+		},
+	})
+	a := model.(App)
+	a.eventCh = ch
+
+	model, _ = a.Update(AgentEventMsg{
+		Event: agent.Event{
+			Type: agent.EventToolEnd,
+			Tool: &agent.ToolEvent{
+				ID:     "t3",
+				Name:   "bash",
+				Output: "file.txt",
+				Diff:   nil,
+			},
+		},
+	})
+	a = model.(App)
+
+	entries := a.chat.Entries()
+	var toolEntry *components.ChatEntry
+	for i, e := range entries {
+		if e.ToolID == "t3" {
+			toolEntry = &entries[i]
+			break
+		}
+	}
+	require.NotNil(t, toolEntry)
+	assert.Nil(t, toolEntry.Diff, "non-edit tools should have nil Diff")
+}
+
 func TestApp_ModifiedFiles_Deduplicates(t *testing.T) {
 	app := NewApp()
 	app.state = StateSession

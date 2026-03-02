@@ -53,12 +53,22 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 			if status == components.StatusError {
 				content = event.Tool.Error
 			}
+			var diff *components.DiffInfo
+			if event.Tool.Diff != nil {
+				diff = &components.DiffInfo{
+					Path:   event.Tool.Diff.Path,
+					Before: event.Tool.Diff.Before,
+					After:  event.Tool.Diff.After,
+					Binary: event.Tool.Diff.Binary,
+				}
+			}
 			a.chat.UpdateLastTool(event.Tool.ID, components.ChatEntry{
 				Role:       components.RoleTool,
 				Content:    content,
 				ToolID:     event.Tool.ID,
 				ToolName:   event.Tool.Name,
 				ToolStatus: status,
+				Diff:       diff,
 			})
 			a.toolpanel.AddEvent(agent.ToolEvent{
 				ID:     event.Tool.ID,
