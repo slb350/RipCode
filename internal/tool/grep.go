@@ -57,7 +57,7 @@ type grepArgs struct {
 func (g *GrepTool) Execute(ctx Context, argsJSON string) Result {
 	var args grepArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return Result{Error: fmt.Errorf("parse args: %w", err)}
+		return Result{Error: fmt.Errorf("%s: parse args: %w", g.ID(), err)}
 	}
 
 	re, err := regexp.Compile(args.Pattern)

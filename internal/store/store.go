@@ -56,14 +56,30 @@ func loadState[T any](filename, desc string) (*T, error) {
 
 // atomicWrite writes data to path atomically via write-to-temp-then-rename.
 // On POSIX, os.Rename is atomic, so the target is either intact or fully replaced.
+// Each call uses a unique temp file so concurrent writes to the same path are safe.
 func atomicWrite(path string, data []byte, perm os.FileMode) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, perm); err != nil {
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, filepath.Base(path)+".tmp.*")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmp := f.Name()
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmp)
 		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("close temp file: %w", err)
+	}
+	if err := os.Chmod(tmp, perm); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("chmod temp file: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		if rmErr := os.Remove(tmp); rmErr != nil {
-			LogError("atomicWrite: cleanup temp file "+tmp, rmErr)
+			return fmt.Errorf("rename temp file: %w (cleanup also failed: %v)", err, rmErr)
 		}
 		return fmt.Errorf("rename temp file: %w", err)
 	}

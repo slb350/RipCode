@@ -42,7 +42,7 @@ type lsArgs struct {
 func (l *LsTool) Execute(ctx Context, argsJSON string) Result {
 	var args lsArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return Result{Error: fmt.Errorf("parse args: %w", err)}
+		return Result{Error: fmt.Errorf("%s: parse args: %w", l.ID(), err)}
 	}
 
 	dir := args.Path

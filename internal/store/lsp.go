@@ -46,7 +46,13 @@ func LoadLSPConfig() (*LSPConfig, []string, error) {
 }
 
 // Save writes LSP configuration to disk.
+// Returns an error if any client entry is invalid.
 func (c *LSPConfig) Save() error {
+	for _, cl := range c.Clients {
+		if err := cl.Valid(); err != nil {
+			return fmt.Errorf("invalid client %q: %w", cl.Name, err)
+		}
+	}
 	return saveState(lspConfigFile, c)
 }
 

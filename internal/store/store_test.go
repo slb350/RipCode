@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -514,4 +515,72 @@ func TestLoad_InvalidRecords_ReturnsSessionWithError(t *testing.T) {
 	logData, readErr := os.ReadFile(filepath.Join(dir, "state", "errors.log"))
 	require.NoError(t, readErr)
 	assert.Contains(t, string(logData), "invalid record")
+}
+
+func TestAtomicWrite_ConcurrentSamePath_NoCorruption(t *testing.T) {
+	dir := testDir(t)
+	path := filepath.Join(dir, "shared.json")
+
+	// Each goroutine uses a unique temp file (CreateTemp), so all should succeed.
+	// The key invariant: the final file must contain valid, complete JSON
+	// from exactly one writer — never a partial or corrupted write.
+	const n = 20
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			data := []byte(fmt.Sprintf(`{"writer":%d}`, i))
+			errs <- atomicWrite(path, data, 0o644)
+		}(i)
+	}
+
+	for i := 0; i < n; i++ {
+		assert.NoError(t, <-errs, "all writers should succeed with unique temp files")
+	}
+
+	// File should contain valid JSON from one of the writers.
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(data, &result), "file should contain valid JSON, got: %s", string(data))
+	writer := int(result["writer"].(float64))
+	assert.GreaterOrEqual(t, writer, 0)
+	assert.Less(t, writer, n)
+
+	// No leftover temp files should remain.
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, e := range entries {
+		assert.False(t, strings.Contains(e.Name(), ".tmp."),
+			"leftover temp file found: %s", e.Name())
+	}
+}
+
+func TestLoad_IDMismatch_ReturnsError(t *testing.T) {
+	dir := testDir(t)
+	sess := makeTestSession(t)
+	require.NoError(t, Save(sess))
+
+	// Tamper with the internal ID in the file.
+	path := filepath.Join(SessionsDir(), sess.ID+".json")
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	var f map[string]any
+	require.NoError(t, json.Unmarshal(data, &f))
+	f["id"] = "different-valid-id"
+	data, err = json.MarshalIndent(f, "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, data, 0o644))
+
+	_, err = Load(sess.ID)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "internal ID mismatch")
+	assert.Contains(t, err.Error(), "different-valid-id")
+
+	// Even a valid-looking but mismatched ID should be rejected.
+	f["id"] = "another-valid"
+	data, _ = json.MarshalIndent(f, "", "  ")
+	_ = os.WriteFile(filepath.Join(dir, "sessions", sess.ID+".json"), data, 0o644)
+	_, err = Load(sess.ID)
+	assert.Error(t, err, "mismatched IDs should always error")
 }

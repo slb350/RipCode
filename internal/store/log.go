@@ -12,12 +12,12 @@ import (
 func LogError(msg string, err error) {
 	path := filepath.Join(StateDir(), "errors.log")
 	if mkErr := os.MkdirAll(filepath.Dir(path), 0o755); mkErr != nil {
-		fmt.Fprintf(os.Stderr, "[ripcode] %s: %v\n", msg, err)
+		fmt.Fprintf(os.Stderr, "[ripcode] (log file unavailable) %s: %v\n", msg, err)
 		return
 	}
 	f, ferr := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if ferr != nil {
-		fmt.Fprintf(os.Stderr, "[ripcode] %s: %v\n", msg, err)
+		fmt.Fprintf(os.Stderr, "[ripcode] (log file unavailable) %s: %v\n", msg, err)
 		return
 	}
 	defer f.Close()

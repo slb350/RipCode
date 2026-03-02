@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -49,16 +50,16 @@ type editArgs struct {
 func (e *EditTool) Execute(ctx Context, argsJSON string) Result {
 	var args editArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return Result{Error: fmt.Errorf("parse args: %w", err)}
-	}
-
-	if args.OldString == "" {
-		return Result{Error: fmt.Errorf("old_string is required and cannot be empty")}
+		return Result{Error: fmt.Errorf("%s: parse args: %w", e.ID(), err)}
 	}
 
 	validated, err := ValidatePath(args.FilePath, ctx.WorkDir, true)
 	if err != nil {
 		return Result{Error: err}
+	}
+
+	if args.OldString == "" {
+		return Result{Error: fmt.Errorf("old_string is required and cannot be empty")}
 	}
 
 	f, err := OpenNoFollow(validated, os.O_RDONLY, 0)
@@ -88,7 +89,7 @@ func (e *EditTool) Execute(ctx Context, argsJSON string) Result {
 		if !ok {
 			return Result{Error: fmt.Errorf("no match found for old_string in %s", validated)}
 		}
-		if err := writeNoFollow(validated, []byte(newContent), os.O_WRONLY|os.O_TRUNC, perm); err != nil {
+		if err := writeAtomic(validated, []byte(newContent), perm); err != nil {
 			return Result{Error: fmt.Errorf("write file: %w", err)}
 		}
 		return Result{
@@ -103,7 +104,7 @@ func (e *EditTool) Execute(ctx Context, argsJSON string) Result {
 
 	newContent := strings.Replace(content, args.OldString, args.NewString, 1)
 
-	if err := writeNoFollow(validated, []byte(newContent), os.O_WRONLY|os.O_TRUNC, perm); err != nil {
+	if err := writeAtomic(validated, []byte(newContent), perm); err != nil {
 		return Result{Error: fmt.Errorf("write file: %w", err)}
 	}
 
@@ -113,18 +114,36 @@ func (e *EditTool) Execute(ctx Context, argsJSON string) Result {
 	}
 }
 
-// writeNoFollow writes data to a file using OpenNoFollow to reject symlinks.
-// flags controls the open mode (e.g. O_CREATE for new files, O_TRUNC for overwrites).
-func writeNoFollow(path string, data []byte, flags int, perm os.FileMode) error {
-	f, err := OpenNoFollow(path, flags, perm)
+// writeAtomic writes data to path atomically via a temp file, rejecting symlinks.
+// Atomic write-to-temp-then-rename prevents corruption on crash or close failure.
+// Each call uses a unique temp file so concurrent writes to the same path are safe.
+func writeAtomic(path string, data []byte, perm os.FileMode) error {
+	// Reject symlinks at the target path.
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing to follow symlink: %s", path)
+		}
+	}
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, filepath.Base(path)+".tmp.*")
 	if err != nil {
 		return err
 	}
+	tmp := f.Name()
 	if _, err := f.Write(data); err != nil {
 		f.Close()
+		os.Remove(tmp)
 		return err
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Chmod(tmp, perm); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // whitespaceFlexibleReplace normalizes leading whitespace (tabs → spaces)

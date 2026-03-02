@@ -95,14 +95,16 @@ func TestLSPConfig_CountEnabled_Empty(t *testing.T) {
 func TestLoadLSPConfig_InvalidClients_LogsWarning(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("RIPCODE_DIR", dir)
-	cfg := &LSPConfig{
-		Clients: []LSPClient{
-			{Name: "gopls", Root: "/tmp", Enabled: true},
-			{Name: "", Root: "/tmp"},                    // invalid: empty name
-			{Name: "tsserver", Root: "", Enabled: true}, // invalid: empty root
-		},
-	}
-	require.NoError(t, cfg.Save())
+	// Write invalid config directly to disk (bypassing Save validation)
+	// to test that Load handles corrupted files gracefully.
+	raw := `{"clients":[
+		{"name":"gopls","root":"/tmp","enabled":true},
+		{"name":"","root":"/tmp"},
+		{"name":"tsserver","root":"","enabled":true}
+	]}`
+	stateDir := filepath.Join(dir, "state")
+	require.NoError(t, os.MkdirAll(stateDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, "lsp.json"), []byte(raw), 0o644))
 
 	loaded, warns, err := LoadLSPConfig()
 	require.NoError(t, err, "invalid entries should not prevent loading")
@@ -117,6 +119,31 @@ func TestLoadLSPConfig_InvalidClients_LogsWarning(t *testing.T) {
 	assert.Contains(t, logStr, "LSP config: invalid client")
 	assert.Contains(t, logStr, "client name is required")
 	assert.Contains(t, logStr, "requires a root path")
+}
+
+func TestLSPConfig_Save_RejectsInvalidClient(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	cfg := &LSPConfig{
+		Clients: []LSPClient{
+			{Name: "gopls", Root: "/tmp", Enabled: true},
+			{Name: "", Root: "/tmp"}, // invalid: empty name
+		},
+	}
+	err := cfg.Save()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid client")
+}
+
+func TestLSPConfig_Save_RejectsEmptyRoot(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	cfg := &LSPConfig{
+		Clients: []LSPClient{
+			{Name: "tsserver", Root: ""}, // invalid: empty root
+		},
+	}
+	err := cfg.Save()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requires a root path")
 }
 
 func TestLSPClient_Valid_EmptyName_ReturnsError(t *testing.T) {

@@ -93,7 +93,7 @@ func (a App) renderTimelineDialog() string {
 		if i == a.timelineDialog.selected {
 			marker = "> "
 		}
-		sb.WriteString(fmt.Sprintf("\n%s%s", marker, entry.Content))
+		sb.WriteString(fmt.Sprintf("\n%s%s  %s", marker, entry.Time.Format("15:04"), entry.Content))
 	}
 
 	return sb.String()

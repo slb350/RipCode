@@ -152,14 +152,16 @@ func TestMCPConfig_ByName_ReturnsCopy(t *testing.T) {
 func TestLoadMCPConfig_InvalidServers_LogsWarning(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("RIPCODE_DIR", dir)
-	cfg := &MCPConfig{
-		Servers: []MCPServer{
-			{Name: "good", Command: "echo", Enabled: true},
-			{Name: "", Command: "bad"},                      // invalid: empty name
-			{Name: "both", Command: "cmd", URL: "http://x"}, // invalid: both set
-		},
-	}
-	require.NoError(t, cfg.Save())
+	// Write invalid config directly to disk (bypassing Save validation)
+	// to test that Load handles corrupted files gracefully.
+	raw := `{"servers":[
+		{"name":"good","command":"echo","enabled":true},
+		{"name":"","command":"bad"},
+		{"name":"both","command":"cmd","url":"http://x"}
+	]}`
+	stateDir := filepath.Join(dir, "state")
+	require.NoError(t, os.MkdirAll(stateDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, "mcp.json"), []byte(raw), 0o644))
 
 	loaded, warns, err := LoadMCPConfig()
 	require.NoError(t, err, "invalid entries should not prevent loading")
@@ -174,6 +176,31 @@ func TestLoadMCPConfig_InvalidServers_LogsWarning(t *testing.T) {
 	assert.Contains(t, logStr, "MCP config: invalid server")
 	assert.Contains(t, logStr, "name is required")
 	assert.Contains(t, logStr, "both")
+}
+
+func TestMCPConfig_Save_RejectsInvalidServer(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	cfg := &MCPConfig{
+		Servers: []MCPServer{
+			{Name: "good", Command: "echo", Enabled: true},
+			{Name: "", Command: "bad"}, // invalid: empty name
+		},
+	}
+	err := cfg.Save()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid server")
+}
+
+func TestMCPConfig_Save_RejectsBothCommandAndURL(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	cfg := &MCPConfig{
+		Servers: []MCPServer{
+			{Name: "both", Command: "cmd", URL: "http://x"},
+		},
+	}
+	err := cfg.Save()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "both")
 }
 
 func TestMCPServer_Valid_WithCommand(t *testing.T) {

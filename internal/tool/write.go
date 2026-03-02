@@ -43,7 +43,7 @@ type writeArgs struct {
 func (w *WriteTool) Execute(ctx Context, argsJSON string) Result {
 	var args writeArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return Result{Error: fmt.Errorf("parse args: %w", err)}
+		return Result{Error: fmt.Errorf("%s: parse args: %w", w.ID(), err)}
 	}
 
 	if args.FilePath == "" {
@@ -61,7 +61,7 @@ func (w *WriteTool) Execute(ctx Context, argsJSON string) Result {
 		return Result{Error: fmt.Errorf("create directories: %w", err)}
 	}
 
-	if err := writeNoFollow(validated, []byte(args.Content), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644); err != nil {
+	if err := writeAtomic(validated, []byte(args.Content), 0o644); err != nil {
 		return Result{Error: fmt.Errorf("write file: %w", err)}
 	}
 

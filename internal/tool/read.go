@@ -55,7 +55,7 @@ type readArgs struct {
 func (r *ReadTool) Execute(ctx Context, argsJSON string) Result {
 	var args readArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return Result{Error: fmt.Errorf("parse args: %w", err)}
+		return Result{Error: fmt.Errorf("%s: parse args: %w", r.ID(), err)}
 	}
 
 	validated, err := ValidatePath(args.FilePath, ctx.WorkDir, true)

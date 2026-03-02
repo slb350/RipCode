@@ -47,6 +47,22 @@ func TestApp_TimelineDialog_ArrowNavigates(t *testing.T) {
 	assert.Equal(t, 1, a.timelineDialog.selected)
 }
 
+func TestApp_TimelineDialog_ShowsTimestamps(t *testing.T) {
+	a := makeSessionAppWithHistory(t)
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/timeline"})
+	a = model.(App)
+	assert.True(t, a.timelineDialog.open)
+
+	rendered := a.renderTimelineDialog()
+	// Timeline should render timestamps in HH:MM format.
+	assert.Contains(t, rendered, ":", "timeline should contain timestamp with colon separator")
+	// Entries should include both the time and the message content.
+	entries := a.timelineEntries()
+	require.NotEmpty(t, entries)
+	timeStr := entries[0].Time.Format("15:04")
+	assert.Contains(t, rendered, timeStr, "timeline should show message timestamp")
+}
+
 func TestApp_TimelineDialog_JumpUsesRenderedLineOffset(t *testing.T) {
 	a := makeSessionApp(t)
 	sess := session.New(t.TempDir())

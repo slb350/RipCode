@@ -175,6 +175,10 @@ func Load(id string) (*session.Session, error) {
 		return nil, fmt.Errorf("unmarshal session %s: %w", id, err)
 	}
 
+	if f.ID != id {
+		return nil, fmt.Errorf("session %s: internal ID mismatch %q", id, f.ID)
+	}
+
 	s := &session.Session{
 		ID:        f.ID,
 		Title:     f.Title,

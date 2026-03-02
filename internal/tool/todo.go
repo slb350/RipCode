@@ -62,7 +62,7 @@ type todoArgs struct {
 func (td *TodoTool) Execute(ctx Context, argsJSON string) Result {
 	var args todoArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return Result{Error: fmt.Errorf("parse args: %w", err)}
+		return Result{Error: fmt.Errorf("%s: parse args: %w", td.ID(), err)}
 	}
 
 	switch args.Action {

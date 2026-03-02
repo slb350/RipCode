@@ -90,7 +90,7 @@ type bashArgs struct {
 func (b *BashTool) Execute(ctx Context, argsJSON string) Result {
 	var args bashArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return Result{Error: fmt.Errorf("parse args: %w", err)}
+		return Result{Error: fmt.Errorf("%s: parse args: %w", b.ID(), err)}
 	}
 
 	if args.Command == "" {

@@ -71,7 +71,7 @@ func TestLogError_FallsBackToStderr(t *testing.T) {
 	require.NoError(t, err)
 
 	output := buf.String()
-	assert.Contains(t, output, "[ripcode]")
+	assert.Contains(t, output, "[ripcode] (log file unavailable)")
 	assert.Contains(t, output, "test message")
 	assert.Contains(t, output, "test error")
 }

@@ -47,7 +47,7 @@ type globArgs struct {
 func (g *GlobTool) Execute(ctx Context, argsJSON string) Result {
 	var args globArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return Result{Error: fmt.Errorf("parse args: %w", err)}
+		return Result{Error: fmt.Errorf("%s: parse args: %w", g.ID(), err)}
 	}
 
 	root := args.Path

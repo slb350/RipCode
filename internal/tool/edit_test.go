@@ -3,6 +3,7 @@ package tool
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -270,4 +271,39 @@ func TestEdit_MapNormPos_TabBoundary(t *testing.T) {
 	// Position 0.
 	pos = mapNormPos(orig, norm, 0)
 	assert.Equal(t, 0, pos)
+}
+
+func TestEdit_ValidatesPathBeforeOldString(t *testing.T) {
+	e := NewEditTool()
+	ctx := newTestCtx(t)
+
+	// Both file_path (non-existent) and old_string are invalid —
+	// should get path error first, not old_string error.
+	result := e.Execute(ctx, `{"file_path":"/nonexistent/path/to/file.txt","old_string":"","new_string":"x"}`)
+	require.Error(t, result.Error)
+	assert.Contains(t, result.Error.Error(), "path")
+	assert.NotContains(t, result.Error.Error(), "old_string")
+}
+
+func TestEdit_AtomicWrite_NoTmpLeftOnSuccess(t *testing.T) {
+	e := NewEditTool()
+	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "atomic.txt")
+	require.NoError(t, os.WriteFile(path, []byte("hello world"), 0644))
+
+	result := e.Execute(ctx, `{"file_path":"`+path+`","old_string":"hello","new_string":"goodbye"}`)
+	require.NoError(t, result.Error)
+
+	// Verify edit applied.
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "goodbye world", string(data))
+
+	// No temp file should remain in the directory.
+	entries, dirErr := os.ReadDir(ctx.WorkDir)
+	require.NoError(t, dirErr)
+	for _, entry := range entries {
+		assert.False(t, strings.Contains(entry.Name(), ".tmp."),
+			"leftover temp file found: %s", entry.Name())
+	}
 }

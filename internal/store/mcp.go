@@ -50,7 +50,13 @@ func LoadMCPConfig() (*MCPConfig, []string, error) {
 }
 
 // Save writes MCP configuration to disk.
+// Returns an error if any server entry is invalid.
 func (c *MCPConfig) Save() error {
+	for _, s := range c.Servers {
+		if err := s.Valid(); err != nil {
+			return fmt.Errorf("invalid server %q: %w", s.Name, err)
+		}
+	}
 	return saveState(mcpConfigFile, c)
 }
 

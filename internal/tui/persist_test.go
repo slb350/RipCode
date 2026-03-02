@@ -19,9 +19,9 @@ func TestApp_FooterShowsMCPCount_FromConfig(t *testing.T) {
 	t.Setenv("RIPCODE_DIR", t.TempDir())
 	cfg := &store.MCPConfig{
 		Servers: []store.MCPServer{
-			{Name: "srv1", Enabled: true},
-			{Name: "srv2", Enabled: true},
-			{Name: "srv3", Enabled: false},
+			{Name: "srv1", Command: "echo 1", Enabled: true},
+			{Name: "srv2", Command: "echo 2", Enabled: true},
+			{Name: "srv3", Command: "echo 3", Enabled: false},
 		},
 	}
 	require.NoError(t, cfg.Save())
@@ -43,7 +43,7 @@ func TestApp_FooterShowsLSPCount_FromConfig(t *testing.T) {
 	t.Setenv("RIPCODE_DIR", t.TempDir())
 	cfg := &store.LSPConfig{
 		Clients: []store.LSPClient{
-			{Name: "gopls", Enabled: true},
+			{Name: "gopls", Root: "/tmp/project", Enabled: true},
 		},
 	}
 	require.NoError(t, cfg.Save())

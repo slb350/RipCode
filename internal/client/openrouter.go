@@ -255,6 +255,7 @@ func (c *OpenRouter) streamResponse(ctx context.Context, resp *http.Response, ch
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // 1MB limit for large tool call args
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():

@@ -788,6 +788,35 @@ func TestFork_ToolCalls_IndependentCopy(t *testing.T) {
 		"second ToolCall should also be independent")
 }
 
+func TestFork_AssistantMeta_IndependentCopy(t *testing.T) {
+	s := New("/tmp")
+	s.AddUser("question")
+	meta := &AssistantMeta{
+		Model:        "gpt-4",
+		Agent:        "build",
+		InputTokens:  100,
+		OutputTokens: 50,
+		FinishReason: "stop",
+	}
+	s.AddAssistant("answer", nil, meta)
+
+	forked, err := s.Fork(1)
+	require.NoError(t, err)
+
+	// Mutate forked Meta.
+	forked.messages[1].Meta.Model = "MUTATED"
+	forked.messages[1].Meta.Agent = "MUTATED"
+	forked.messages[1].Meta.InputTokens = 999
+
+	// Original Meta should be unchanged.
+	assert.Equal(t, "gpt-4", s.messages[1].Meta.Model,
+		"original Meta.Model should be unchanged after forked mutation")
+	assert.Equal(t, "build", s.messages[1].Meta.Agent,
+		"original Meta.Agent should be unchanged after forked mutation")
+	assert.Equal(t, 100, s.messages[1].Meta.InputTokens,
+		"original Meta.InputTokens should be unchanged after forked mutation")
+}
+
 func TestMessageRecord_Valid_ValidUser(t *testing.T) {
 	rec := MessageRecord{
 		ID:        "msg-001",
