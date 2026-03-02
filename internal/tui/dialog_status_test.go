@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 	"github.com/stretchr/testify/assert"
 )
@@ -101,4 +102,27 @@ func TestApp_StatusDialog_ShowsFormattersSection(t *testing.T) {
 	a = model.(App)
 	rendered := a.renderStatusDialog()
 	assert.Contains(t, rendered, "\n\nFormatters\n")
+}
+
+func TestApp_StatusDialog_ShowsConfiguredMCPAndLSP(t *testing.T) {
+	a := makeSessionApp(t)
+	a.mcpConfig = &store.MCPConfig{
+		Servers: []store.MCPServer{
+			{Name: "github", Command: "mcp-github", Enabled: true},
+			{Name: "jira", Command: "mcp-jira", Enabled: false},
+		},
+	}
+	a.lspConfig = &store.LSPConfig{
+		Clients: []store.LSPClient{
+			{Name: "gopls", Root: ".", Enabled: true},
+			{Name: "pyright", Root: ".", Enabled: false},
+		},
+	}
+
+	rendered := a.renderStatusDialog()
+	assert.Contains(t, rendered, "github")
+	assert.Contains(t, rendered, "jira")
+	assert.Contains(t, rendered, "gopls")
+	assert.Contains(t, rendered, "pyright")
+	assert.NotContains(t, rendered, "(none connected)")
 }

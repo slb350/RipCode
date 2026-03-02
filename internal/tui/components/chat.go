@@ -139,6 +139,28 @@ func (c Chat) ScrollPos() int { return c.scrollPos }
 // SetScrollPos sets the scroll position directly.
 func (c *Chat) SetScrollPos(pos int) { c.scrollPos = max(0, pos) }
 
+// LineOffsetForUserMessage returns the rendered line offset for the nth user
+// message (0-based), or false if the index is out of range.
+func (c Chat) LineOffsetForUserMessage(idx int) (int, bool) {
+	if idx < 0 {
+		return 0, false
+	}
+
+	userIdx := 0
+	linePos := 0
+	for _, entry := range c.entries {
+		if entry.Role == RoleUser {
+			if userIdx == idx {
+				return linePos, true
+			}
+			userIdx++
+		}
+		// Mirror View rendering: entry lines + one blank separator line.
+		linePos += len(c.renderEntry(entry)) + 1
+	}
+	return 0, false
+}
+
 // NextUserMessage jumps scroll to the next user message entry after current view
 // (uses 2-line-per-entry approximation).
 func (c *Chat) NextUserMessage() {

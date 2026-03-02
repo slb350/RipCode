@@ -1,12 +1,15 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/stephenbrandon/ripcode/internal/session"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestApp_TimelineDialog_OpensWithSlashTimeline(t *testing.T) {
@@ -42,4 +45,29 @@ func TestApp_TimelineDialog_ArrowNavigates(t *testing.T) {
 	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	a = model.(App)
 	assert.Equal(t, 1, a.timelineDialog.selected)
+}
+
+func TestApp_TimelineDialog_JumpUsesRenderedLineOffset(t *testing.T) {
+	a := makeSessionApp(t)
+	sess := session.New(t.TempDir())
+	sess.AddUser("first question")
+	sess.AddAssistant(strings.Repeat("long assistant content ", 20), nil, nil)
+	sess.AddUser("second question target")
+	sess.AddAssistant("second answer", nil, nil)
+	a.SetSession(sess)
+	a.rebuildChatFromSession()
+	a.chat.SetSize(50, 200)
+
+	lines := strings.Split(a.chat.View(), "\n")
+	expected := -1
+	for i, line := range lines {
+		if strings.Contains(line, "second question target") {
+			expected = i
+			break
+		}
+	}
+	require.GreaterOrEqual(t, expected, 0, "expected to find target user message in rendered chat")
+
+	a.scrollToUserMessage(1)
+	assert.Equal(t, expected, a.chat.ScrollPos())
 }

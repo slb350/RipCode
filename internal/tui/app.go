@@ -145,23 +145,34 @@ func NewApp() App {
 	if err != nil {
 		warnings = append(warnings, fmt.Sprintf("prompt stash: %v, using defaults", err))
 	}
+	summaries, corrupted, err := store.List()
+	if err != nil {
+		warnings = append(warnings, fmt.Sprintf("session list: %v, using defaults", err))
+	}
+	if len(corrupted) > 0 {
+		warnings = append(warnings, fmt.Sprintf("%d corrupted session file(s) skipped", len(corrupted)))
+	}
 
 	a := App{
-		chat:            components.NewChat(),
-		input:           components.NewInput(),
-		statusbar:       components.NewStatusBar(),
-		footer:          footer,
-		toolpanel:       components.NewToolPanel(),
-		home:            components.NewHome(),
-		state:           StateHome,
-		maxSteps:        100,
-		promptHistory:   history,
-		toasts:          components.NewToastManager(),
-		stash:           stash,
-		modelPrefs:      prefs,
-		mcpConfig:       mcpCfg,
-		lspConfig:       lspCfg,
-		uiPrefs:         uiPrefs,
+		chat:          components.NewChat(),
+		input:         components.NewInput(),
+		statusbar:     components.NewStatusBar(),
+		footer:        footer,
+		toolpanel:     components.NewToolPanel(),
+		home:          components.NewHome(),
+		state:         StateHome,
+		maxSteps:      100,
+		promptHistory: history,
+		toasts:        components.NewToastManager(),
+		stash:         stash,
+		modelPrefs:    prefs,
+		mcpConfig:     mcpCfg,
+		lspConfig:     lspCfg,
+		uiPrefs:       uiPrefs,
+		sessionsDialog: sessionsDialogState{
+			entries: summaries,
+			loaded:  err == nil,
+		},
 		startupWarnings: warnings,
 	}
 	a.initRegistry()
@@ -280,8 +291,8 @@ func (a App) showGettingStarted() bool {
 	if a.uiPrefs == nil || a.uiPrefs.GettingStartedDismissed {
 		return false
 	}
-	// Hide when user has session history
-	if a.sessionsDialog.loaded && len(a.sessionsDialog.entries) > 0 {
+	// Hide when user has session history.
+	if len(a.sessionsDialog.entries) > 0 {
 		return false
 	}
 	return true

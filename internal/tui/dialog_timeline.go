@@ -8,7 +8,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/stephenbrandon/ripcode/internal/provider"
-	"github.com/stephenbrandon/ripcode/internal/tui/components"
 )
 
 type timelineEntry struct {
@@ -74,17 +73,8 @@ func (a App) handleTimelineDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) scrollToUserMessage(idx int) {
-	userCount := 0
-	linePos := 0
-	for _, entry := range a.chat.Entries() {
-		if entry.Role == components.RoleUser {
-			if userCount == idx {
-				a.chat.SetScrollPos(linePos)
-				return
-			}
-			userCount++
-		}
-		linePos += 2 // approximate: entry + blank line
+	if linePos, ok := a.chat.LineOffsetForUserMessage(idx); ok {
+		a.chat.SetScrollPos(linePos)
 	}
 }
 

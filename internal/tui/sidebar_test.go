@@ -310,6 +310,17 @@ func TestApp_GettingStarted_HiddenWhenHasSessions(t *testing.T) {
 	assert.NotContains(t, sidebar, "Getting Started")
 }
 
+func TestApp_GettingStarted_HiddenWhenSessionEntriesCached(t *testing.T) {
+	a := makeSidebarApp(t)
+	a.uiPrefs = &store.UIPrefs{GettingStartedDismissed: false}
+	a.sessionsDialog.entries = []store.SessionSummary{
+		{ID: "test", Title: "test"},
+	}
+
+	sidebar := a.renderSidebar()
+	assert.NotContains(t, sidebar, "Getting Started")
+}
+
 func TestPanelRectFromRendered_ZeroDimensions(t *testing.T) {
 	a := makeSidebarApp(t)
 	x, y, w, h := a.panelRectFromRendered("")

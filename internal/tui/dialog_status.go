@@ -7,6 +7,35 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+type statusItem struct {
+	Name    string
+	Enabled bool
+	Detail  string
+}
+
+func renderStatusSection(sb *strings.Builder, title string, items []statusItem) {
+	sb.WriteString("\n\n")
+	sb.WriteString(title)
+	if len(items) == 0 {
+		sb.WriteString("\n  (none connected)")
+		return
+	}
+	enabled := 0
+	for _, item := range items {
+		state := "disabled"
+		if item.Enabled {
+			state = "enabled"
+			enabled++
+		}
+		if item.Detail == "" {
+			sb.WriteString(fmt.Sprintf("\n  %s (%s)", item.Name, state))
+		} else {
+			sb.WriteString(fmt.Sprintf("\n  %s (%s) — %s", item.Name, state, item.Detail))
+		}
+	}
+	sb.WriteString(fmt.Sprintf("\n  %d/%d enabled", enabled, len(items)))
+}
+
 func (a App) handleStatusDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Code == tea.KeyEscape, msg.Code == tea.KeyEnter:
@@ -55,11 +84,25 @@ func (a App) renderStatusDialog() string {
 	sb.WriteString(fmt.Sprintf("\n  Tokens      %s in / %s out", formatNumber(tokIn), formatNumber(tokOut)))
 	sb.WriteString(fmt.Sprintf("\n  WorkDir     %s", workDir))
 
-	sb.WriteString("\n\nMCP Servers")
-	sb.WriteString("\n  (none connected)")
+	var mcpItems []statusItem
+	if a.mcpConfig != nil {
+		for _, srv := range a.mcpConfig.Servers {
+			detail := srv.Command
+			if detail == "" {
+				detail = srv.URL
+			}
+			mcpItems = append(mcpItems, statusItem{srv.Name, srv.Enabled, detail})
+		}
+	}
+	renderStatusSection(&sb, "MCP Servers", mcpItems)
 
-	sb.WriteString("\n\nLSP Clients")
-	sb.WriteString("\n  (none connected)")
+	var lspItems []statusItem
+	if a.lspConfig != nil {
+		for _, cl := range a.lspConfig.Clients {
+			lspItems = append(lspItems, statusItem{cl.Name, cl.Enabled, cl.Root})
+		}
+	}
+	renderStatusSection(&sb, "LSP Clients", lspItems)
 
 	sb.WriteString("\n\nFormatters")
 	sb.WriteString("\n  (none configured)")
