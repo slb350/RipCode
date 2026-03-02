@@ -62,6 +62,10 @@ type ChatEntry struct {
 	Meta       *CompleteMeta // for RoleComplete entries
 }
 
+// minContentWidth is the floor for wrapped content width, preventing
+// degenerate layouts when the terminal is very narrow.
+const minContentWidth = 20
+
 // Chat is a scrollable viewport displaying conversation messages.
 type Chat struct {
 	entries        []ChatEntry
@@ -148,7 +152,9 @@ func (c *Chat) StreamContent(delta string) {
 }
 
 // StreamPart appends a delta to the streaming parts accumulator.
-// If the last part matches the type, the delta is appended; otherwise a new part starts.
+// Consecutive deltas of the same type are merged into one part; a type change
+// starts a new part. Invalid PartTypes are logged but still accumulated
+// (non-blocking) to preserve content visibility during streaming.
 func (c *Chat) StreamPart(typ PartType, delta string) {
 	if delta == "" {
 		return
@@ -165,7 +171,10 @@ func (c *Chat) StreamPart(typ PartType, delta string) {
 }
 
 // CommitStream finalizes streaming content as an assistant entry.
-// Handles both legacy streaming (single string) and part-based streaming.
+// Two streaming paths exist for backward compatibility:
+//   - Legacy: StreamContent() accumulates raw deltas (pre-Phase 5 path)
+//   - Parts: StreamPart() accumulates typed content segments (text/reasoning)
+//
 // If both paths are populated (shouldn't happen in normal use), parts take
 // precedence and legacy streaming is cleared to avoid data ambiguity.
 func (c *Chat) CommitStream() {
@@ -417,8 +426,8 @@ func (c Chat) renderUserEntry(entry ChatEntry, t *styles.Theme) []string {
 	accentStyle := lipgloss.NewStyle().Foreground(modeColor)
 
 	maxWidth := c.width - 4 // ┃ + space + padding
-	if maxWidth < 20 {
-		maxWidth = 20
+	if maxWidth < minContentWidth {
+		maxWidth = minContentWidth
 	}
 
 	wrapped := wrapText(entry.Content, maxWidth)
@@ -436,6 +445,15 @@ func (c Chat) renderUserEntry(entry ChatEntry, t *styles.Theme) []string {
 	return result
 }
 
+// contentWidth returns the maximum content width for assistant messages.
+func (c Chat) contentWidth() int {
+	maxWidth := c.width - 3 // 3-space indent
+	if maxWidth < minContentWidth {
+		return minContentWidth
+	}
+	return maxWidth
+}
+
 // renderAssistantEntry renders assistant messages with 3-space indent.
 func (c Chat) renderAssistantEntry(entry ChatEntry, t *styles.Theme) []string {
 	if len(entry.Parts) > 0 {
@@ -446,11 +464,7 @@ func (c Chat) renderAssistantEntry(entry ChatEntry, t *styles.Theme) []string {
 		return result
 	}
 
-	maxWidth := c.width - 3
-	if maxWidth < 20 {
-		maxWidth = 20
-	}
-
+	maxWidth := c.contentWidth()
 	content := entry.Content
 	if !c.showCodeBlocks {
 		content = concealCodeBlocks(content)
@@ -470,10 +484,7 @@ func (c Chat) renderAssistantEntry(entry ChatEntry, t *styles.Theme) []string {
 
 // renderAssistantParts renders a parts-based assistant message.
 func (c Chat) renderAssistantParts(parts []MessagePart, t *styles.Theme) []string {
-	maxWidth := c.width - 3
-	if maxWidth < 20 {
-		maxWidth = 20
-	}
+	maxWidth := c.contentWidth()
 
 	var result []string
 	inConcealedBlock := false
@@ -581,8 +592,8 @@ func (c Chat) renderToolEntry(entry ChatEntry, t *styles.Theme) []string {
 
 	if c.showDetails && entry.Content != "" && entry.ToolStatus != StatusPending {
 		maxW := c.width - 8
-		if maxW < 20 {
-			maxW = 20
+		if maxW < minContentWidth {
+			maxW = minContentWidth
 		}
 		for _, dl := range strings.Split(entry.Content, "\n") {
 			if lipgloss.Width(dl) > maxW {
@@ -605,8 +616,8 @@ func (c Chat) renderSystemEntry(entry ChatEntry, t *styles.Theme) []string {
 	prefix := t.TextMutedStyle.Render("~") + " "
 
 	maxWidth := c.width - lipgloss.Width(prefix)
-	if maxWidth < 20 {
-		maxWidth = 20
+	if maxWidth < minContentWidth {
+		maxWidth = minContentWidth
 	}
 
 	wrapped := wrapText(entry.Content, maxWidth)

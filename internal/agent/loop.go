@@ -43,6 +43,33 @@ type Event struct {
 	Error   error // for EventError
 }
 
+// Valid checks that the Event has a recognized type and required fields.
+func (e Event) Valid() error {
+	switch e.Type {
+	case EventContentDelta:
+		// Content may be empty
+	case EventReasoningDelta:
+		// Content may be empty
+	case EventToolStart:
+		if e.Tool == nil {
+			return fmt.Errorf("tool start event missing Tool")
+		}
+	case EventToolEnd:
+		if e.Tool == nil {
+			return fmt.Errorf("tool end event missing Tool")
+		}
+	case EventDone:
+		// No required fields
+	case EventError:
+		if e.Error == nil {
+			return fmt.Errorf("error event missing Error")
+		}
+	default:
+		return fmt.Errorf("unknown event type: %d", e.Type)
+	}
+	return nil
+}
+
 // Loop orchestrates the agent's prompt-stream-tool cycle.
 type Loop struct {
 	provider provider.Provider

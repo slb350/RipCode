@@ -148,3 +148,10 @@ func TestChat_ConcealAcrossInterleavedParts(t *testing.T) {
 	assert.Contains(t, view, "thinking")
 	assert.Contains(t, view, "After")
 }
+
+func TestConcealCodeBlocks_FenceAtEndOfText(t *testing.T) {
+	input := "Before\n```"
+	result := concealCodeBlocks(input)
+	assert.Contains(t, result, "Before")
+	assert.Contains(t, result, "[code block hidden]")
+}

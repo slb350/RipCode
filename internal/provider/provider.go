@@ -103,7 +103,7 @@ const (
 	EventToolCall
 	EventFinish
 	EventError
-	EventReasoningDelta
+	EventReasoningDelta // Appended last to preserve existing ordinals for backward compat
 )
 
 // StreamEvent is a single event in a streaming LLM response.

@@ -654,3 +654,95 @@ func TestLoop_UnknownTool(t *testing.T) {
 	}
 	assert.Contains(t, toolEndError, "unknown tool")
 }
+
+// --- Event.Valid tests ---
+
+func TestLoop_EmptyReasoningDelta_StillEmitted(t *testing.T) {
+	p := &mockProvider{
+		responses: []mockResponse{
+			{events: []provider.StreamEvent{
+				{Type: provider.EventReasoningDelta, Content: ""},
+				{Type: provider.EventContentDelta, Content: "answer"},
+				{Type: provider.EventFinish, Meta: &provider.Metadata{
+					InputTokens: 10, OutputTokens: 5, FinishReason: "stop",
+				}},
+			}},
+		},
+	}
+
+	reg := newTestRegistry()
+	sess := session.New("/tmp")
+	loop := NewLoop(p, reg, sess, BuildAgent(), 10)
+
+	events := collectEvents(loop.Run(context.Background(), "test"))
+
+	var gotContent, gotDone bool
+	for _, e := range events {
+		if e.Type == EventContentDelta {
+			gotContent = true
+		}
+		if e.Type == EventDone {
+			gotDone = true
+		}
+	}
+	assert.True(t, gotContent, "content delta should still be emitted after empty reasoning")
+	assert.True(t, gotDone, "loop should complete normally")
+}
+
+func TestEvent_Valid_ContentDelta(t *testing.T) {
+	e := Event{Type: EventContentDelta, Content: "hello"}
+	assert.NoError(t, e.Valid())
+}
+
+func TestEvent_Valid_ReasoningDelta(t *testing.T) {
+	e := Event{Type: EventReasoningDelta, Content: "thinking"}
+	assert.NoError(t, e.Valid())
+}
+
+func TestEvent_Valid_ToolStart(t *testing.T) {
+	e := Event{Type: EventToolStart, Tool: &ToolEvent{ID: "1", Name: "bash"}}
+	assert.NoError(t, e.Valid())
+}
+
+func TestEvent_Valid_ToolStart_MissingTool(t *testing.T) {
+	e := Event{Type: EventToolStart}
+	err := e.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing Tool")
+}
+
+func TestEvent_Valid_ToolEnd(t *testing.T) {
+	e := Event{Type: EventToolEnd, Tool: &ToolEvent{ID: "1", Name: "bash", Output: "ok"}}
+	assert.NoError(t, e.Valid())
+}
+
+func TestEvent_Valid_ToolEnd_MissingTool(t *testing.T) {
+	e := Event{Type: EventToolEnd}
+	err := e.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing Tool")
+}
+
+func TestEvent_Valid_Done(t *testing.T) {
+	e := Event{Type: EventDone}
+	assert.NoError(t, e.Valid())
+}
+
+func TestEvent_Valid_Error(t *testing.T) {
+	e := Event{Type: EventError, Error: fmt.Errorf("fail")}
+	assert.NoError(t, e.Valid())
+}
+
+func TestEvent_Valid_Error_MissingError(t *testing.T) {
+	e := Event{Type: EventError}
+	err := e.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing Error")
+}
+
+func TestEvent_Valid_UnknownType(t *testing.T) {
+	e := Event{Type: EventType(99)}
+	err := e.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown event type")
+}

@@ -111,6 +111,8 @@ func (a *App) executeExport() tea.Cmd {
 			sb.WriteString("**Error:** " + e.Content + "\n\n")
 		case components.RoleSystem:
 			sb.WriteString("*" + e.Content + "*\n\n")
+		default:
+			store.LogErrorf("export: unknown entry role %q skipped", e.Role)
 		}
 	}
 

@@ -491,6 +491,38 @@ func TestApp_RebuildChat_SkipsSystemMessages(t *testing.T) {
 	}
 }
 
+func TestApp_RebuildChat_CarriesRecordTimestamps(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RIPCODE_DIR", dir)
+
+	sess := session.New(t.TempDir())
+	sess.AddUser("u1")
+	sess.AddAssistant("a1", []provider.ToolCall{{ID: "tc1", Name: "read", Args: `{"path":"main.go"}`}}, nil)
+	sess.AddToolResult("tc1", "tool output")
+	records := sess.Records()
+	require.Len(t, records, 3)
+	require.NoError(t, store.Save(sess))
+
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	model, _ = a.resumeSession(sess.ID)
+	a = model.(App)
+
+	entries := a.chat.Entries()
+	require.Len(t, entries, len(records))
+
+	assert.True(t, entries[0].CreatedAt.Equal(records[0].CreatedAt), "user entry timestamp should match session record")
+	assert.True(t, entries[1].CreatedAt.Equal(records[1].CreatedAt), "assistant entry timestamp should match session record")
+	assert.True(t, entries[2].CreatedAt.Equal(records[2].CreatedAt), "tool entry timestamp should match session record")
+}
+
 func TestApp_SessionsLoadedMsg_WithError_ClearsStaleEntries(t *testing.T) {
 	app := makeSessionApp(t)
 	model, _ := app.Update(components.InputSubmitMsg{Value: "/sessions"})

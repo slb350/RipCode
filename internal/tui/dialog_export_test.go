@@ -390,5 +390,44 @@ func TestApp_ExportDialog_ExcludeThinking_OmitsReasoningParts(t *testing.T) {
 	assert.Contains(t, content, "visible answer")
 }
 
+func TestApp_ExportDialog_OnlyReasoningParts_ExcludeThinking_EmptyAssistant(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	sess := session.New(t.TempDir())
+	app.SetSession(sess)
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	// Add assistant entry with ONLY reasoning parts (no text)
+	a.chat.Clear()
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: "question"})
+	a.chat.AddEntry(components.ChatEntry{
+		Role: components.RoleAssistant,
+		Parts: []components.MessagePart{
+			{Type: components.PartReasoning, Content: "only thinking"},
+		},
+	})
+
+	// Export with includeThinking disabled
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/export"})
+	a = model.(App)
+	a.exportDialog.includeThinking = false
+	a.exportDialog.filename = "reasoning-only-export.md"
+	a.exportDialog.focusedField = 3
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+
+	data, err := os.ReadFile(filepath.Join(sess.WorkDir, "reasoning-only-export.md"))
+	require.NoError(t, err)
+	content := string(data)
+	assert.NotContains(t, content, "only thinking", "reasoning-only entry should not leak thinking content")
+	assert.Contains(t, content, "question")
+}
+
 // Ensure unused imports don't cause issues
 var _ = provider.ModelInfo{}

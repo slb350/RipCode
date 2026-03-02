@@ -14,6 +14,15 @@ import (
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 )
 
+// toggleToast returns a toast command with "X shown" or "X hidden" message.
+func toggleToast(a *App, label string, enabled bool) tea.Cmd {
+	state := "hidden"
+	if enabled {
+		state = "shown"
+	}
+	return a.ShowToast(fmt.Sprintf("%s %s", label, state), components.ToastInfo)
+}
+
 func (a *App) initRegistry() {
 	r := NewCommandRegistry()
 
@@ -193,11 +202,7 @@ func (a *App) initRegistry() {
 		Execute: true,
 		Handler: func(a *App) tea.Cmd {
 			a.chat.SetShowDetails(!a.chat.ShowDetails())
-			state := "shown"
-			if !a.chat.ShowDetails() {
-				state = "hidden"
-			}
-			return a.ShowToast(fmt.Sprintf("Tool details %s", state), components.ToastInfo)
+			return toggleToast(a, "Tool details", a.chat.ShowDetails())
 		},
 	})
 
@@ -335,11 +340,7 @@ func (a *App) initRegistry() {
 		Execute: true,
 		Handler: func(a *App) tea.Cmd {
 			a.chat.SetShowThinking(!a.chat.ShowThinking())
-			state := "shown"
-			if !a.chat.ShowThinking() {
-				state = "hidden"
-			}
-			return a.ShowToast(fmt.Sprintf("Thinking blocks %s", state), components.ToastInfo)
+			return toggleToast(a, "Thinking blocks", a.chat.ShowThinking())
 		},
 	})
 
@@ -362,11 +363,7 @@ func (a *App) initRegistry() {
 		Execute: true,
 		Handler: func(a *App) tea.Cmd {
 			a.chat.SetShowTimestamps(!a.chat.ShowTimestamps())
-			state := "shown"
-			if !a.chat.ShowTimestamps() {
-				state = "hidden"
-			}
-			return a.ShowToast(fmt.Sprintf("Timestamps %s", state), components.ToastInfo)
+			return toggleToast(a, "Timestamps", a.chat.ShowTimestamps())
 		},
 	})
 
@@ -470,11 +467,7 @@ func (a *App) initRegistry() {
 		Hidden: true, Execute: true,
 		Handler: func(a *App) tea.Cmd {
 			a.chat.SetShowCodeBlocks(!a.chat.ShowCodeBlocks())
-			state := "shown"
-			if !a.chat.ShowCodeBlocks() {
-				state = "hidden"
-			}
-			return a.ShowToast(fmt.Sprintf("Code blocks %s", state), components.ToastInfo)
+			return toggleToast(a, "Code blocks", a.chat.ShowCodeBlocks())
 		},
 	})
 

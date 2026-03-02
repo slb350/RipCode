@@ -319,6 +319,91 @@ func TestChatEntry_CopyableContent_Empty(t *testing.T) {
 	assert.Equal(t, "", e.CopyableContent())
 }
 
+// --- ChatEntry.Valid tests ---
+
+func TestChatEntry_Valid_SimpleUser(t *testing.T) {
+	e := ChatEntry{Role: RoleUser, Content: "hello"}
+	assert.NoError(t, e.Valid())
+}
+
+func TestChatEntry_Valid_SimpleAssistant(t *testing.T) {
+	e := ChatEntry{Role: RoleAssistant, Content: "reply"}
+	assert.NoError(t, e.Valid())
+}
+
+func TestChatEntry_Valid_AssistantWithParts(t *testing.T) {
+	e := ChatEntry{
+		Role:    RoleAssistant,
+		Content: "visible",
+		Parts: []MessagePart{
+			{Type: PartReasoning, Content: "thinking"},
+			{Type: PartText, Content: "visible"},
+		},
+	}
+	assert.NoError(t, e.Valid())
+}
+
+func TestChatEntry_Valid_UnknownRole(t *testing.T) {
+	e := ChatEntry{Role: "bogus"}
+	err := e.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid role")
+}
+
+func TestChatEntry_Valid_EmptyRole(t *testing.T) {
+	e := ChatEntry{Role: ""}
+	assert.Error(t, e.Valid())
+}
+
+func TestChatEntry_Valid_ToolRequiresToolID(t *testing.T) {
+	e := ChatEntry{Role: RoleTool, ToolName: "bash", ToolID: ""}
+	err := e.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "ToolID")
+}
+
+func TestChatEntry_Valid_ToolWithID(t *testing.T) {
+	e := ChatEntry{Role: RoleTool, ToolName: "bash", ToolID: "t1", ToolStatus: StatusPending}
+	assert.NoError(t, e.Valid())
+}
+
+func TestChatEntry_Valid_CompleteRequiresMeta(t *testing.T) {
+	e := ChatEntry{Role: RoleComplete}
+	err := e.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Meta")
+}
+
+func TestChatEntry_Valid_CompleteWithMeta(t *testing.T) {
+	e := ChatEntry{Role: RoleComplete, Meta: &CompleteMeta{Mode: "build", Model: "gpt-4"}}
+	assert.NoError(t, e.Valid())
+}
+
+func TestChatEntry_Valid_PartsContentMismatch(t *testing.T) {
+	e := ChatEntry{
+		Role:    RoleAssistant,
+		Content: "wrong content",
+		Parts: []MessagePart{
+			{Type: PartText, Content: "correct content"},
+		},
+	}
+	err := e.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "Content mismatch")
+}
+
+func TestChatEntry_Valid_InvalidPart(t *testing.T) {
+	e := ChatEntry{
+		Role: RoleAssistant,
+		Parts: []MessagePart{
+			{Type: PartType("bogus"), Content: "x"},
+		},
+	}
+	err := e.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "part[0]")
+}
+
 // --- CommitStream dual-path test ---
 
 func TestChat_CommitStream_BothPathsPopulated_PartsWin(t *testing.T) {

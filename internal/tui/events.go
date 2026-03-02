@@ -122,7 +122,7 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 
 	default:
 		store.LogErrorf("events: unhandled agent event type %d", event.Type)
-		return a, nil
+		return a, listenForEvents(a.eventCh)
 	}
 }
 

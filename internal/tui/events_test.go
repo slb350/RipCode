@@ -175,9 +175,9 @@ func TestApp_UnknownEventType_GracefullyIgnored(t *testing.T) {
 	})
 	a := model.(App)
 
-	// Should not panic, should not crash
+	// Should not panic, should not crash, and should continue listening
 	assert.True(t, a.streaming, "streaming should remain active after unknown event")
-	assert.Nil(t, cmd, "unknown event should not return a command")
+	assert.NotNil(t, cmd, "unknown event must continue listening for events")
 }
 
 // --- Reasoning Event tests ---

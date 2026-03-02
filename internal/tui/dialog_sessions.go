@@ -187,13 +187,15 @@ func (a *App) rebuildChatFromSession() {
 		switch rec.Message.Role {
 		case provider.RoleUser:
 			a.chat.AddEntry(components.ChatEntry{
-				Role:    components.RoleUser,
-				Content: rec.Message.Content,
+				Role:      components.RoleUser,
+				Content:   rec.Message.Content,
+				CreatedAt: rec.CreatedAt,
 			})
 		case provider.RoleAssistant:
 			a.chat.AddEntry(components.ChatEntry{
-				Role:    components.RoleAssistant,
-				Content: rec.Message.Content,
+				Role:      components.RoleAssistant,
+				Content:   rec.Message.Content,
+				CreatedAt: rec.CreatedAt,
 			})
 		case provider.RoleTool:
 			a.chat.AddEntry(components.ChatEntry{
@@ -202,6 +204,7 @@ func (a *App) rebuildChatFromSession() {
 				ToolID:     rec.Message.ToolCallID,
 				ToolName:   toolNames[rec.Message.ToolCallID],
 				ToolStatus: components.StatusSuccess,
+				CreatedAt:  rec.CreatedAt,
 			})
 		case provider.RoleSystem:
 			// System prompt messages are set separately; not displayed in chat.

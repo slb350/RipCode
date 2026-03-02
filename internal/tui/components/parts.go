@@ -23,6 +23,42 @@ func (p MessagePart) Valid() error {
 	return nil
 }
 
+// validRole reports whether r is a known ChatEntry role.
+func validRole(r string) bool {
+	switch r {
+	case RoleUser, RoleAssistant, RoleTool, RoleError, RoleSystem, RoleComplete:
+		return true
+	default:
+		return false
+	}
+}
+
+// Valid checks that the ChatEntry has a recognized role, valid parts, and
+// consistent Content/Parts fields.
+func (e ChatEntry) Valid() error {
+	if !validRole(e.Role) {
+		return fmt.Errorf("invalid role: %q", e.Role)
+	}
+	if e.Role == RoleTool && e.ToolID == "" {
+		return fmt.Errorf("tool entry requires ToolID")
+	}
+	if e.Role == RoleComplete && e.Meta == nil {
+		return fmt.Errorf("complete entry requires Meta")
+	}
+	for i, p := range e.Parts {
+		if err := p.Valid(); err != nil {
+			return fmt.Errorf("part[%d]: %w", i, err)
+		}
+	}
+	if len(e.Parts) > 0 && e.Content != "" {
+		expected := plainTextFromParts(e.Parts)
+		if e.Content != expected {
+			return fmt.Errorf("Content mismatch: got %q, want %q (from text parts)", e.Content, expected)
+		}
+	}
+	return nil
+}
+
 // allPartsContent concatenates content from all parts.
 func (e ChatEntry) allPartsContent() string {
 	var b strings.Builder
@@ -42,7 +78,7 @@ func (e ChatEntry) FullContent() string {
 }
 
 // CopyableContent returns the best content for clipboard copy.
-// Uses Content if non-empty; otherwise concatenates all parts content.
+// Uses Content if non-empty; otherwise concatenates all parts (including reasoning).
 func (e ChatEntry) CopyableContent() string {
 	if e.Content != "" {
 		return e.Content
