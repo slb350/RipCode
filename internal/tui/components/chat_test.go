@@ -153,6 +153,41 @@ func TestChat_Clear(t *testing.T) {
 	assert.NotContains(t, view, "hello")
 }
 
+func TestChat_Clear_ResetsStreamingParts(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+	c.StreamPart(PartText, "streaming content")
+	c.Clear()
+
+	assert.Empty(t, c.streamingParts, "Clear should reset streamingParts")
+	assert.Empty(t, c.streaming, "Clear should reset legacy streaming")
+	assert.Equal(t, 0, c.scrollPos, "Clear should reset scroll position")
+}
+
+func TestChat_RenderEntry_UnknownRole_RendersAsPlainText(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+
+	c.AddEntry(ChatEntry{Role: "unknown", Content: "mystery content"})
+	view := c.View()
+	assert.Contains(t, view, "mystery content")
+}
+
+func TestChat_CommitStream_BothPaths_LogsWarning(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+
+	// Populate both paths
+	c.StreamContent("legacy")
+	c.StreamPart(PartText, "parts")
+	c.CommitStream()
+
+	// Parts should win, legacy discarded
+	entries := c.Entries()
+	assert.Len(t, entries, 1)
+	assert.Equal(t, "parts", entries[0].Content)
+}
+
 func TestChat_Entries_ReturnsAllEntries(t *testing.T) {
 	c := NewChat()
 	c.AddEntry(ChatEntry{Role: RoleUser, Content: "hello"})
@@ -359,4 +394,22 @@ func TestChat_ConcealCodeAcrossInterleavedParts(t *testing.T) {
 	assert.NotContains(t, view, "Println(1)")
 	assert.Contains(t, view, "thinking")
 	assert.Contains(t, view, "After")
+}
+
+func TestChat_HiddenReasoning_PreservesAssistantTextFlow(t *testing.T) {
+	c := NewChat()
+	c.SetSize(100, 20)
+	c.SetShowThinking(false)
+
+	c.AddEntry(ChatEntry{
+		Role: RoleAssistant,
+		Parts: []MessagePart{
+			{Type: PartText, Content: "The sea is "},
+			{Type: PartReasoning, Content: "hidden reasoning"},
+			{Type: PartText, Content: "calm tonight."},
+		},
+	})
+
+	view := c.View()
+	assert.Contains(t, view, "The sea is calm tonight.")
 }

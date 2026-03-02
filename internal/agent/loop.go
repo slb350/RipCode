@@ -166,7 +166,7 @@ func (l *Loop) consumeStream(ctx context.Context, streamCh <-chan provider.Strea
 			return content.String(), toolCalls, meta
 
 		default:
-			store.LogError(fmt.Sprintf("loop: unknown provider event type %d", event.Type), nil)
+			store.LogErrorf("loop: unknown provider event type %d", event.Type)
 		}
 	}
 

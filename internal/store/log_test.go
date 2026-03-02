@@ -48,6 +48,18 @@ func TestLogError_CreatesStateDir(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestLogErrorf_FormatsMessage(t *testing.T) {
+	testDir(t)
+	LogErrorf("unknown type %q in %s", "foo", "render")
+
+	path := filepath.Join(StateDir(), "errors.log")
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	content := string(data)
+	assert.Contains(t, content, `unknown type "foo" in render`)
+	assert.Contains(t, content, "<nil>")
+}
+
 func TestLogError_FallsBackToStderr(t *testing.T) {
 	dir := testDir(t)
 	// Make the state dir unwritable so file logging fails.

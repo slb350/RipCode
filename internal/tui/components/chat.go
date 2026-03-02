@@ -154,7 +154,7 @@ func (c *Chat) StreamPart(typ PartType, delta string) {
 		return
 	}
 	if !typ.Valid() {
-		store.LogError(fmt.Sprintf("chat: StreamPart called with invalid type %q", typ), nil)
+		store.LogErrorf("chat: StreamPart called with invalid type %q", typ)
 	}
 	if n := len(c.streamingParts); n > 0 && c.streamingParts[n-1].Type == typ {
 		c.streamingParts[n-1].Content += delta
@@ -173,6 +173,9 @@ func (c *Chat) CommitStream() {
 
 	// Part-based streaming path — takes precedence over legacy
 	if len(c.streamingParts) > 0 {
+		if c.streaming != "" {
+			store.LogError("chat: CommitStream called with both streamingParts and legacy streaming populated; legacy content discarded", nil)
+		}
 		// Single text part — fall back to Content field for backward compat
 		if len(c.streamingParts) == 1 && c.streamingParts[0].Type == PartText {
 			c.entries = append(c.entries, ChatEntry{
@@ -403,6 +406,7 @@ func (c Chat) renderEntry(entry ChatEntry) []string {
 	case RoleComplete:
 		return c.renderCompleteEntry(entry, t)
 	default:
+		store.LogErrorf("chat: unknown entry role %q rendered as plain text", entry.Role)
 		return []string{entry.Content}
 	}
 }
@@ -473,31 +477,42 @@ func (c Chat) renderAssistantParts(parts []MessagePart, t *styles.Theme) []strin
 
 	var result []string
 	inConcealedBlock := false
+	var textBuf strings.Builder
+	flushText := func() {
+		if textBuf.Len() == 0 {
+			return
+		}
+		wrapped := wrapText(textBuf.String(), maxWidth)
+		for _, line := range strings.Split(wrapped, "\n") {
+			result = append(result, "   "+line)
+		}
+		textBuf.Reset()
+	}
+
 	for _, p := range parts {
 		switch p.Type {
 		case PartReasoning:
 			if !c.showThinking {
 				continue
 			}
+			flushText()
 			reasoningStyle := t.TextMutedStyle.Italic(true)
 			wrapped := wrapText(p.Content, maxWidth)
 			for _, line := range strings.Split(wrapped, "\n") {
 				result = append(result, "   "+reasoningStyle.Render(line))
 			}
-		default: // PartText and any future types — render as text
+		default: // PartText or unknown (unknown types are logged and rendered as text)
 			if p.Type != PartText {
-				store.LogError(fmt.Sprintf("chat: unknown part type %q rendered as text", p.Type), nil)
+				store.LogErrorf("chat: unknown part type %q rendered as text", p.Type)
 			}
 			text := p.Content
 			if !c.showCodeBlocks {
 				text, inConcealedBlock = concealCodeBlocksWithState(text, inConcealedBlock)
 			}
-			wrapped := wrapText(text, maxWidth)
-			for _, line := range strings.Split(wrapped, "\n") {
-				result = append(result, "   "+line)
-			}
+			textBuf.WriteString(text)
 		}
 	}
+	flushText()
 	if len(result) == 0 {
 		// All parts were hidden reasoning — show muted indicator
 		hasReasoning := slices.ContainsFunc(parts, func(p MessagePart) bool {

@@ -429,6 +429,68 @@ func TestApp_SessionsLoadedMsg_WithError(t *testing.T) {
 	assert.NotNil(t, toast, "should show error toast")
 }
 
+func TestApp_RebuildChat_RecoverToolNames(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RIPCODE_DIR", dir)
+
+	sess := session.New(t.TempDir())
+	sess.AddUser("read main.go")
+	sess.AddAssistant("", []provider.ToolCall{{ID: "tc1", Name: "read", Args: `{"path":"main.go"}`}}, nil)
+	sess.AddToolResult("tc1", "package main\n")
+	require.NoError(t, store.Save(sess))
+
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	model, _ = a.resumeSession(sess.ID)
+	a = model.(App)
+
+	entries := a.chat.Entries()
+	var toolEntry *components.ChatEntry
+	for i := range entries {
+		if entries[i].Role == components.RoleTool {
+			toolEntry = &entries[i]
+			break
+		}
+	}
+	require.NotNil(t, toolEntry, "should have a tool entry")
+	assert.Equal(t, "read", toolEntry.ToolName, "tool name should be recovered from assistant ToolCalls")
+	assert.Equal(t, "tc1", toolEntry.ToolID)
+}
+
+func TestApp_RebuildChat_SkipsSystemMessages(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("RIPCODE_DIR", dir)
+
+	sess := session.New(t.TempDir())
+	sess.AddUser("hello")
+	sess.AddAssistant("world", nil, nil)
+	require.NoError(t, store.Save(sess))
+
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	model, _ = a.resumeSession(sess.ID)
+	a = model.(App)
+
+	entries := a.chat.Entries()
+	for _, e := range entries {
+		assert.NotEqual(t, components.RoleSystem, e.Role, "system messages should not appear in chat")
+	}
+}
+
 func TestApp_SessionsLoadedMsg_WithError_ClearsStaleEntries(t *testing.T) {
 	app := makeSessionApp(t)
 	model, _ := app.Update(components.InputSubmitMsg{Value: "/sessions"})
