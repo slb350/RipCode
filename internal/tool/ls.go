@@ -42,13 +42,19 @@ type lsArgs struct {
 func (l *LsTool) Execute(ctx Context, argsJSON string) Result {
 	var args lsArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return Result{Error: fmt.Errorf("parse args: %w", err)}
+		return Result{Error: fmt.Errorf("%s: parse args: %w", l.ID(), err)}
 	}
 
 	dir := args.Path
 	if dir == "" {
 		dir = ctx.WorkDir
 	}
+
+	validatedDir, err := ValidatePath(dir, ctx.WorkDir, true)
+	if err != nil {
+		return Result{Error: err}
+	}
+	dir = validatedDir
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -57,6 +63,7 @@ func (l *LsTool) Execute(ctx Context, argsJSON string) Result {
 
 	var sb strings.Builder
 	count := 0
+	skips := newSkipTracker()
 
 	for _, entry := range entries {
 		name := entry.Name()
@@ -73,6 +80,7 @@ func (l *LsTool) Execute(ctx Context, argsJSON string) Result {
 
 		info, err := entry.Info()
 		if err != nil {
+			skips.add(err)
 			continue
 		}
 
@@ -87,7 +95,9 @@ func (l *LsTool) Execute(ctx Context, argsJSON string) Result {
 		count++
 	}
 
-	if count == 0 {
+	sb.WriteString(skips.note("entries"))
+
+	if count == 0 && skips.count() == 0 {
 		return Result{
 			Output: fmt.Sprintf("(empty directory: %s)", dir),
 			Title:  dir,

@@ -1,13 +1,91 @@
 package provider
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"strings"
+)
+
+// Role is a defined type for message roles. Use the constants
+// RoleSystem, RoleUser, RoleAssistant, RoleTool.
+type Role string
+
+const (
+	RoleSystem    Role = "system"
+	RoleUser      Role = "user"
+	RoleAssistant Role = "assistant"
+	RoleTool      Role = "tool"
+)
+
+// Valid returns true if the role is one of the defined constants.
+func (r Role) Valid() bool {
+	switch r {
+	case RoleSystem, RoleUser, RoleAssistant, RoleTool:
+		return true
+	}
+	return false
+}
+
+// ParseRole validates a string and returns the corresponding Role.
+// Returns an error for unrecognized role values.
+func ParseRole(s string) (Role, error) {
+	r := Role(s)
+	if !r.Valid() {
+		return "", fmt.Errorf("invalid role: %q", s)
+	}
+	return r, nil
+}
 
 // Message represents a single message in a conversation.
 type Message struct {
-	Role       string // "system", "user", "assistant", "tool"
+	Role       Role // RoleSystem, RoleUser, RoleAssistant, or RoleTool
 	Content    string
 	ToolCalls  []ToolCall // present on assistant messages with tool invocations
 	ToolCallID string     // present on tool result messages
+}
+
+// Valid checks that the message has a valid role and that role-specific
+// fields are used correctly.
+func (m Message) Valid() error {
+	if !m.Role.Valid() {
+		return fmt.Errorf("invalid role: %q", m.Role)
+	}
+	if len(m.ToolCalls) > 0 && m.Role != RoleAssistant {
+		return fmt.Errorf("ToolCalls only valid on assistant messages, got role %q", m.Role)
+	}
+	if m.ToolCallID != "" && m.Role != RoleTool {
+		return fmt.Errorf("ToolCallID only valid on tool messages, got role %q", m.Role)
+	}
+	if m.Role == RoleTool && m.ToolCallID == "" {
+		return fmt.Errorf("tool message requires ToolCallID")
+	}
+	return nil
+}
+
+// NewSystemMessage creates a system message.
+func NewSystemMessage(content string) Message {
+	return Message{Role: RoleSystem, Content: content}
+}
+
+// NewUserMessage creates a user message.
+func NewUserMessage(content string) Message {
+	return Message{Role: RoleUser, Content: content}
+}
+
+// NewAssistantMessage creates an assistant message with optional tool calls.
+// The toolCalls slice is copied to prevent aliasing.
+func NewAssistantMessage(content string, toolCalls []ToolCall) Message {
+	var tc []ToolCall
+	if len(toolCalls) > 0 {
+		tc = make([]ToolCall, len(toolCalls))
+		copy(tc, toolCalls)
+	}
+	return Message{Role: RoleAssistant, Content: content, ToolCalls: tc}
+}
+
+// NewToolResultMessage creates a tool result message.
+func NewToolResultMessage(callID, content string) Message {
+	return Message{Role: RoleTool, Content: content, ToolCallID: callID}
 }
 
 // ToolCall represents an LLM request to invoke a tool.
@@ -36,12 +114,104 @@ type StreamEvent struct {
 	Error    error     // error details (EventError)
 }
 
+// Valid checks that the event has the correct fields for its type.
+func (e StreamEvent) Valid() error {
+	switch e.Type {
+	case EventContentDelta:
+		// Content may be empty (e.g. whitespace-only delta)
+	case EventToolCall:
+		if e.ToolCall == nil {
+			return fmt.Errorf("tool call event missing ToolCall")
+		}
+	case EventFinish:
+		if e.Meta == nil {
+			return fmt.Errorf("finish event missing Meta")
+		}
+	case EventError:
+		if e.Error == nil {
+			return fmt.Errorf("error event missing Error")
+		}
+	default:
+		return fmt.Errorf("unknown event type: %d", e.Type)
+	}
+	return nil
+}
+
+// NewContentDelta creates a content delta event.
+func NewContentDelta(content string) StreamEvent {
+	return StreamEvent{Type: EventContentDelta, Content: content}
+}
+
+// NewToolCallEvent creates a tool call event.
+func NewToolCallEvent(tc *ToolCall) StreamEvent {
+	return StreamEvent{Type: EventToolCall, ToolCall: tc}
+}
+
+// NewFinishEvent creates a finish event with metadata.
+func NewFinishEvent(meta *Metadata) StreamEvent {
+	return StreamEvent{Type: EventFinish, Meta: meta}
+}
+
+// NewErrorEvent creates an error event.
+func NewErrorEvent(err error) StreamEvent {
+	return StreamEvent{Type: EventError, Error: err}
+}
+
 // Metadata carries usage and completion information.
 type Metadata struct {
 	InputTokens  int
 	OutputTokens int
 	Model        string
 	FinishReason string // "stop", "tool_calls", "length"
+}
+
+// ModelPricing holds per-million-token pricing for a model.
+type ModelPricing struct {
+	PromptPerMillion     float64
+	CompletionPerMillion float64
+}
+
+// ModelInfo represents a model entry available from a provider.
+type ModelInfo struct {
+	ID             string
+	Name           string
+	Description    string
+	ContextLength  int
+	Pricing        *ModelPricing
+	PricingUnknown bool // true when API pricing couldn't be parsed
+}
+
+// ProviderName extracts the provider prefix from the model ID.
+// For "anthropic/claude-4" it returns "anthropic".
+// If there is no slash, it returns the full ID.
+func (m ModelInfo) ProviderName() string {
+	if idx := strings.IndexByte(m.ID, '/'); idx >= 0 {
+		return m.ID[:idx]
+	}
+	return m.ID
+}
+
+// Valid checks that required fields are set and pricing state is consistent.
+func (m ModelInfo) Valid() error {
+	if m.ID == "" {
+		return fmt.Errorf("model info: ID is required")
+	}
+	if m.PricingUnknown && m.Pricing != nil {
+		return fmt.Errorf("model info %s: PricingUnknown and Pricing are mutually exclusive", m.ID)
+	}
+	return nil
+}
+
+// IsFree returns true if the model has no pricing and pricing is not unknown,
+// or if pricing is explicitly zero.
+func (m ModelInfo) IsFree() bool {
+	if m.PricingUnknown {
+		return false
+	}
+	if m.Pricing == nil {
+		return true
+	}
+	return m.Pricing.PromptPerMillion == 0 && m.Pricing.CompletionPerMillion == 0
 }
 
 // ToolDef describes a tool for the LLM's tool-use schema.
@@ -53,8 +223,30 @@ type ToolDef struct {
 
 // Provider is the interface for LLM backends.
 type Provider interface {
-	// Chat sends messages and streams the response as events.
+	// Chat sends messages and streams the response as events on the returned channel.
+	// The implementation creates and owns the returned channel; it is closed when the
+	// stream ends (either successfully or on error).
+	// Callers must drain the channel to avoid goroutine leaks.
+	// Implementations MUST close the channel promptly when the context is cancelled.
+	// After cancellation, callers must still drain any remaining buffered events;
+	// the implementation will close the channel shortly after noticing cancellation.
 	Chat(ctx context.Context, msgs []Message, tools []ToolDef) (<-chan StreamEvent, error)
-	// Name returns the provider identifier.
+	// Name returns the provider identifier (e.g., "openrouter").
 	Name() string
+}
+
+// ModelLister is implemented by providers that can enumerate available models.
+type ModelLister interface {
+	ListModels(ctx context.Context) ([]ModelInfo, error)
+}
+
+// ModelSetter is implemented by providers that support changing active model at runtime.
+type ModelSetter interface {
+	SetModel(model string)
+}
+
+// ReasoningEffortSetter is implemented by providers that support thinking budget variants.
+// Effort values: "low", "medium", "high" or "" to disable.
+type ReasoningEffortSetter interface {
+	SetReasoningEffort(effort string)
 }

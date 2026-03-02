@@ -3,8 +3,12 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
+
+	"github.com/stephenbrandon/ripcode/internal/fileutil"
 )
 
 // EditTool performs precise string replacements in files.
@@ -48,16 +52,30 @@ type editArgs struct {
 func (e *EditTool) Execute(ctx Context, argsJSON string) Result {
 	var args editArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return Result{Error: fmt.Errorf("parse args: %w", err)}
+		return Result{Error: fmt.Errorf("%s: parse args: %w", e.ID(), err)}
 	}
 
-	info, err := os.Stat(args.FilePath)
+	validated, err := ValidatePath(args.FilePath, ctx.WorkDir, true)
 	if err != nil {
+		return Result{Error: err}
+	}
+
+	if args.OldString == "" {
+		return Result{Error: fmt.Errorf("old_string is required and cannot be empty")}
+	}
+
+	f, err := OpenNoFollow(validated, os.O_RDONLY, 0)
+	if err != nil {
+		return Result{Error: fmt.Errorf("open file: %w", err)}
+	}
+	info, err := f.Stat()
+	if err != nil {
+		f.Close()
 		return Result{Error: fmt.Errorf("stat file: %w", err)}
 	}
 	perm := info.Mode().Perm()
-
-	data, err := os.ReadFile(args.FilePath)
+	data, err := io.ReadAll(f)
+	f.Close()
 	if err != nil {
 		return Result{Error: fmt.Errorf("read file: %w", err)}
 	}
@@ -71,36 +89,90 @@ func (e *EditTool) Execute(ctx Context, argsJSON string) Result {
 		// Whitespace-flexible fallback: normalize whitespace and retry
 		newContent, ok := whitespaceFlexibleReplace(content, args.OldString, args.NewString)
 		if !ok {
-			return Result{Error: fmt.Errorf("no match found for old_string in %s", args.FilePath)}
+			return Result{Error: fmt.Errorf("no match found for old_string in %s", validated)}
 		}
-		if err := os.WriteFile(args.FilePath, []byte(newContent), perm); err != nil {
+		if err := writeAtomic(validated, []byte(newContent), perm); err != nil {
 			return Result{Error: fmt.Errorf("write file: %w", err)}
 		}
 		return Result{
-			Output: fmt.Sprintf("Edited %s (whitespace-flexible match)", args.FilePath),
-			Title:  args.FilePath,
+			Output: fmt.Sprintf("Edited %s (whitespace-flexible match)", validated),
+			Title:  validated,
 		}
 	}
 
 	if count > 1 {
-		return Result{Error: fmt.Errorf("old_string has %d matches in %s — must be unique. Provide more context", count, args.FilePath)}
+		return Result{Error: fmt.Errorf("old_string has %d matches in %s — must be unique. Provide more context", count, validated)}
 	}
 
 	newContent := strings.Replace(content, args.OldString, args.NewString, 1)
 
-	if err := os.WriteFile(args.FilePath, []byte(newContent), perm); err != nil {
+	if err := writeAtomic(validated, []byte(newContent), perm); err != nil {
 		return Result{Error: fmt.Errorf("write file: %w", err)}
 	}
 
 	return Result{
-		Output: fmt.Sprintf("Edited %s", args.FilePath),
-		Title:  args.FilePath,
+		Output: fmt.Sprintf("Edited %s", validated),
+		Title:  validated,
 	}
 }
 
-// whitespaceFlexibleReplace normalizes leading whitespace (tabs ↔ spaces)
-// to find a match when exact matching fails. Returns the modified content
-// and whether a unique match was found.
+// writeAtomic writes data to path atomically via a temp file, rejecting symlinks.
+// Atomic write-to-temp-then-replace prevents corruption on crash or close failure.
+// On Windows, replaceFile handles existing targets explicitly for parity.
+// Each call uses a unique temp file so concurrent writes to the same path are safe.
+//
+// OpenNoFollow above protects the read path by rejecting symlinks at open time.
+// This Lstat check provides defense-in-depth for the write/rename path. A TOCTOU
+// race exists between Lstat and Rename, but this is acceptable for a single-user
+// CLI tool — full prevention would require OS-level atomic operations not available
+// in pure Go.
+func writeAtomic(path string, data []byte, perm os.FileMode) error {
+	// Reject symlinks at the target path (best-effort; see TOCTOU note above).
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing to follow symlink: %s", path)
+		}
+		// Preserve prior writability semantics: if the target exists but is not
+		// writable, fail rather than replacing it via rename.
+		f, err := OpenNoFollow(path, os.O_WRONLY, 0)
+		if err != nil {
+			return err
+		}
+		if err := f.Close(); err != nil {
+			return err
+		}
+	}
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, filepath.Base(path)+".tmp.*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Chmod(tmp, perm); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := fileutil.ReplaceFile(tmp, path); err != nil {
+		if rmErr := os.Remove(tmp); rmErr != nil {
+			return fmt.Errorf("replace temp file: %w (cleanup also failed: %v)", err, rmErr)
+		}
+		return fmt.Errorf("replace temp file: %w", err)
+	}
+	return nil
+}
+
+// whitespaceFlexibleReplace normalizes leading whitespace (tabs expanded to
+// 4 spaces) to find a match when exact matching fails. Returns the modified
+// content and whether a unique match was found.
 func whitespaceFlexibleReplace(content, oldStr, newStr string) (string, bool) {
 	normContent := normalizeWhitespace(content)
 	normOld := normalizeWhitespace(oldStr)
@@ -122,8 +194,7 @@ func whitespaceFlexibleReplace(content, oldStr, newStr string) (string, bool) {
 	return result, true
 }
 
-// normalizeWhitespace replaces leading tabs with 4 spaces and collapses
-// multiple spaces in leading whitespace to single units.
+// normalizeWhitespace converts tabs to 4 spaces in the leading whitespace of each line.
 func normalizeWhitespace(s string) string {
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
@@ -141,12 +212,14 @@ func mapNormPos(orig, norm string, normPos int) int {
 	oi, ni := 0, 0
 	for ni < normPos && oi < len(orig) {
 		if orig[oi] == '\t' {
-			// Tab expands to 4 spaces in normalized
 			ni += 4
 		} else {
 			ni++
 		}
 		oi++
+	}
+	if oi > len(orig) {
+		oi = len(orig)
 	}
 	return oi
 }

@@ -43,25 +43,37 @@ type writeArgs struct {
 func (w *WriteTool) Execute(ctx Context, argsJSON string) Result {
 	var args writeArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return Result{Error: fmt.Errorf("parse args: %w", err)}
+		return Result{Error: fmt.Errorf("%s: parse args: %w", w.ID(), err)}
 	}
 
 	if args.FilePath == "" {
 		return Result{Error: fmt.Errorf("file_path is required")}
 	}
 
+	validated, err := ValidatePath(args.FilePath, ctx.WorkDir, false)
+	if err != nil {
+		return Result{Error: err}
+	}
+
+	perm := os.FileMode(0o644)
+	if info, err := os.Lstat(validated); err == nil {
+		perm = info.Mode().Perm()
+	} else if !os.IsNotExist(err) {
+		return Result{Error: fmt.Errorf("stat file: %w", err)}
+	}
+
 	// Create parent directories
-	dir := filepath.Dir(args.FilePath)
+	dir := filepath.Dir(validated)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return Result{Error: fmt.Errorf("create directories: %w", err)}
 	}
 
-	if err := os.WriteFile(args.FilePath, []byte(args.Content), 0644); err != nil {
+	if err := writeAtomic(validated, []byte(args.Content), perm); err != nil {
 		return Result{Error: fmt.Errorf("write file: %w", err)}
 	}
 
 	return Result{
-		Output: fmt.Sprintf("Wrote %d bytes to %s", len(args.Content), args.FilePath),
-		Title:  args.FilePath,
+		Output: fmt.Sprintf("Wrote %d bytes to %s", len(args.Content), validated),
+		Title:  validated,
 	}
 }

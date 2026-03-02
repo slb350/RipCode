@@ -82,3 +82,45 @@ func TestMode_String(t *testing.T) {
 	assert.Equal(t, "build", ModeBuild.String())
 	assert.Equal(t, "plan", ModePlan.String())
 }
+
+func TestAllAgents_ReturnsBuildAndPlan(t *testing.T) {
+	agents := AllAgents()
+	assert.Len(t, agents, 2)
+	names := make([]string, len(agents))
+	for i, a := range agents {
+		names[i] = a.Name
+	}
+	assert.Contains(t, names, NameBuild)
+	assert.Contains(t, names, NamePlan)
+}
+
+// TestPlanAgent_AllowedToolsMatchRegistry verifies that every tool ID in
+// PlanAgent().AllowedTools corresponds to a tool that would be registered
+// in the full registry. This prevents silent drift if tools are renamed
+// or removed.
+func TestPlanAgent_AllowedToolsMatchRegistry(t *testing.T) {
+	// Build a full registry matching cmd/ripcode/main.go
+	reg := tool.NewRegistry()
+	reg.Register(tool.NewBashTool())
+	reg.Register(tool.NewReadTool())
+	reg.Register(tool.NewWriteTool())
+	reg.Register(tool.NewEditTool())
+	reg.Register(tool.NewGlobTool())
+	reg.Register(tool.NewGrepTool())
+	reg.Register(tool.NewLsTool())
+	reg.Register(tool.NewTodoTool())
+
+	plan := PlanAgent()
+	for _, id := range plan.AllowedTools {
+		_, ok := reg.Get(id)
+		assert.True(t, ok, "PlanAgent.AllowedTools contains %q but no such tool is registered — update agent.go or cmd/ripcode/main.go", id)
+	}
+	// Write-tool exclusion is verified in TestPlanAgent.
+}
+
+func TestAllAgents_HaveDescriptions(t *testing.T) {
+	agents := AllAgents()
+	for _, a := range agents {
+		assert.NotEmpty(t, a.Description, "agent %s should have a description", a.Name)
+	}
+}

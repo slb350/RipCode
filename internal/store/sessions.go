@@ -1,0 +1,310 @@
+package store
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/stephenbrandon/ripcode/internal/provider"
+	"github.com/stephenbrandon/ripcode/internal/session"
+)
+
+var validSessionID = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+func validateSessionID(id string) error {
+	if id == "" {
+		return fmt.Errorf("empty session ID")
+	}
+	if !validSessionID.MatchString(id) {
+		return fmt.Errorf("invalid session ID: %q", id)
+	}
+	return nil
+}
+
+// SessionSummary holds minimal session info for listing.
+type SessionSummary struct {
+	ID           string
+	Title        string
+	WorkDir      string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	MessageCount int
+}
+
+// sessionFile is the on-disk JSON format (v1).
+type sessionFile struct {
+	Version      int            `json:"version"`
+	ID           string         `json:"id"`
+	Title        string         `json:"title"`
+	ParentID     string         `json:"parentId,omitempty"`
+	WorkDir      string         `json:"workDir"`
+	CreatedAt    time.Time      `json:"createdAt"`
+	UpdatedAt    time.Time      `json:"updatedAt"`
+	Tokens       tokenCountFile `json:"tokens"`
+	MessageCount int            `json:"messageCount"`
+	Messages     []messageFile  `json:"messages"`
+}
+
+// sessionSummaryFile is a header-only view of a session file.
+// Used by List() to avoid parsing the Messages array.
+type sessionSummaryFile struct {
+	ID           string         `json:"id"`
+	Title        string         `json:"title"`
+	WorkDir      string         `json:"workDir"`
+	CreatedAt    time.Time      `json:"createdAt"`
+	UpdatedAt    time.Time      `json:"updatedAt"`
+	Tokens       tokenCountFile `json:"tokens"`
+	MessageCount int            `json:"messageCount"`
+}
+
+type tokenCountFile struct {
+	Input  int `json:"input"`
+	Output int `json:"output"`
+}
+
+type messageFile struct {
+	ID         string             `json:"id"`
+	Role       string             `json:"role"`
+	Content    string             `json:"content"`
+	ToolCalls  []toolCallFile     `json:"toolCalls,omitempty"`
+	ToolCallID string             `json:"toolCallId,omitempty"`
+	CreatedAt  time.Time          `json:"createdAt"`
+	Meta       *assistantMetaFile `json:"meta,omitempty"`
+}
+
+type toolCallFile struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Args string `json:"args"`
+}
+
+type assistantMetaFile struct {
+	Model        string        `json:"model"`
+	Agent        string        `json:"agent,omitempty"`
+	InputTokens  int           `json:"inputTokens"`
+	OutputTokens int           `json:"outputTokens"`
+	FinishReason string        `json:"finishReason"`
+	Duration     time.Duration `json:"duration"`
+}
+
+// Save writes a session to disk as JSON.
+func Save(s *session.Session) error {
+	if err := validateSessionID(s.ID); err != nil {
+		return fmt.Errorf("save session: %w", err)
+	}
+	dir := SessionsDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create sessions dir: %w", err)
+	}
+
+	records := s.Records()
+	tc := s.TokenCount()
+	f := sessionFile{
+		Version:      1,
+		ID:           s.ID,
+		Title:        s.Title,
+		ParentID:     s.ParentID,
+		WorkDir:      s.WorkDir,
+		CreatedAt:    s.CreatedAt,
+		UpdatedAt:    s.UpdatedAt,
+		MessageCount: len(records),
+		Tokens:       tokenCountFile{Input: tc.Input, Output: tc.Output},
+	}
+
+	for _, rec := range records {
+		mf := messageFile{
+			ID:         rec.ID,
+			Role:       string(rec.Message.Role),
+			Content:    rec.Message.Content,
+			ToolCallID: rec.Message.ToolCallID,
+			CreatedAt:  rec.CreatedAt,
+		}
+		for _, tc := range rec.Message.ToolCalls {
+			mf.ToolCalls = append(mf.ToolCalls, toolCallFile{
+				ID:   tc.ID,
+				Name: tc.Name,
+				Args: tc.Args,
+			})
+		}
+		if rec.Meta != nil {
+			mf.Meta = &assistantMetaFile{
+				Model:        rec.Meta.Model,
+				Agent:        rec.Meta.Agent,
+				InputTokens:  rec.Meta.InputTokens,
+				OutputTokens: rec.Meta.OutputTokens,
+				FinishReason: rec.Meta.FinishReason,
+				Duration:     rec.Meta.Duration,
+			}
+		}
+		f.Messages = append(f.Messages, mf)
+	}
+
+	data, err := json.MarshalIndent(f, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal session: %w", err)
+	}
+
+	path := filepath.Join(dir, s.ID+".json")
+	return atomicWrite(path, data, 0o644)
+}
+
+// Load reads a session from disk by ID.
+// If some individual message records fail validation, they are skipped and
+// the session is still returned with a non-nil error indicating the skip count.
+// Callers should check both return values: a non-nil session with a non-nil
+// error indicates partial success.
+func Load(id string) (*session.Session, error) {
+	if err := validateSessionID(id); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(SessionsDir(), id+".json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read session %s: %w", id, err)
+	}
+
+	var f sessionFile
+	if err := json.Unmarshal(data, &f); err != nil {
+		return nil, fmt.Errorf("unmarshal session %s: %w", id, err)
+	}
+
+	if f.ID != id {
+		return nil, fmt.Errorf("session %s: internal ID mismatch %q", id, f.ID)
+	}
+
+	s := &session.Session{
+		ID:        f.ID,
+		Title:     f.Title,
+		ParentID:  f.ParentID,
+		WorkDir:   f.WorkDir,
+		CreatedAt: f.CreatedAt,
+		UpdatedAt: f.UpdatedAt,
+	}
+	s.AddTokens(f.Tokens.Input, f.Tokens.Output)
+
+	skipped := 0
+	for _, mf := range f.Messages {
+		rec := session.MessageRecord{
+			ID: mf.ID,
+			Message: provider.Message{
+				Role:       provider.Role(mf.Role),
+				Content:    mf.Content,
+				ToolCallID: mf.ToolCallID,
+			},
+			CreatedAt: mf.CreatedAt,
+		}
+		for _, tc := range mf.ToolCalls {
+			rec.Message.ToolCalls = append(rec.Message.ToolCalls, provider.ToolCall{
+				ID:   tc.ID,
+				Name: tc.Name,
+				Args: tc.Args,
+			})
+		}
+		if mf.Meta != nil {
+			rec.Meta = &session.AssistantMeta{
+				Model:        mf.Meta.Model,
+				Agent:        mf.Meta.Agent,
+				InputTokens:  mf.Meta.InputTokens,
+				OutputTokens: mf.Meta.OutputTokens,
+				FinishReason: mf.Meta.FinishReason,
+				Duration:     mf.Meta.Duration,
+			}
+		}
+		if err := s.LoadRecord(rec); err != nil {
+			LogError("sessions: invalid record in "+id, err)
+			skipped++
+			continue
+		}
+	}
+
+	if skipped > 0 {
+		return s, fmt.Errorf("session %s: %d invalid record(s) skipped", id, skipped)
+	}
+	return s, nil
+}
+
+// List returns summaries of all saved sessions sorted by UpdatedAt descending,
+// plus filenames of any corrupted/unreadable session files.
+func List() ([]SessionSummary, []string, error) {
+	dir := SessionsDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil, nil
+		}
+		return nil, nil, fmt.Errorf("read sessions dir: %w", err)
+	}
+
+	var summaries []SessionSummary
+	var corrupted []string
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		id := strings.TrimSuffix(entry.Name(), ".json")
+		if err := validateSessionID(id); err != nil {
+			LogError("sessions: invalid filename: "+entry.Name(), err)
+			corrupted = append(corrupted, entry.Name())
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			LogError("sessions: corrupted file: "+entry.Name(), err)
+			corrupted = append(corrupted, entry.Name())
+			continue
+		}
+
+		var hdr sessionSummaryFile
+		if err := json.Unmarshal(data, &hdr); err != nil {
+			LogError("sessions: corrupted file: "+entry.Name(), err)
+			corrupted = append(corrupted, entry.Name())
+			continue
+		}
+
+		msgCount := hdr.MessageCount
+		if msgCount == 0 {
+			// Legacy file without messageCount — fall back to counting
+			// the messages array from the full parse.
+			var full sessionFile
+			if err := json.Unmarshal(data, &full); err == nil {
+				msgCount = len(full.Messages)
+			}
+		}
+
+		summaries = append(summaries, SessionSummary{
+			ID:           id,
+			Title:        hdr.Title,
+			WorkDir:      hdr.WorkDir,
+			CreatedAt:    hdr.CreatedAt,
+			UpdatedAt:    hdr.UpdatedAt,
+			MessageCount: msgCount,
+		})
+	}
+
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i].UpdatedAt.After(summaries[j].UpdatedAt)
+	})
+
+	return summaries, corrupted, nil
+}
+
+// Delete removes a saved session by ID.
+func Delete(id string) error {
+	if err := validateSessionID(id); err != nil {
+		return err
+	}
+	path := filepath.Join(SessionsDir(), id+".json")
+	if err := os.Remove(path); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("session %s not found: %w", id, err)
+		}
+		return fmt.Errorf("delete session %s: %w", id, err)
+	}
+	return nil
+}

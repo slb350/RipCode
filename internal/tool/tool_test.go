@@ -2,6 +2,8 @@ package tool
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -98,4 +100,119 @@ func TestResult_WithError(t *testing.T) {
 	}
 
 	assert.Error(t, r.Error)
+}
+
+// --- skipTracker tests ---
+
+func TestSkipTracker_Empty(t *testing.T) {
+	st := newSkipTracker()
+	assert.Equal(t, 0, st.count())
+	assert.Empty(t, st.note("paths"))
+}
+
+func TestSkipTracker_SingleReason(t *testing.T) {
+	st := newSkipTracker()
+	st.add(os.ErrPermission)
+	assert.Equal(t, 1, st.count())
+	note := st.note("paths")
+	assert.Contains(t, note, "1 paths skipped")
+	assert.Contains(t, note, "permission denied")
+}
+
+func TestSkipTracker_MultipleReasons(t *testing.T) {
+	st := newSkipTracker()
+	st.add(os.ErrPermission)
+	st.add(os.ErrPermission)
+	st.add(os.ErrNotExist)
+	assert.Equal(t, 3, st.count())
+	note := st.note("entries")
+	assert.Contains(t, note, "3 entries skipped")
+	assert.Contains(t, note, "2 permission denied")
+	assert.Contains(t, note, "1 not found")
+}
+
+func TestSkipTracker_UnknownError(t *testing.T) {
+	st := newSkipTracker()
+	st.add(fmt.Errorf("something weird"))
+	note := st.note("paths")
+	assert.Contains(t, note, "1 paths skipped")
+	assert.Contains(t, note, "error")
+}
+
+func TestSkipTracker_NilError(t *testing.T) {
+	st := newSkipTracker()
+	st.add(nil)
+	assert.Equal(t, 1, st.count())
+	note := st.note("paths")
+	assert.Contains(t, note, "unknown")
+}
+
+func TestSkipTracker_WithPaths(t *testing.T) {
+	st := newSkipTracker()
+	st.addPath("/foo/bar", os.ErrPermission)
+	st.addPath("/baz/qux", os.ErrPermission)
+	note := st.note("paths")
+	assert.Contains(t, note, "2 paths skipped")
+	assert.Contains(t, note, "/foo/bar")
+	assert.Contains(t, note, "/baz/qux")
+}
+
+func TestSkipTracker_PathsCapped(t *testing.T) {
+	st := newSkipTracker()
+	for i := range 15 {
+		st.addPath(fmt.Sprintf("/path/%d", i), os.ErrPermission)
+	}
+	assert.Equal(t, 15, st.count())
+	assert.Len(t, st.paths, maxTrackedPaths)
+	note := st.note("paths")
+	assert.Contains(t, note, "15 paths skipped")
+	assert.Contains(t, note, "and 5 more")
+}
+
+func TestClassifyError_Permission(t *testing.T) {
+	assert.Equal(t, "permission denied", classifyError(os.ErrPermission))
+	assert.Equal(t, "permission denied", classifyError(fmt.Errorf("wrapped: %w", os.ErrPermission)))
+}
+
+func TestClassifyError_NotExist(t *testing.T) {
+	assert.Equal(t, "not found", classifyError(os.ErrNotExist))
+}
+
+func TestClassifyError_Default(t *testing.T) {
+	assert.Equal(t, "error", classifyError(fmt.Errorf("unknown")))
+}
+
+func TestClassifyError_Nil_ReturnsUnknown(t *testing.T) {
+	assert.Equal(t, "unknown", classifyError(nil))
+}
+
+// --- Context.Valid() tests ---
+
+func TestContext_Valid_Complete(t *testing.T) {
+	ctx := Context{
+		SessionID: "sess-1",
+		WorkDir:   "/tmp/test",
+		Abort:     context.Background(),
+	}
+	assert.NoError(t, ctx.Valid())
+}
+
+func TestContext_Valid_NilAbort(t *testing.T) {
+	ctx := Context{
+		SessionID: "sess-1",
+		WorkDir:   "/tmp/test",
+	}
+	err := ctx.Valid()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Abort")
+}
+
+func TestContext_Valid_EmptyWorkDir(t *testing.T) {
+	ctx := Context{
+		SessionID: "sess-1",
+		Abort:     context.Background(),
+	}
+	err := ctx.Valid()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "WorkDir")
 }

@@ -26,6 +26,9 @@ bin/
 .DS_Store
 Thumbs.db
 
+# Temporary files
+.tmp*
+
 # Reference repos (cloned for study, not part of this project)
 reference/
 
@@ -35,3 +38,4 @@ vendor/
 # Project instructions (local only)
 CLAUDE.md
 AGENTS.md
+.claude/

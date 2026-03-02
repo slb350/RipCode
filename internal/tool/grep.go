@@ -12,6 +12,8 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
+// maxGrepFiles limits search results to prevent overwhelming the LLM context.
+// 100 files typically provides sufficient context without exceeding token budgets.
 const maxGrepFiles = 100
 
 // GrepTool searches file contents with regex patterns.
@@ -55,7 +57,7 @@ type grepArgs struct {
 func (g *GrepTool) Execute(ctx Context, argsJSON string) Result {
 	var args grepArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return Result{Error: fmt.Errorf("parse args: %w", err)}
+		return Result{Error: fmt.Errorf("%s: parse args: %w", g.ID(), err)}
 	}
 
 	re, err := regexp.Compile(args.Pattern)
@@ -68,11 +70,19 @@ func (g *GrepTool) Execute(ctx Context, argsJSON string) Result {
 		root = ctx.WorkDir
 	}
 
+	validatedRoot, err := ValidatePath(root, ctx.WorkDir, true)
+	if err != nil {
+		return Result{Error: err}
+	}
+	root = validatedRoot
+
 	var sb strings.Builder
 	fileCount := 0
+	skips := newSkipTracker()
 
 	walkErr := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
+			skips.addPath(path, err)
 			return nil
 		}
 
@@ -89,7 +99,10 @@ func (g *GrepTool) Execute(ctx Context, argsJSON string) Result {
 
 		// Apply include filter
 		if args.Include != "" {
-			matched, _ := doublestar.PathMatch(args.Include, d.Name())
+			matched, matchErr := doublestar.PathMatch(args.Include, d.Name())
+			if matchErr != nil {
+				return fmt.Errorf("invalid include pattern %q: %w", args.Include, matchErr)
+			}
 			if !matched {
 				return nil
 			}
@@ -97,6 +110,7 @@ func (g *GrepTool) Execute(ctx Context, argsJSON string) Result {
 
 		data, err := os.ReadFile(path)
 		if err != nil {
+			skips.add(err)
 			return nil
 		}
 
@@ -109,7 +123,11 @@ func (g *GrepTool) Execute(ctx Context, argsJSON string) Result {
 			return nil
 		}
 
-		rel, _ := filepath.Rel(root, path)
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			skips.add(err)
+			return nil
+		}
 		lines := strings.Split(string(data), "\n")
 
 		matched := false
@@ -131,7 +149,7 @@ func (g *GrepTool) Execute(ctx Context, argsJSON string) Result {
 
 	if sb.Len() == 0 {
 		return Result{
-			Output: fmt.Sprintf("no matches for pattern %q in %s", args.Pattern, root),
+			Output: fmt.Sprintf("no matches for pattern %q in %s", args.Pattern, root) + skips.note("paths"),
 			Title:  args.Pattern,
 		}
 	}
@@ -139,6 +157,7 @@ func (g *GrepTool) Execute(ctx Context, argsJSON string) Result {
 	if fileCount >= maxGrepFiles {
 		sb.WriteString(fmt.Sprintf("\n[results limited to %d files]", maxGrepFiles))
 	}
+	sb.WriteString(skips.note("paths"))
 
 	return Result{
 		Output: sb.String(),

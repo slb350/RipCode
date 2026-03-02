@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/stephenbrandon/ripcode/internal/agent"
 	"github.com/stephenbrandon/ripcode/internal/provider"
 	"github.com/stephenbrandon/ripcode/internal/session"
+	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tool"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 )
@@ -33,8 +36,16 @@ type App struct {
 	chat      components.Chat
 	input     components.Input
 	statusbar components.StatusBar
+	footer    components.SessionFooter
 	toolpanel components.ToolPanel
 	home      components.Home
+
+	// Preferences and config
+	modelPrefs *store.ModelPrefs
+	mcpConfig  *store.MCPConfig
+	lspConfig  *store.LSPConfig
+	uiPrefs    *store.UIPrefs
+	todoTool   *tool.TodoTool
 
 	// Agent state
 	provider      provider.Provider
@@ -42,34 +53,166 @@ type App struct {
 	session       *session.Session
 	agent         agent.Agent
 	model         string
+	fullModelID   string
+	activeVariant string
 	maxSteps      int
 	streaming     bool
-	responseStart time.Time
-	cancel        context.CancelFunc
-	eventCh       <-chan agent.Event
+	modelsCache   []provider.ModelInfo
+	modelsLoaded  bool
+
+	// Dialog and overlay states
+	commandPalette commandPaletteState
+	inline         inlineState
+	modelDialog    modelDialogState
+	helpDialog     helpDialogState
+	statusDialog   statusDialogState
+	exportDialog   exportDialogState
+	renameDialog   renameDialogState
+	sessionsDialog sessionsDialogState
+	agentDialog    agentDialogState
+	connectDialog  connectDialogState
+	themesDialog   themesDialogState
+	timelineDialog timelineDialogState
+	forkDialog     forkDialogState
+	mcpDialog      mcpDialogState
+	stashDialog    stashDialogState
+
+	sidebarHidden    bool
+	sidebarOverlay   bool
+	fileCache        []string
+	fileCacheLoaded  bool
+	fileCacheLoading bool
+	responseStart    time.Time
+	cancel           context.CancelFunc
+	eventCh          <-chan agent.Event
+	promptHistory    *components.PromptHistory
+	toasts           components.ToastManager
+	shellMode        bool
+	cmdRegistry      *CommandRegistry
+	showDetails      bool
+	showThinking     bool
+	showTimestamps   bool
+
+	// Leader key prefix
+	leaderPending bool
+
+	// Prompt stash (the stash object; dialog state is in stashDialog)
+	stash *components.PromptStash
+
+	// Modified files tracking
+	modifiedFiles fileTracker
+
+	// Startup warnings (e.g. corrupted config files)
+	startupWarnings      []string
+	startupWarningsShown bool
 }
 
 // NewApp creates the initial application model.
 func NewApp() App {
-	return App{
-		chat:      components.NewChat(),
-		input:     components.NewInput(),
-		statusbar: components.NewStatusBar(),
-		toolpanel: components.NewToolPanel(),
-		home:      components.NewHome(),
-		state:     StateHome,
-		maxSteps:  100,
+	var warnings []string
+	prefs, err := store.LoadModelPrefs()
+	if err != nil {
+		warnings = append(warnings, fmt.Sprintf("model preferences: %v, using defaults", err))
 	}
+	mcpCfg, mcpWarns, err := store.LoadMCPConfig()
+	if err != nil {
+		warnings = append(warnings, fmt.Sprintf("MCP config: %v, using defaults", err))
+	}
+	warnings = append(warnings, mcpWarns...)
+	lspCfg, lspWarns, err := store.LoadLSPConfig()
+	if err != nil {
+		warnings = append(warnings, fmt.Sprintf("LSP config: %v, using defaults", err))
+	}
+	warnings = append(warnings, lspWarns...)
+	uiPrefs, err := store.LoadUIPrefs()
+	if err != nil {
+		warnings = append(warnings, fmt.Sprintf("UI preferences: %v, using defaults", err))
+	}
+
+	footer := components.NewSessionFooter()
+	if mcpCfg != nil {
+		footer.SetMCPCount(mcpCfg.CountEnabled())
+	}
+	if lspCfg != nil {
+		footer.SetLSPCount(lspCfg.CountEnabled())
+	}
+
+	history, err := loadPromptHistory()
+	if err != nil {
+		warnings = append(warnings, fmt.Sprintf("prompt history: %v, using defaults", err))
+	}
+	stash, err := loadPromptStash()
+	if err != nil {
+		warnings = append(warnings, fmt.Sprintf("prompt stash: %v, using defaults", err))
+	}
+	summaries, corrupted, err := store.List()
+	if err != nil {
+		warnings = append(warnings, fmt.Sprintf("session list: %v, using defaults", err))
+	}
+	if len(corrupted) > 0 {
+		warnings = append(warnings, fmt.Sprintf("%d corrupted session file(s) skipped", len(corrupted)))
+	}
+
+	a := App{
+		chat:          components.NewChat(),
+		input:         components.NewInput(),
+		statusbar:     components.NewStatusBar(),
+		footer:        footer,
+		toolpanel:     components.NewToolPanel(),
+		home:          components.NewHome(),
+		state:         StateHome,
+		maxSteps:      100,
+		promptHistory: history,
+		toasts:        components.NewToastManager(),
+		stash:         stash,
+		modelPrefs:    prefs,
+		mcpConfig:     mcpCfg,
+		lspConfig:     lspCfg,
+		uiPrefs:       uiPrefs,
+		sessionsDialog: sessionsDialogState{
+			entries: summaries,
+			loaded:  err == nil,
+		},
+		startupWarnings: warnings,
+	}
+	a.initRegistry()
+	return a
+}
+
+// closeAllDialogs closes every dialog and overlay, then blurs input.
+func (a *App) closeAllDialogs() {
+	a.commandPalette.open = false
+	a.modelDialog.open = false
+	a.helpDialog.open = false
+	a.statusDialog.open = false
+	a.exportDialog.open = false
+	a.renameDialog.open = false
+	a.sessionsDialog.open = false
+	a.agentDialog.open = false
+	a.connectDialog.open = false
+	a.themesDialog.open = false
+	a.timelineDialog.open = false
+	a.forkDialog.open = false
+	a.stashDialog.open = false
+	a.mcpDialog.open = false
+	a.inline.open = false
+	a.input.Blur()
 }
 
 // SetProvider configures the LLM provider.
 func (a *App) SetProvider(p provider.Provider) {
 	a.provider = p
+	a.footer.SetConnected(p != nil)
 }
 
 // SetRegistry configures the tool registry.
 func (a *App) SetRegistry(r *tool.Registry) {
 	a.registry = r
+	if t, ok := r.Get("todo"); ok {
+		if td, ok := t.(*tool.TodoTool); ok {
+			a.todoTool = td
+		}
+	}
 }
 
 // SetSession configures the session.
@@ -77,6 +220,8 @@ func (a *App) SetSession(s *session.Session) {
 	a.session = s
 	if s != nil {
 		a.home.SetWorkDir(s.WorkDir)
+		a.footer.SetWorkDir(s.WorkDir)
+		a.statusbar.SetTitle(shortSessionTitle(s.ID))
 	}
 }
 
@@ -87,6 +232,9 @@ func (a *App) SetAgent(ag agent.Agent) {
 	a.chat.SetMode(ag.Name)
 	a.statusbar.SetMode(ag.Name)
 	a.home.SetMode(ag.Name)
+	if a.session != nil {
+		a.session.SetSystemPrompt(ag.SystemPrompt)
+	}
 }
 
 // SetModel updates the displayed model name.
@@ -97,9 +245,77 @@ func (a *App) SetModel(model string) {
 	a.home.SetModel(model)
 }
 
+// SetFullModelID updates the full model ID (e.g. "anthropic/claude-4").
+func (a *App) SetFullModelID(id string) {
+	a.fullModelID = id
+
+	variants := provider.VariantsFor(id)
+	if len(variants) == 0 {
+		a.applyVariant("")
+		return
+	}
+
+	if a.modelPrefs != nil {
+		if saved := a.modelPrefs.GetVariant(id); slices.Contains(variants, saved) {
+			a.applyVariant(saved)
+			return
+		}
+	}
+
+	a.applyVariant("")
+}
+
 // SetMaxSteps sets the max agent loop steps.
 func (a *App) SetMaxSteps(n int) {
 	a.maxSteps = n
+}
+
+// warnOnErr shows a toast warning if err is non-nil. Used for non-fatal
+// save/persist failures where the operation can continue with stale state.
+// Also logs the error to disk for later diagnosis.
+func (a *App) warnOnErr(err error, what string) {
+	if err != nil {
+		store.LogError("save "+what, err)
+		a.toasts.Show("Failed to save "+what, components.ToastWarning, 3*time.Second)
+	}
+}
+
+// ShowToast displays a toast notification and returns a dismiss command.
+func (a *App) ShowToast(msg string, variant components.ToastVariant) tea.Cmd {
+	id := a.toasts.Show(msg, variant, 3*time.Second)
+	return toastDismissCmd(id)
+}
+
+// resetFileCache invalidates the @-mention file cache so it will be
+// reloaded on the next inline completion trigger.
+func (a *App) resetFileCache() {
+	a.fileCache = nil
+	a.fileCacheLoaded = false
+	a.fileCacheLoading = false
+}
+
+// setStreaming updates the streaming state and keeps statusbar/footer in sync.
+func (a *App) setStreaming(streaming bool) {
+	a.streaming = streaming
+	a.statusbar.SetSpinning(streaming)
+	a.footer.SetStreaming(streaming)
+}
+
+// showGettingStarted returns whether the getting started card should appear.
+func (a App) showGettingStarted() bool {
+	if a.uiPrefs == nil || a.uiPrefs.GettingStartedDismissed {
+		return false
+	}
+	// Hide when user has session history.
+	if len(a.sessionsDialog.entries) > 0 {
+		return false
+	}
+	return true
+}
+
+// trackModifiedFile adds a file path to the modified files list, deduplicating.
+func (a *App) trackModifiedFile(path string) {
+	a.modifiedFiles.add(path)
 }
 
 // Init implements tea.Model.
@@ -115,6 +331,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.height = msg.Height
 		a.ready = true
 		a.layout()
+		if len(a.startupWarnings) > 0 && !a.startupWarningsShown {
+			a.startupWarningsShown = true
+			combined := strings.Join(a.startupWarnings, "; ")
+			if len(combined) > 120 {
+				combined = combined[:117] + "..."
+			}
+			return a, a.ShowToast(combined, components.ToastWarning)
+		}
 		return a, nil
 
 	case tea.KeyPressMsg:
@@ -123,8 +347,69 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case components.InputSubmitMsg:
 		return a.handleSubmit(msg.Value)
 
+	case ModelsLoadedMsg:
+		return a.handleModelsLoaded(msg)
+
+	case FileCacheLoadedMsg:
+		a.fileCache = msg.Files
+		a.fileCacheLoaded = true
+		a.fileCacheLoading = false
+		return a, nil
+
+	case SessionsLoadedMsg:
+		if msg.Err != nil {
+			a.sessionsDialog.entries = nil
+			a.sessionsDialog.loaded = true
+			return a, a.ShowToast("Failed to load sessions", components.ToastError)
+		}
+		a.sessionsDialog.entries = msg.Sessions
+		a.sessionsDialog.loaded = true
+		if len(msg.Corrupted) > 0 {
+			return a, a.ShowToast(
+				fmt.Sprintf("%d corrupted session file(s) skipped", len(msg.Corrupted)),
+				components.ToastWarning,
+			)
+		}
+		return a, nil
+
+	case ToastDismissMsg:
+		a.toasts.Dismiss(msg.ID)
+		return a, nil
+
+	case ShellResultMsg:
+		a.setStreaming(false)
+		a.input.Focus()
+		if msg.Error != "" {
+			a.chat.AddEntry(components.ChatEntry{Role: components.RoleError, Content: msg.Error})
+			toastCmd := a.ShowToast("Command failed", components.ToastError)
+			return a, toastCmd
+		}
+		output := msg.Output
+		if len(output) > 2000 {
+			output = output[:2000] + "\n... (truncated)"
+		}
+		if output != "" {
+			a.chat.AddEntry(components.ChatEntry{Role: components.RoleSystem, Content: output})
+		}
+		return a, nil
+
 	case AgentEventMsg:
 		return a.handleAgentEvent(msg.Event)
+
+	case tea.MouseClickMsg:
+		if a.sidebarOverlayActive() {
+			m := msg.Mouse()
+			x, y, w, h := a.sidebarOverlayPanelRect()
+			inside := m.X >= x && m.X < x+w && m.Y >= y && m.Y < y+h
+			if !inside {
+				a.sidebarOverlay = false
+				if !a.streaming {
+					a.input.Focus()
+				}
+			}
+			return a, nil
+		}
+		return a, nil
 
 	case tea.MouseWheelMsg:
 		if a.state == StateSession {
@@ -136,192 +421,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-func (a App) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch {
-	case msg.Mod == tea.ModCtrl && msg.Code == 'c':
-		return a, tea.Quit
-
-	case msg.Code == tea.KeyEscape:
-		if a.streaming {
-			if a.cancel != nil {
-				a.cancel()
-				a.cancel = nil
-			}
-			a.eventCh = nil
-			a.streaming = false
-			a.statusbar.SetSpinning(false)
-			a.chat.CommitStream()
-			return a, nil
-		}
-		return a, tea.Quit
-
-	case msg.Mod == tea.ModCtrl && msg.Code == 'l':
-		if a.state == StateSession {
-			a.chat.Clear()
-			a.toolpanel.Clear()
-		}
-		return a, nil
-
-	default:
-		if !a.streaming {
-			if a.state == StateHome {
-				cmd := a.home.Input().Update(msg)
-				return a, cmd
-			}
-			cmd := a.input.Update(msg)
-			return a, cmd
-		}
-	}
-
-	return a, nil
-}
-
-func (a App) handleSubmit(input string) (tea.Model, tea.Cmd) {
-	// Transition from home to session on first submit
-	if a.state == StateHome {
-		a.state = StateSession
-	}
-
-	if a.provider == nil || a.registry == nil || a.session == nil {
-		a.chat.AddEntry(components.ChatEntry{
-			Role:    "error",
-			Content: "Not configured — missing provider, registry, or session",
-		})
-		return a, nil
-	}
-
-	a.chat.AddEntry(components.ChatEntry{Role: "user", Content: input})
-	a.streaming = true
-	a.responseStart = time.Now()
-	a.statusbar.SetSpinning(true)
-	a.input.Blur()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	a.cancel = cancel
-
-	loop := agent.NewLoop(a.provider, a.registry, a.session, a.agent, a.maxSteps)
-	a.eventCh = loop.Run(ctx, input)
-
-	return a, listenForEvents(a.eventCh)
-}
-
-func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
-	switch event.Type {
-	case agent.EventContentDelta:
-		a.chat.StreamContent(event.Content)
-		return a, listenForEvents(a.eventCh)
-
-	case agent.EventToolStart:
-		if event.Tool != nil {
-			a.chat.AddEntry(components.ChatEntry{
-				Role:       "tool",
-				Content:    toolSummary(event.Tool),
-				ToolID:     event.Tool.ID,
-				ToolName:   event.Tool.Name,
-				ToolStatus: "pending",
-			})
-			a.toolpanel.AddEvent(agent.ToolEvent{
-				ID:   event.Tool.ID,
-				Name: event.Tool.Name,
-				Args: event.Tool.Args,
-			})
-		}
-		return a, listenForEvents(a.eventCh)
-
-	case agent.EventToolEnd:
-		if event.Tool != nil {
-			status := "success"
-			if event.Tool.Error != "" {
-				status = "error"
-			}
-			content := event.Tool.Output
-			if status == "error" {
-				content = event.Tool.Error
-			}
-			a.chat.UpdateLastTool(event.Tool.ID, components.ChatEntry{
-				Role:       "tool",
-				Content:    content,
-				ToolID:     event.Tool.ID,
-				ToolName:   event.Tool.Name,
-				ToolStatus: status,
-			})
-			a.toolpanel.AddEvent(agent.ToolEvent{
-				ID:     event.Tool.ID,
-				Name:   event.Tool.Name,
-				Output: event.Tool.Output,
-				Error:  event.Tool.Error,
-			})
-		}
-		return a, listenForEvents(a.eventCh)
-
-	case agent.EventDone:
-		a.eventCh = nil
-		a.streaming = false
-		a.statusbar.SetSpinning(false)
-		a.chat.CommitStream()
-		a.input.Focus()
-		if a.session != nil {
-			a.statusbar.SetTokens(a.session.Tokens.Input + a.session.Tokens.Output)
-		}
-		dur := time.Since(a.responseStart)
-		modeName := a.agent.Name
-		if modeName == "" {
-			modeName = "build"
-		}
-		a.chat.AddEntry(components.ChatEntry{
-			Role: "complete",
-			Meta: &components.CompleteMeta{
-				Mode:     modeName,
-				Model:    a.model,
-				Duration: dur,
-			},
-		})
-		return a, nil
-
-	case agent.EventError:
-		a.eventCh = nil
-		a.streaming = false
-		a.statusbar.SetSpinning(false)
-		a.chat.CommitStream()
-		a.input.Focus()
-		if event.Error != nil {
-			a.chat.AddEntry(components.ChatEntry{
-				Role:    "error",
-				Content: event.Error.Error(),
-			})
-		}
-		return a, nil
-	}
-
-	return a, nil
-}
-
-// toolSummary extracts a short summary from tool args.
-func toolSummary(te *agent.ToolEvent) string {
-	if te.Args != "" {
-		s := te.Args
-		if idx := strings.IndexByte(s, '\n'); idx >= 0 {
-			s = s[:idx]
-		}
-		if len(s) > 80 {
-			s = s[:77] + "..."
-		}
-		return s
-	}
-	return te.Name
-}
-
-// listenForEvents returns a cmd that reads events from the channel.
-func listenForEvents(ch <-chan agent.Event) tea.Cmd {
-	return func() tea.Msg {
-		event, ok := <-ch
-		if !ok {
-			return AgentEventMsg{Event: agent.Event{Type: agent.EventDone}}
-		}
-		return AgentEventMsg{Event: event}
-	}
-}
-
 func (a *App) layout() {
 	if a.state == StateHome {
 		a.home.SetSize(a.width, a.height)
@@ -330,16 +429,23 @@ func (a *App) layout() {
 
 	statusH := 1
 	inputH := 5
+	footerH := 1
 
-	chatH := a.height - statusH - inputH
+	mainW := a.mainContentWidth()
+	chatH := a.height - statusH - inputH - footerH
 	if chatH < 1 {
 		chatH = 1
 	}
 
-	a.statusbar.SetSize(a.width)
-	a.chat.SetSize(a.width, chatH)
-	a.input.SetSize(a.width, inputH)
-	a.toolpanel.SetSize(a.width)
+	a.statusbar.SetSize(mainW)
+	a.chat.SetSize(mainW, chatH)
+	a.input.SetSize(mainW, inputH)
+	a.footer.SetSize(mainW)
+	if a.sidebarWideVisible() {
+		a.toolpanel.SetSize(a.sidebarWidth())
+	} else {
+		a.toolpanel.SetSize(mainW)
+	}
 }
 
 // View implements tea.Model.
@@ -363,12 +469,48 @@ func (a App) View() tea.View {
 	return v
 }
 
-func (a App) renderSessionView() string {
-	var sb strings.Builder
-	sb.WriteString(a.statusbar.View())
-	sb.WriteByte('\n')
-	sb.WriteString(a.chat.View())
-	sb.WriteByte('\n')
-	sb.WriteString(a.input.View())
-	return sb.String()
+func (a App) sidebarWidth() int {
+	return 42
+}
+
+func (a App) sidebarWideVisible() bool {
+	if a.state != StateSession {
+		return false
+	}
+	if a.sidebarHidden {
+		return false
+	}
+	return a.width >= 120
+}
+
+func (a App) sidebarOverlayActive() bool {
+	if a.state != StateSession {
+		return false
+	}
+	if a.sidebarHidden {
+		return false
+	}
+	if a.width >= 120 {
+		return false
+	}
+	return a.sidebarOverlay
+}
+
+func (a App) sidebarVisible() bool {
+	return a.sidebarWideVisible() || a.sidebarOverlayActive()
+}
+
+func (a App) mainContentWidth() int {
+	if !a.sidebarWideVisible() {
+		if a.width < 1 {
+			return 1
+		}
+		return a.width
+	}
+
+	w := a.width - a.sidebarWidth() - 1
+	if w < 40 {
+		return a.width
+	}
+	return w
 }

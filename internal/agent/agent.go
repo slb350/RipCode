@@ -16,13 +16,19 @@ const (
 func (m Mode) String() string {
 	switch m {
 	case ModeBuild:
-		return "build"
+		return NameBuild
 	case ModePlan:
-		return "plan"
+		return NamePlan
 	default:
 		return "unknown"
 	}
 }
+
+// Agent name constants.
+const (
+	NameBuild = "build"
+	NamePlan  = "plan"
+)
 
 // Agent defines an agent configuration with a name, mode, and tool restrictions.
 type Agent struct {
@@ -35,7 +41,7 @@ type Agent struct {
 // BuildAgent creates an agent with full tool access.
 func BuildAgent() Agent {
 	return Agent{
-		Name:         "build",
+		Name:         NameBuild,
 		Mode:         ModeBuild,
 		SystemPrompt: buildSystemPrompt,
 	}
@@ -44,9 +50,11 @@ func BuildAgent() Agent {
 // PlanAgent creates an agent with read-only tool access.
 func PlanAgent() Agent {
 	return Agent{
-		Name:         "plan",
+		Name:         NamePlan,
 		Mode:         ModePlan,
 		SystemPrompt: planSystemPrompt,
+		// NOTE: these must match tool IDs registered in cmd/ripcode/main.go.
+		// TestPlanAgent_AllowedToolsMatchRegistry validates this at test time.
 		AllowedTools: []string{"read", "glob", "grep", "ls", "todo"},
 	}
 }
@@ -70,6 +78,21 @@ func (a Agent) FilterRegistry(reg *tool.Registry) []provider.ToolDef {
 		}
 	}
 	return filtered
+}
+
+// AgentInfo describes an agent for display in the agent picker dialog.
+type AgentInfo struct {
+	Name        string
+	Description string
+	Native      bool // true for built-in agents (build/plan), false for MCP-provided agents
+}
+
+// AllAgents returns info about all available agents.
+func AllAgents() []AgentInfo {
+	return []AgentInfo{
+		{Name: NameBuild, Description: "Full tool access for coding tasks", Native: true},
+		{Name: NamePlan, Description: "Read-only analysis and planning", Native: true},
+	}
 }
 
 const buildSystemPrompt = `You are ripcode, an AI coding assistant in the terminal.

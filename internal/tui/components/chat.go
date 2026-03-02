@@ -10,6 +10,23 @@ import (
 	"github.com/stephenbrandon/ripcode/internal/tui/styles"
 )
 
+// Chat entry role constants.
+const (
+	RoleUser      = "user"
+	RoleAssistant = "assistant"
+	RoleTool      = "tool"
+	RoleError     = "error"
+	RoleSystem    = "system"
+	RoleComplete  = "complete"
+)
+
+// Tool status constants.
+const (
+	StatusPending = "pending"
+	StatusSuccess = "success"
+	StatusError   = "error"
+)
+
 // CompleteMeta holds metadata for a completion info bar entry.
 type CompleteMeta struct {
 	Mode     string
@@ -19,12 +36,12 @@ type CompleteMeta struct {
 
 // ChatEntry represents a single rendered entry in the chat.
 type ChatEntry struct {
-	Role       string // "user", "assistant", "tool", "error", "system", "complete"
+	Role       string // RoleUser, RoleAssistant, RoleTool, RoleError, RoleSystem, RoleComplete
 	Content    string
 	ToolID     string        // tool call ID for matching updates
 	ToolName   string        // tool name (bash, read, write, etc.)
-	ToolStatus string        // "pending", "success", "error"
-	Meta       *CompleteMeta // for "complete" role entries
+	ToolStatus string        // StatusPending, StatusSuccess, StatusError
+	Meta       *CompleteMeta // for RoleComplete entries
 }
 
 // Chat is a scrollable viewport displaying conversation messages.
@@ -85,11 +102,107 @@ func (c *Chat) StreamContent(delta string) {
 func (c *Chat) CommitStream() {
 	if c.streaming != "" {
 		c.entries = append(c.entries, ChatEntry{
-			Role:    "assistant",
+			Role:    RoleAssistant,
 			Content: c.streaming,
 		})
 		c.streaming = ""
 	}
+}
+
+// PageUp scrolls up by one page height.
+func (c *Chat) PageUp() { c.scrollPos = max(0, c.scrollPos-c.height) }
+
+// PageDown scrolls down by one page height.
+func (c *Chat) PageDown() { c.scrollPos += c.height }
+
+// HalfPageUp scrolls up by half a page.
+func (c *Chat) HalfPageUp() { c.scrollPos = max(0, c.scrollPos-c.height/2) }
+
+// HalfPageDown scrolls down by half a page.
+func (c *Chat) HalfPageDown() { c.scrollPos += c.height / 2 }
+
+// LineUp scrolls up by one line.
+func (c *Chat) LineUp() { c.scrollPos = max(0, c.scrollPos-1) }
+
+// LineDown scrolls down by one line.
+func (c *Chat) LineDown() { c.scrollPos++ }
+
+// ScrollToTop scrolls to the very top.
+func (c *Chat) ScrollToTop() { c.scrollPos = 0 }
+
+// ScrollToBottom scrolls to the very bottom.
+func (c *Chat) ScrollToBottom() { c.scrollToBottom() }
+
+// ScrollPos returns the current scroll position.
+func (c Chat) ScrollPos() int { return c.scrollPos }
+
+// SetScrollPos sets the scroll position directly.
+func (c *Chat) SetScrollPos(pos int) { c.scrollPos = max(0, pos) }
+
+// LineOffsetForUserMessage returns the rendered line offset for the nth user
+// message (0-based), or false if the index is out of range.
+func (c Chat) LineOffsetForUserMessage(idx int) (int, bool) {
+	if idx < 0 {
+		return 0, false
+	}
+
+	offsets := c.userMessageOffsets()
+	if idx >= len(offsets) {
+		return 0, false
+	}
+	return offsets[idx], true
+}
+
+// userMessageOffsets returns rendered line offsets for each user message.
+// Offsets mirror View rendering: each entry contributes renderEntry lines plus
+// one blank separator line.
+func (c Chat) userMessageOffsets() []int {
+	offsets := make([]int, 0, len(c.entries)/2+1)
+	linePos := 0
+	for _, entry := range c.entries {
+		if entry.Role == RoleUser {
+			offsets = append(offsets, linePos)
+		}
+		linePos += len(c.renderEntry(entry)) + 1
+	}
+	return offsets
+}
+
+// NextUserMessage jumps scroll to the next rendered user-message offset.
+func (c *Chat) NextUserMessage() {
+	linePos := 0
+	for _, entry := range c.entries {
+		if entry.Role == RoleUser && linePos > c.scrollPos {
+			c.scrollPos = linePos
+			return
+		}
+		linePos += len(c.renderEntry(entry)) + 1
+	}
+}
+
+// PrevUserMessage jumps scroll to the previous rendered user-message offset.
+func (c *Chat) PrevUserMessage() {
+	lastUser := -1
+	linePos := 0
+	for _, entry := range c.entries {
+		if entry.Role == RoleUser {
+			if linePos >= c.scrollPos {
+				break
+			}
+			lastUser = linePos
+		}
+		linePos += len(c.renderEntry(entry)) + 1
+	}
+	if lastUser >= 0 {
+		c.scrollPos = lastUser
+	}
+}
+
+// Entries returns the current chat entries.
+func (c Chat) Entries() []ChatEntry {
+	out := make([]ChatEntry, len(c.entries))
+	copy(out, c.entries)
+	return out
 }
 
 // Clear removes all entries.
@@ -160,17 +273,17 @@ func (c Chat) renderEntry(entry ChatEntry) []string {
 	}
 
 	switch entry.Role {
-	case "user":
+	case RoleUser:
 		return c.renderUserEntry(entry, t)
-	case "assistant":
+	case RoleAssistant:
 		return c.renderAssistantEntry(entry, t)
-	case "tool":
+	case RoleTool:
 		return c.renderToolEntry(entry, t)
-	case "error":
+	case RoleError:
 		return c.renderErrorEntry(entry, t)
-	case "system":
+	case RoleSystem:
 		return c.renderSystemEntry(entry, t)
-	case "complete":
+	case RoleComplete:
 		return c.renderCompleteEntry(entry, t)
 	default:
 		return []string{entry.Content}
@@ -235,9 +348,9 @@ func toolIcon(name string) string {
 // statusIcon returns the status indicator.
 func statusIcon(status string) string {
 	switch status {
-	case "success":
+	case StatusSuccess:
 		return "✓"
-	case "error":
+	case StatusError:
 		return "✗"
 	default:
 		return "~"
@@ -251,9 +364,9 @@ func (c Chat) renderToolEntry(entry ChatEntry, t *styles.Theme) []string {
 
 	var statusStyle lipgloss.Style
 	switch entry.ToolStatus {
-	case "success":
+	case StatusSuccess:
 		statusStyle = t.SuccessStyle
-	case "error":
+	case StatusError:
 		statusStyle = t.ErrorStyle
 	default:
 		statusStyle = t.TextMutedStyle
@@ -318,8 +431,8 @@ func (c *Chat) scrollToBottom() {
 
 func (c Chat) totalLines() int {
 	count := 0
-	for range c.entries {
-		count += 2 // entry + blank line (approximate)
+	for _, entry := range c.entries {
+		count += len(c.renderEntry(entry)) + 1
 	}
 	if c.streaming != "" {
 		count++
@@ -365,18 +478,4 @@ func wrapText(text string, width int) string {
 		}
 	}
 	return result.String()
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

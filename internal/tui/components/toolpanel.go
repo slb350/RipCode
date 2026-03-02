@@ -39,6 +39,13 @@ func (tp *ToolPanel) Clear() {
 	tp.events = nil
 }
 
+// Events returns a copy of recorded tool events.
+func (tp ToolPanel) Events() []agent.ToolEvent {
+	out := make([]agent.ToolEvent, len(tp.events))
+	copy(out, tp.events)
+	return out
+}
+
 // View renders the most recent tool events.
 func (tp ToolPanel) View() string {
 	if len(tp.events) == 0 {

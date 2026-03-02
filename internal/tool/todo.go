@@ -13,7 +13,9 @@ type TodoItem struct {
 	Status  string `json:"status"` // "pending", "in_progress", "completed"
 }
 
-// TodoTool provides session-scoped task tracking.
+// TodoTool provides instance-scoped task tracking: each App creates one
+// TodoTool, so items exist only for the lifetime of that session (in-memory,
+// not persisted).
 type TodoTool struct {
 	mu    sync.Mutex
 	items []TodoItem
@@ -60,7 +62,7 @@ type todoArgs struct {
 func (td *TodoTool) Execute(ctx Context, argsJSON string) Result {
 	var args todoArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return Result{Error: fmt.Errorf("parse args: %w", err)}
+		return Result{Error: fmt.Errorf("%s: parse args: %w", td.ID(), err)}
 	}
 
 	switch args.Action {
@@ -93,6 +95,15 @@ func (td *TodoTool) read() Result {
 		fmt.Fprintf(&sb, "%d. %s %s\n", i+1, marker, item.Subject)
 	}
 	return Result{Output: sb.String()}
+}
+
+// Items returns a copy of the current todo items.
+func (td *TodoTool) Items() []TodoItem {
+	td.mu.Lock()
+	defer td.mu.Unlock()
+	out := make([]TodoItem, len(td.items))
+	copy(out, td.items)
+	return out
 }
 
 func (td *TodoTool) write(items []TodoItem) Result {

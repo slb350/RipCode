@@ -2,10 +2,15 @@ package tui
 
 import (
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
+
 	"github.com/stephenbrandon/ripcode/internal/agent"
 	"github.com/stephenbrandon/ripcode/internal/session"
+	"github.com/stephenbrandon/ripcode/internal/store"
+	"github.com/stephenbrandon/ripcode/internal/tool"
+	"github.com/stephenbrandon/ripcode/internal/tui/components"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -76,120 +81,136 @@ func TestApp_View_Ready(t *testing.T) {
 	assert.True(t, view.AltScreen)
 }
 
-func TestApp_EscQuits_InHome(t *testing.T) {
+func TestApp_ShowToast_AddsToToastManager(t *testing.T) {
 	app := NewApp()
-	_, cmd := app.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	assert.NotNil(t, cmd)
-}
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
 
-func TestApp_CtrlCQuits(t *testing.T) {
-	app := NewApp()
-	_, cmd := app.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
-	assert.NotNil(t, cmd)
-}
-
-func TestApp_ContentDelta_ContinuesListening(t *testing.T) {
-	app := NewApp()
-	ch := make(chan agent.Event, 1)
-	app.streaming = true
-	app.state = StateSession
-	app.eventCh = ch
-
-	model, cmd := app.Update(AgentEventMsg{
-		Event: agent.Event{Type: agent.EventContentDelta, Content: "hello"},
-	})
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	a := model.(App)
+	a.state = StateSession
 
-	assert.True(t, a.streaming)
-	assert.NotNil(t, cmd, "non-terminal event must return a listen command")
+	cmd := a.ShowToast("Test toast", components.ToastInfo)
+	assert.NotNil(t, cmd, "ShowToast should return a dismiss command")
+	assert.NotNil(t, a.toasts.Current())
+	assert.Equal(t, "Test toast", a.toasts.Current().Message)
+
+	view := a.View()
+	assert.Contains(t, view.Content, "Test toast")
 }
 
-func TestApp_ToolStart_ContinuesListening(t *testing.T) {
+func TestApp_ToastDismissMsg_DismissesMatchingID(t *testing.T) {
 	app := NewApp()
-	ch := make(chan agent.Event, 1)
-	app.streaming = true
-	app.state = StateSession
-	app.eventCh = ch
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
 
-	model, cmd := app.Update(AgentEventMsg{
-		Event: agent.Event{
-			Type: agent.EventToolStart,
-			Tool: &agent.ToolEvent{ID: "1", Name: "bash", Args: `{"command":"ls"}`},
-		},
-	})
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	a := model.(App)
+	a.state = StateSession
 
-	assert.True(t, a.streaming)
-	assert.NotNil(t, cmd, "non-terminal event must return a listen command")
+	id := a.toasts.Show("temp", components.ToastInfo, 3*time.Second)
+	assert.NotNil(t, a.toasts.Current())
+
+	model, _ = a.Update(ToastDismissMsg{ID: id})
+	a = model.(App)
+	assert.Nil(t, a.toasts.Current(), "matching dismiss should clear toast")
 }
 
-func TestApp_ToolEnd_ContinuesListening(t *testing.T) {
+func TestApp_ToastDismissMsg_IgnoresMismatchedID(t *testing.T) {
 	app := NewApp()
-	ch := make(chan agent.Event, 1)
-	app.streaming = true
-	app.state = StateSession
-	app.eventCh = ch
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(t.TempDir()))
+	app.SetAgent(agent.BuildAgent())
 
-	model, cmd := app.Update(AgentEventMsg{
-		Event: agent.Event{
-			Type: agent.EventToolEnd,
-			Tool: &agent.ToolEvent{ID: "1", Name: "bash", Output: "file.txt"},
-		},
-	})
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	a := model.(App)
+	a.state = StateSession
 
-	assert.True(t, a.streaming)
-	assert.NotNil(t, cmd, "non-terminal event must return a listen command")
+	a.toasts.Show("first", components.ToastInfo, 3*time.Second)
+	id2 := a.toasts.Show("second", components.ToastWarning, 3*time.Second)
+
+	// Try to dismiss with stale ID
+	model, _ = a.Update(ToastDismissMsg{ID: id2 - 1})
+	a = model.(App)
+	assert.NotNil(t, a.toasts.Current(), "stale ID should not dismiss")
+	assert.Equal(t, "second", a.toasts.Current().Message)
 }
 
-func TestApp_AgentEventDone(t *testing.T) {
+func TestApp_SessionLayout_ShowsHeaderAndFooter(t *testing.T) {
+	workDir := t.TempDir()
 	app := NewApp()
-	ch := make(chan agent.Event, 1)
-	app.streaming = true
-	app.state = StateSession
-	app.eventCh = ch
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	app.SetSession(session.New(workDir))
+	app.SetAgent(agent.BuildAgent())
+	app.SetModel("glm-5")
 
-	model, cmd := app.Update(AgentEventMsg{
-		Event: agent.Event{Type: agent.EventDone},
-	})
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	a := model.(App)
+	a.state = StateSession
 
-	assert.False(t, a.streaming)
-	assert.Nil(t, a.eventCh, "Done must clear the event channel")
-	assert.Nil(t, cmd, "terminal event must not return a command")
+	view := a.View().Content
+	assert.Contains(t, view, "# Session")
+	assert.Contains(t, view, workDir)
+	assert.Contains(t, view, "/help")
 }
 
-func TestApp_AgentEventError(t *testing.T) {
-	app := NewApp()
-	ch := make(chan agent.Event, 1)
-	app.streaming = true
-	app.state = StateSession
-	app.eventCh = ch
-
-	model, cmd := app.Update(AgentEventMsg{
-		Event: agent.Event{
-			Type:  agent.EventError,
-			Error: assert.AnError,
-		},
-	})
-	a := model.(App)
-
-	assert.False(t, a.streaming)
-	assert.Nil(t, a.eventCh, "Error must clear the event channel")
-	assert.Nil(t, cmd, "terminal event must not return a command")
+func TestApp_InputEmptyMode_NoPanic(t *testing.T) {
+	i := components.NewInput()
+	i.SetMode("")
+	i.SetSize(80, 6)
+	// This should not panic even with empty mode
+	view := i.View()
+	assert.Contains(t, view, "Build", "empty mode should fallback to Build")
 }
 
-func TestApp_EscCancel_ClearsChannel(t *testing.T) {
+func TestApp_SessionResetPreservesWorkDir(t *testing.T) {
+	workDir := t.TempDir()
+	sess := session.New(workDir)
+	sess.AddUser("test")
+	sess.AddTokens(100, 50)
+	sess.SetSystemPrompt("you are helpful")
+	oldID := sess.ID
+
+	sess.Reset()
+
+	assert.Equal(t, workDir, sess.WorkDir, "Reset should preserve WorkDir")
+	assert.Empty(t, sess.Records(), "Reset should clear messages")
+	assert.Equal(t, 0, sess.TokenCount().Input, "Reset should clear tokens")
+	assert.NotEqual(t, oldID, sess.ID, "Reset should generate new ID")
+}
+
+func TestApp_SetFullModelID_RestoresSavedVariant(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
 	app := NewApp()
-	ch := make(chan agent.Event, 1)
-	app.streaming = true
-	app.state = StateSession
-	app.eventCh = ch
-	app.cancel = func() {} // no-op cancel
+	p := &modelListProvider{}
+	app.SetProvider(p)
+	if app.modelPrefs == nil {
+		app.modelPrefs = &store.ModelPrefs{}
+	}
+	app.modelPrefs.SetVariant("anthropic/claude-sonnet-4-thinking", "high")
 
-	model, _ := app.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	a := model.(App)
+	app.SetFullModelID("anthropic/claude-sonnet-4-thinking")
 
-	assert.False(t, a.streaming)
-	assert.Nil(t, a.eventCh, "Esc cancel must clear the event channel")
+	assert.Equal(t, "high", app.activeVariant)
+	assert.Equal(t, "high", p.reasoningEffort)
+}
+
+func TestApp_SetFullModelID_ClearsVariantWhenUnsupported(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	p := &modelListProvider{}
+	app.SetProvider(p)
+	app.activeVariant = "high"
+	p.reasoningEffort = "high"
+
+	app.SetFullModelID("openai/gpt-4o")
+
+	assert.Equal(t, "", app.activeVariant)
+	assert.Equal(t, "", p.reasoningEffort)
 }

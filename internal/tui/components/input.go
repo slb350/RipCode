@@ -2,6 +2,7 @@ package components
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -15,16 +16,28 @@ type InputSubmitMsg struct {
 
 // Input is a multi-line text input component with accent border and agent badge.
 type Input struct {
-	value   []string
-	cursorX int
-	cursorY int
-	width   int
-	height  int
-	focused bool
-	mode    string
-	model   string
-	theme   *styles.Theme
+	value     []string
+	cursorX   int
+	cursorY   int
+	width     int
+	height    int
+	focused   bool
+	mode      string
+	model     string
+	theme     *styles.Theme
+	history   *EditHistory
+	lastOp    inputOp // tracks last operation type for undo grouping
+	shellMode bool
 }
+
+// inputOp classifies the last operation for undo grouping.
+type inputOp int
+
+const (
+	opNone   inputOp = iota
+	opInsert         // character insertion (grouped into one undo step)
+	opOther          // any non-insert operation
+)
 
 // NewInput creates a new input component.
 func NewInput() Input {
@@ -34,8 +47,84 @@ func NewInput() Input {
 		mode:    "build",
 		model:   "",
 		theme:   styles.DefaultTheme,
+		history: NewEditHistory(100),
 	}
 }
+
+// pushUndo snapshots current state onto the undo stack.
+func (i *Input) pushUndo() {
+	i.history.Push(EditState{
+		Value:   i.Value(),
+		CursorX: i.cursorX,
+		CursorY: i.cursorY,
+	})
+}
+
+// applyState restores an EditState to the input.
+func (i *Input) applyState(s *EditState) {
+	if s == nil {
+		return
+	}
+	i.value = strings.Split(s.Value, "\n")
+	if len(i.value) == 0 {
+		i.value = []string{""}
+	}
+	i.cursorX = s.CursorX
+	i.cursorY = s.CursorY
+}
+
+// isWordChar returns true for letters, digits, and underscores.
+func isWordChar(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+		(r >= '0' && r <= '9') || r == '_'
+}
+
+// findWordLeft returns the cursor position after moving one word left.
+func (i *Input) findWordLeft() int {
+	runes := []rune(i.value[i.cursorY])
+	pos := i.cursorX
+	if pos <= 0 {
+		return 0
+	}
+	// Skip non-word characters.
+	for pos > 0 && !isWordChar(runes[pos-1]) {
+		pos--
+	}
+	// Skip word characters.
+	for pos > 0 && isWordChar(runes[pos-1]) {
+		pos--
+	}
+	return pos
+}
+
+// findWordRight returns the cursor position after moving one word right.
+// Emacs-style: skip non-word chars, then skip word chars (stop at end of word).
+func (i *Input) findWordRight() int {
+	runes := []rune(i.value[i.cursorY])
+	pos := i.cursorX
+	lineLen := len(runes)
+	if pos >= lineLen {
+		return lineLen
+	}
+	// Skip non-word characters.
+	for pos < lineLen && !isWordChar(runes[pos]) {
+		pos++
+	}
+	// Skip word characters.
+	for pos < lineLen && isWordChar(runes[pos]) {
+		pos++
+	}
+	return pos
+}
+
+// SetShellMode toggles the shell mode badge.
+func (i *Input) SetShellMode(on bool) { i.shellMode = on }
+
+// CursorY returns the current cursor line index.
+func (i Input) CursorY() int { return i.cursorY }
+
+// LineCount returns the number of lines in the input.
+func (i Input) LineCount() int { return len(i.value) }
 
 // SetSize updates the input dimensions.
 func (i *Input) SetSize(width, height int) {
@@ -70,6 +159,83 @@ func (i *Input) Reset() {
 	i.cursorY = 0
 }
 
+// SetValue replaces the current input text and moves the cursor to the end.
+func (i *Input) SetValue(v string) {
+	i.value = strings.Split(v, "\n")
+	if len(i.value) == 0 {
+		i.value = []string{""}
+	}
+	i.cursorY = len(i.value) - 1
+	i.cursorX = utf8.RuneCountInString(i.value[i.cursorY])
+}
+
+// CursorOffset returns the cursor rune offset in the full input string.
+func (i Input) CursorOffset() int {
+	offset := 0
+	for y := 0; y < i.cursorY; y++ {
+		offset += utf8.RuneCountInString(i.value[y]) + 1 // +1 for newline
+	}
+	offset += i.cursorX
+	return offset
+}
+
+// SetCursorOffset moves the cursor to a rune offset in the full input string.
+func (i *Input) SetCursorOffset(offset int) {
+	text := i.Value()
+	runeCount := utf8.RuneCountInString(text)
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > runeCount {
+		offset = runeCount
+	}
+
+	lines := strings.Split(text, "\n")
+	if len(lines) == 0 {
+		lines = []string{""}
+	}
+	i.value = lines
+
+	remaining := offset
+	for y, line := range lines {
+		lineRunes := utf8.RuneCountInString(line)
+		if remaining <= lineRunes {
+			i.cursorY = y
+			i.cursorX = remaining
+			return
+		}
+		remaining -= lineRunes + 1
+	}
+
+	i.cursorY = len(lines) - 1
+	i.cursorX = utf8.RuneCountInString(lines[i.cursorY])
+}
+
+// ReplaceRange replaces rune range [start,end) in the full input string
+// and sets cursor after replacement.
+func (i *Input) ReplaceRange(start, end int, replacement string) {
+	runes := []rune(i.Value())
+	if start < 0 {
+		start = 0
+	}
+	if end < 0 {
+		end = 0
+	}
+	if start > len(runes) {
+		start = len(runes)
+	}
+	if end > len(runes) {
+		end = len(runes)
+	}
+	if start > end {
+		start, end = end, start
+	}
+
+	next := string(runes[:start]) + replacement + string(runes[end:])
+	i.SetValue(next)
+	i.SetCursorOffset(start + utf8.RuneCountInString(replacement))
+}
+
 // Update handles key events.
 func (i *Input) Update(msg tea.Msg) tea.Cmd {
 	if !i.focused {
@@ -79,18 +245,108 @@ func (i *Input) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch {
+		case msg.Code == '-' && msg.Mod == tea.ModCtrl:
+			// Snapshot current state so we can redo back to it.
+			i.history.PushIfChanged(EditState{
+				Value: i.Value(), CursorX: i.cursorX, CursorY: i.cursorY,
+			})
+			s := i.history.Undo()
+			if s != nil {
+				i.applyState(s)
+				i.lastOp = opOther
+			}
+			return nil
+
+		case msg.Code == '.' && msg.Mod == tea.ModCtrl:
+			s := i.history.Redo()
+			if s != nil {
+				i.applyState(s)
+				i.lastOp = opOther
+			}
+			return nil
+
+		// Navigation: line start/end
+		case msg.Code == 'a' && msg.Mod == tea.ModCtrl,
+			msg.Code == tea.KeyHome && msg.Mod == 0:
+			i.cursorX = 0
+
+		case msg.Code == 'e' && msg.Mod == tea.ModCtrl,
+			msg.Code == tea.KeyEnd && msg.Mod == 0:
+			i.cursorX = utf8.RuneCountInString(i.value[i.cursorY])
+
+		// Navigation: word motions
+		case (msg.Code == tea.KeyLeft && msg.Mod == tea.ModCtrl) ||
+			(msg.Code == 'b' && msg.Mod == tea.ModAlt):
+			i.cursorX = i.findWordLeft()
+
+		case (msg.Code == tea.KeyRight && msg.Mod == tea.ModCtrl) ||
+			(msg.Code == 'f' && msg.Mod == tea.ModAlt):
+			i.cursorX = i.findWordRight()
+
+		// Deletion: to line start
+		case msg.Code == 'u' && msg.Mod == tea.ModCtrl:
+			if i.cursorX > 0 {
+				i.pushUndo()
+				i.lastOp = opOther
+				runes := []rune(i.value[i.cursorY])
+				i.value[i.cursorY] = string(runes[i.cursorX:])
+				i.cursorX = 0
+			}
+
+		// Deletion: to line end
+		case msg.Code == 'k' && msg.Mod == tea.ModCtrl:
+			runes := []rune(i.value[i.cursorY])
+			if i.cursorX < len(runes) {
+				i.pushUndo()
+				i.lastOp = opOther
+				i.value[i.cursorY] = string(runes[:i.cursorX])
+			}
+
+		// Deletion: word left
+		case msg.Code == 'w' && msg.Mod == tea.ModCtrl:
+			if i.cursorX > 0 {
+				i.pushUndo()
+				i.lastOp = opOther
+				newX := i.findWordLeft()
+				runes := []rune(i.value[i.cursorY])
+				i.value[i.cursorY] = string(runes[:newX]) + string(runes[i.cursorX:])
+				i.cursorX = newX
+			}
+
+		// Deletion: word right
+		case msg.Code == 'd' && msg.Mod == tea.ModAlt:
+			runes := []rune(i.value[i.cursorY])
+			if i.cursorX < len(runes) {
+				i.pushUndo()
+				i.lastOp = opOther
+				newEnd := i.findWordRight()
+				i.value[i.cursorY] = string(runes[:i.cursorX]) + string(runes[newEnd:])
+			}
+
+		// Deletion: char right
+		case msg.Code == 'd' && msg.Mod == tea.ModCtrl:
+			runes := []rune(i.value[i.cursorY])
+			if i.cursorX < len(runes) {
+				i.pushUndo()
+				i.lastOp = opOther
+				i.value[i.cursorY] = string(runes[:i.cursorX]) + string(runes[i.cursorX+1:])
+			}
+
 		case msg.Code == tea.KeyEnter && msg.Mod == 0:
 			val := i.Value()
 			if strings.TrimSpace(val) == "" {
 				return nil
 			}
 			i.Reset()
+			i.lastOp = opNone
 			return func() tea.Msg { return InputSubmitMsg{Value: val} }
 
 		case msg.Code == tea.KeyEnter && msg.Mod == tea.ModShift:
-			line := i.value[i.cursorY]
-			before := line[:i.cursorX]
-			after := line[i.cursorX:]
+			i.pushUndo()
+			i.lastOp = opOther
+			runes := []rune(i.value[i.cursorY])
+			before := string(runes[:i.cursorX])
+			after := string(runes[i.cursorX:])
 
 			newLines := make([]string, 0, len(i.value)+1)
 			newLines = append(newLines, i.value[:i.cursorY]...)
@@ -102,13 +358,15 @@ func (i *Input) Update(msg tea.Msg) tea.Cmd {
 			i.cursorX = 0
 
 		case msg.Code == tea.KeyBackspace:
+			i.pushUndo()
+			i.lastOp = opOther
 			if i.cursorX > 0 {
-				line := i.value[i.cursorY]
-				i.value[i.cursorY] = line[:i.cursorX-1] + line[i.cursorX:]
+				runes := []rune(i.value[i.cursorY])
+				i.value[i.cursorY] = string(runes[:i.cursorX-1]) + string(runes[i.cursorX:])
 				i.cursorX--
 			} else if i.cursorY > 0 {
 				prevLine := i.value[i.cursorY-1]
-				i.cursorX = len(prevLine)
+				i.cursorX = utf8.RuneCountInString(prevLine)
 				i.value[i.cursorY-1] = prevLine + i.value[i.cursorY]
 				i.value = append(i.value[:i.cursorY], i.value[i.cursorY+1:]...)
 				i.cursorY--
@@ -120,31 +378,36 @@ func (i *Input) Update(msg tea.Msg) tea.Cmd {
 			}
 
 		case msg.Code == tea.KeyRight:
-			if i.cursorX < len(i.value[i.cursorY]) {
+			if i.cursorX < utf8.RuneCountInString(i.value[i.cursorY]) {
 				i.cursorX++
 			}
 
 		case msg.Code == tea.KeyUp:
 			if i.cursorY > 0 {
 				i.cursorY--
-				if i.cursorX > len(i.value[i.cursorY]) {
-					i.cursorX = len(i.value[i.cursorY])
+				if i.cursorX > utf8.RuneCountInString(i.value[i.cursorY]) {
+					i.cursorX = utf8.RuneCountInString(i.value[i.cursorY])
 				}
 			}
 
 		case msg.Code == tea.KeyDown:
 			if i.cursorY < len(i.value)-1 {
 				i.cursorY++
-				if i.cursorX > len(i.value[i.cursorY]) {
-					i.cursorX = len(i.value[i.cursorY])
+				if i.cursorX > utf8.RuneCountInString(i.value[i.cursorY]) {
+					i.cursorX = utf8.RuneCountInString(i.value[i.cursorY])
 				}
 			}
 
 		default:
 			if msg.Text != "" {
-				line := i.value[i.cursorY]
-				i.value[i.cursorY] = line[:i.cursorX] + msg.Text + line[i.cursorX:]
-				i.cursorX += len(msg.Text)
+				// Debounce: only push undo on first char after non-insert op.
+				if i.lastOp != opInsert {
+					i.pushUndo()
+				}
+				i.lastOp = opInsert
+				runes := []rune(i.value[i.cursorY])
+				i.value[i.cursorY] = string(runes[:i.cursorX]) + msg.Text + string(runes[i.cursorX:])
+				i.cursorX += utf8.RuneCountInString(msg.Text)
 			}
 		}
 	}
@@ -182,8 +445,13 @@ func (i Input) View() string {
 	sb.WriteString(accentStyle.Render("╹"))
 	sb.WriteByte('\n')
 
-	// Line 3: agent badge
-	modeLabel := strings.ToUpper(i.mode[:1]) + i.mode[1:]
+	// Line 3: agent badge (or shell badge)
+	modeLabel := "Build"
+	if i.shellMode {
+		modeLabel = "Shell"
+	} else if len(i.mode) > 0 {
+		modeLabel = strings.ToUpper(i.mode[:1]) + i.mode[1:]
+	}
 	badge := "    " + accentStyle.Render("▣") + " " + mutedStyle.Render(modeLabel)
 	if i.model != "" {
 		badge += mutedStyle.Render(" · " + i.model)
@@ -192,7 +460,7 @@ func (i Input) View() string {
 	sb.WriteByte('\n')
 
 	// Line 4: keyboard hints
-	sb.WriteString("    " + mutedStyle.Render("Enter send · Shift+Enter newline · Esc cancel"))
+	sb.WriteString("    " + mutedStyle.Render("Enter send · Shift+Enter newline · / @ autocomplete · Ctrl+P commands · Tab agents · Esc cancel"))
 
 	return sb.String()
 }
@@ -207,10 +475,11 @@ func (i Input) renderContent() string {
 		}
 
 		if i.focused && lineIdx == i.cursorY {
-			before := line[:i.cursorX]
+			runes := []rune(line)
+			before := string(runes[:i.cursorX])
 			after := ""
-			if i.cursorX < len(line) {
-				after = line[i.cursorX:]
+			if i.cursorX < len(runes) {
+				after = string(runes[i.cursorX:])
 			}
 			sb.WriteString(before + "█" + after)
 		} else {

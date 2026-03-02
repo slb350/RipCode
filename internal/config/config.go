@@ -20,6 +20,7 @@ type Config struct {
 	Model    string
 	WorkDir  string
 	MaxSteps int
+	Warnings []string
 }
 
 // Load reads configuration from environment variables and the current
@@ -36,8 +37,16 @@ func Load() (*Config, error) {
 // the location to search for a .env file.
 func LoadFrom(dir string) (*Config, error) {
 	// Read .env if present — used as fallback when env vars are unset
+	var warnings []string
 	envPath := filepath.Join(dir, ".env")
-	dotenv, _ := godotenv.Read(envPath)
+	dotenv, err := godotenv.Read(envPath)
+	if err != nil && !os.IsNotExist(err) {
+		warnings = append(warnings, fmt.Sprintf(".env file malformed: %v", err))
+		dotenv = make(map[string]string)
+	}
+	if dotenv == nil {
+		dotenv = make(map[string]string)
+	}
 
 	apiKey := envLookup("OPENROUTER_API_KEY", dotenv)
 	if apiKey == "" {
@@ -70,6 +79,7 @@ func LoadFrom(dir string) (*Config, error) {
 		Model:    model,
 		WorkDir:  absDir,
 		MaxSteps: maxSteps,
+		Warnings: warnings,
 	}, nil
 }
 
@@ -80,4 +90,21 @@ func envLookup(key string, dotenv map[string]string) string {
 		return v
 	}
 	return dotenv[key]
+}
+
+// SaveAPIKey writes or updates the OPENROUTER_API_KEY in the .env file at dir.
+// Creates the file if it doesn't exist. Preserves other entries.
+func SaveAPIKey(dir, apiKey string) error {
+	envPath := filepath.Join(dir, ".env")
+
+	existing, err := godotenv.Read(envPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read existing .env: %w", err)
+	}
+	if existing == nil {
+		existing = make(map[string]string)
+	}
+	existing["OPENROUTER_API_KEY"] = apiKey
+
+	return godotenv.Write(existing, envPath)
 }

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -60,7 +61,7 @@ func TestMessage_Construction(t *testing.T) {
 		},
 	}
 
-	assert.Equal(t, "assistant", msg.Role)
+	assert.Equal(t, RoleAssistant, msg.Role)
 	assert.Len(t, msg.ToolCalls, 1)
 	assert.Equal(t, "bash", msg.ToolCalls[0].Name)
 }
@@ -72,7 +73,7 @@ func TestMessage_ToolResult(t *testing.T) {
 		ToolCallID: "call_1",
 	}
 
-	assert.Equal(t, "tool", msg.Role)
+	assert.Equal(t, RoleTool, msg.Role)
 	assert.Equal(t, "call_1", msg.ToolCallID)
 }
 
@@ -103,4 +104,278 @@ func TestEventType_Values(t *testing.T) {
 	assert.Equal(t, EventType(1), EventToolCall)
 	assert.Equal(t, EventType(2), EventFinish)
 	assert.Equal(t, EventType(3), EventError)
+}
+
+func TestModelInfo_ProviderName_ExtractsFromID(t *testing.T) {
+	m := ModelInfo{ID: "anthropic/claude-4", Name: "Claude 4"}
+	assert.Equal(t, "anthropic", m.ProviderName())
+}
+
+func TestModelInfo_ProviderName_NoSlash_ReturnsID(t *testing.T) {
+	m := ModelInfo{ID: "gpt-4", Name: "GPT-4"}
+	assert.Equal(t, "gpt-4", m.ProviderName())
+}
+
+func TestModelInfo_IsFree_NilPricing(t *testing.T) {
+	m := ModelInfo{ID: "test/model", Pricing: nil}
+	assert.True(t, m.IsFree())
+}
+
+func TestModelInfo_IsFree_ZeroCost(t *testing.T) {
+	m := ModelInfo{
+		ID:      "test/model",
+		Pricing: &ModelPricing{PromptPerMillion: 0, CompletionPerMillion: 0},
+	}
+	assert.True(t, m.IsFree())
+}
+
+func TestModelInfo_IsFree_NonZeroCost(t *testing.T) {
+	m := ModelInfo{
+		ID:      "anthropic/claude-4",
+		Pricing: &ModelPricing{PromptPerMillion: 3.0, CompletionPerMillion: 15.0},
+	}
+	assert.False(t, m.IsFree())
+}
+
+func TestModelInfo_IsFree_PricingUnknown(t *testing.T) {
+	m := ModelInfo{ID: "test/model", PricingUnknown: true}
+	assert.False(t, m.IsFree(), "unknown pricing should not be reported as free")
+}
+
+func TestRole_Valid_KnownRoles(t *testing.T) {
+	assert.True(t, RoleSystem.Valid())
+	assert.True(t, RoleUser.Valid())
+	assert.True(t, RoleAssistant.Valid())
+	assert.True(t, RoleTool.Valid())
+}
+
+func TestRole_Valid_UnknownRoles(t *testing.T) {
+	assert.False(t, Role("").Valid())
+	assert.False(t, Role("admin").Valid())
+	assert.False(t, Role("USER").Valid())
+}
+
+func TestRoleConstants_MatchExpectedValues(t *testing.T) {
+	assert.Equal(t, Role("system"), RoleSystem)
+	assert.Equal(t, Role("user"), RoleUser)
+	assert.Equal(t, Role("assistant"), RoleAssistant)
+	assert.Equal(t, Role("tool"), RoleTool)
+
+	// Verify Role is a defined type — constants work in Message fields
+	msg := Message{Role: RoleUser, Content: "hello"}
+	assert.Equal(t, RoleUser, msg.Role)
+}
+
+func TestMessage_Valid_UserMessage(t *testing.T) {
+	m := Message{Role: RoleUser, Content: "hello"}
+	assert.NoError(t, m.Valid())
+}
+
+func TestMessage_Valid_AssistantWithToolCalls(t *testing.T) {
+	m := Message{
+		Role:      RoleAssistant,
+		Content:   "calling tool",
+		ToolCalls: []ToolCall{{ID: "1", Name: "bash", Args: "{}"}},
+	}
+	assert.NoError(t, m.Valid())
+}
+
+func TestMessage_Valid_ToolResult(t *testing.T) {
+	m := Message{Role: RoleTool, Content: "output", ToolCallID: "1"}
+	assert.NoError(t, m.Valid())
+}
+
+func TestMessage_Valid_InvalidRole(t *testing.T) {
+	m := Message{Role: "admin", Content: "hello"}
+	assert.Error(t, m.Valid())
+}
+
+func TestMessage_Valid_ToolCallsOnNonAssistant(t *testing.T) {
+	m := Message{
+		Role:      RoleUser,
+		ToolCalls: []ToolCall{{ID: "1", Name: "bash", Args: "{}"}},
+	}
+	assert.Error(t, m.Valid())
+}
+
+func TestMessage_Valid_ToolCallIDOnNonTool(t *testing.T) {
+	m := Message{Role: RoleAssistant, Content: "hi", ToolCallID: "1"}
+	assert.Error(t, m.Valid())
+}
+
+func TestMessage_Valid_ToolMissingCallID(t *testing.T) {
+	m := Message{Role: RoleTool, Content: "output"}
+	assert.Error(t, m.Valid())
+}
+
+func TestNewSystemMessage(t *testing.T) {
+	m := NewSystemMessage("you are helpful")
+	assert.Equal(t, RoleSystem, m.Role)
+	assert.Equal(t, "you are helpful", m.Content)
+	assert.NoError(t, m.Valid())
+}
+
+func TestNewUserMessage(t *testing.T) {
+	m := NewUserMessage("hello")
+	assert.Equal(t, RoleUser, m.Role)
+	assert.Equal(t, "hello", m.Content)
+	assert.NoError(t, m.Valid())
+}
+
+func TestNewAssistantMessage(t *testing.T) {
+	m := NewAssistantMessage("I'll help", nil)
+	assert.Equal(t, RoleAssistant, m.Role)
+	assert.Equal(t, "I'll help", m.Content)
+	assert.NoError(t, m.Valid())
+}
+
+func TestNewAssistantMessage_WithToolCalls(t *testing.T) {
+	tc := []ToolCall{{ID: "1", Name: "bash", Args: "{}"}}
+	m := NewAssistantMessage("calling tool", tc)
+	assert.Equal(t, RoleAssistant, m.Role)
+	assert.Len(t, m.ToolCalls, 1)
+	assert.NoError(t, m.Valid())
+}
+
+func TestNewAssistantMessage_CopiesToolCalls(t *testing.T) {
+	original := []ToolCall{{ID: "1", Name: "bash", Args: `{"cmd":"ls"}`}}
+	m := NewAssistantMessage("calling tool", original)
+
+	// Mutate the original slice — message should be unaffected.
+	original[0].Name = "MUTATED"
+	assert.Equal(t, "bash", m.ToolCalls[0].Name,
+		"NewAssistantMessage should copy tool calls, not alias the slice")
+}
+
+func TestNewToolResultMessage(t *testing.T) {
+	m := NewToolResultMessage("call_1", "output here")
+	assert.Equal(t, RoleTool, m.Role)
+	assert.Equal(t, "call_1", m.ToolCallID)
+	assert.Equal(t, "output here", m.Content)
+	assert.NoError(t, m.Valid())
+}
+
+func TestStreamEvent_Valid_ContentDelta(t *testing.T) {
+	e := StreamEvent{Type: EventContentDelta, Content: "hello"}
+	assert.NoError(t, e.Valid())
+}
+
+func TestStreamEvent_Valid_ContentDelta_Empty(t *testing.T) {
+	e := StreamEvent{Type: EventContentDelta}
+	assert.NoError(t, e.Valid(), "empty content delta is valid (whitespace-only deltas)")
+}
+
+func TestStreamEvent_Valid_ToolCall(t *testing.T) {
+	e := StreamEvent{Type: EventToolCall, ToolCall: &ToolCall{ID: "1", Name: "bash"}}
+	assert.NoError(t, e.Valid())
+}
+
+func TestStreamEvent_Valid_ToolCall_MissingToolCall(t *testing.T) {
+	e := StreamEvent{Type: EventToolCall}
+	err := e.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing ToolCall")
+}
+
+func TestStreamEvent_Valid_Finish(t *testing.T) {
+	e := StreamEvent{Type: EventFinish, Meta: &Metadata{InputTokens: 10}}
+	assert.NoError(t, e.Valid())
+}
+
+func TestStreamEvent_Valid_Finish_MissingMeta(t *testing.T) {
+	e := StreamEvent{Type: EventFinish}
+	err := e.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing Meta")
+}
+
+func TestStreamEvent_Valid_Error(t *testing.T) {
+	e := StreamEvent{Type: EventError, Error: fmt.Errorf("fail")}
+	assert.NoError(t, e.Valid())
+}
+
+func TestStreamEvent_Valid_Error_MissingError(t *testing.T) {
+	e := StreamEvent{Type: EventError}
+	err := e.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing Error")
+}
+
+func TestStreamEvent_Valid_UnknownType(t *testing.T) {
+	e := StreamEvent{Type: EventType(99)}
+	err := e.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown event type")
+}
+
+func TestStreamEvent_Constructors(t *testing.T) {
+	e1 := NewContentDelta("hello")
+	assert.Equal(t, EventContentDelta, e1.Type)
+	assert.Equal(t, "hello", e1.Content)
+
+	tc := &ToolCall{ID: "1", Name: "bash", Args: "{}"}
+	e2 := NewToolCallEvent(tc)
+	assert.Equal(t, EventToolCall, e2.Type)
+	assert.Equal(t, tc, e2.ToolCall)
+
+	meta := &Metadata{InputTokens: 10}
+	e3 := NewFinishEvent(meta)
+	assert.Equal(t, EventFinish, e3.Type)
+	assert.Equal(t, meta, e3.Meta)
+
+	e4 := NewErrorEvent(fmt.Errorf("fail"))
+	assert.Equal(t, EventError, e4.Type)
+	assert.Equal(t, "fail", e4.Error.Error())
+}
+
+func TestParseRole_ValidRoles(t *testing.T) {
+	for _, s := range []string{"system", "user", "assistant", "tool"} {
+		r, err := ParseRole(s)
+		assert.NoError(t, err, "ParseRole(%q)", s)
+		assert.Equal(t, Role(s), r)
+	}
+}
+
+func TestParseRole_InvalidRoles(t *testing.T) {
+	for _, s := range []string{"", "admin", "USER", "Admin"} {
+		_, err := ParseRole(s)
+		assert.Error(t, err, "ParseRole(%q) should fail", s)
+		assert.Contains(t, err.Error(), "invalid role")
+	}
+}
+
+func TestModelInfo_Valid_OK(t *testing.T) {
+	m := ModelInfo{ID: "anthropic/claude-4", Name: "Claude 4"}
+	assert.NoError(t, m.Valid())
+}
+
+func TestModelInfo_Valid_WithPricing(t *testing.T) {
+	m := ModelInfo{
+		ID:      "anthropic/claude-4",
+		Pricing: &ModelPricing{PromptPerMillion: 3.0, CompletionPerMillion: 15.0},
+	}
+	assert.NoError(t, m.Valid())
+}
+
+func TestModelInfo_Valid_WithPricingUnknown(t *testing.T) {
+	m := ModelInfo{ID: "test/model", PricingUnknown: true}
+	assert.NoError(t, m.Valid())
+}
+
+func TestModelInfo_Valid_EmptyID(t *testing.T) {
+	m := ModelInfo{ID: ""}
+	err := m.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "ID is required")
+}
+
+func TestModelInfo_Valid_PricingAndUnknownMutuallyExclusive(t *testing.T) {
+	m := ModelInfo{
+		ID:             "test/model",
+		PricingUnknown: true,
+		Pricing:        &ModelPricing{PromptPerMillion: 1.0},
+	}
+	err := m.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "mutually exclusive")
 }

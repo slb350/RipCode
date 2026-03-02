@@ -14,15 +14,13 @@ func TestGlob_ImplementsTool(t *testing.T) {
 }
 
 func TestGlob_FindFiles(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.go"), []byte("go"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "b.go"), []byte("go"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "c.txt"), []byte("txt"), 0644))
-
 	g := NewGlobTool()
 	ctx := newTestCtx(t)
+	require.NoError(t, os.WriteFile(filepath.Join(ctx.WorkDir, "a.go"), []byte("go"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(ctx.WorkDir, "b.go"), []byte("go"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(ctx.WorkDir, "c.txt"), []byte("txt"), 0644))
 
-	result := g.Execute(ctx, `{"pattern":"*.go","path":"`+dir+`"}`)
+	result := g.Execute(ctx, `{"pattern":"*.go","path":"`+ctx.WorkDir+`"}`)
 	require.NoError(t, result.Error)
 	assert.Contains(t, result.Output, "a.go")
 	assert.Contains(t, result.Output, "b.go")
@@ -30,28 +28,24 @@ func TestGlob_FindFiles(t *testing.T) {
 }
 
 func TestGlob_RecursivePattern(t *testing.T) {
-	dir := t.TempDir()
-	sub := filepath.Join(dir, "sub")
-	require.NoError(t, os.MkdirAll(sub, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "top.go"), []byte("go"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(sub, "deep.go"), []byte("go"), 0644))
-
 	g := NewGlobTool()
 	ctx := newTestCtx(t)
+	sub := filepath.Join(ctx.WorkDir, "sub")
+	require.NoError(t, os.MkdirAll(sub, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(ctx.WorkDir, "top.go"), []byte("go"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(sub, "deep.go"), []byte("go"), 0644))
 
-	result := g.Execute(ctx, `{"pattern":"**/*.go","path":"`+dir+`"}`)
+	result := g.Execute(ctx, `{"pattern":"**/*.go","path":"`+ctx.WorkDir+`"}`)
 	require.NoError(t, result.Error)
 	assert.Contains(t, result.Output, "top.go")
 	assert.Contains(t, result.Output, "deep.go")
 }
 
 func TestGlob_NoMatches(t *testing.T) {
-	dir := t.TempDir()
-
 	g := NewGlobTool()
 	ctx := newTestCtx(t)
 
-	result := g.Execute(ctx, `{"pattern":"*.xyz","path":"`+dir+`"}`)
+	result := g.Execute(ctx, `{"pattern":"*.xyz","path":"`+ctx.WorkDir+`"}`)
 	require.NoError(t, result.Error)
 	assert.Contains(t, result.Output, "no matches")
 }
@@ -62,7 +56,6 @@ func TestGlob_DefaultPath(t *testing.T) {
 	// When no path specified, uses ctx.WorkDir
 	result := g.Execute(ctx, `{"pattern":"*"}`)
 	require.NoError(t, result.Error)
-	// Should not error — WorkDir is a valid temp dir
 }
 
 func TestGlob_InvalidJSON(t *testing.T) {
@@ -74,16 +67,14 @@ func TestGlob_InvalidJSON(t *testing.T) {
 }
 
 func TestGlob_SkipsGitDir(t *testing.T) {
-	dir := t.TempDir()
-	gitDir := filepath.Join(dir, ".git", "objects")
-	require.NoError(t, os.MkdirAll(gitDir, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "pack.idx"), []byte("data"), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.go"), []byte("go"), 0644))
-
 	g := NewGlobTool()
 	ctx := newTestCtx(t)
+	gitDir := filepath.Join(ctx.WorkDir, ".git", "objects")
+	require.NoError(t, os.MkdirAll(gitDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "pack.idx"), []byte("data"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(ctx.WorkDir, "main.go"), []byte("go"), 0644))
 
-	result := g.Execute(ctx, `{"pattern":"**/*","path":"`+dir+`"}`)
+	result := g.Execute(ctx, `{"pattern":"**/*","path":"`+ctx.WorkDir+`"}`)
 	require.NoError(t, result.Error)
 	assert.Contains(t, result.Output, "main.go")
 	assert.NotContains(t, result.Output, "pack.idx")
@@ -96,4 +87,51 @@ func TestGlob_Parameters(t *testing.T) {
 	props := params["properties"].(map[string]any)
 	assert.Contains(t, props, "pattern")
 	assert.Contains(t, props, "path")
+}
+
+func TestGlob_PathTraversalBlocked(t *testing.T) {
+	g := NewGlobTool()
+	ctx := newTestCtx(t)
+	outside := t.TempDir()
+
+	result := g.Execute(ctx, `{"pattern":"*","path":"`+outside+`"}`)
+	assert.Error(t, result.Error)
+}
+
+func TestGlob_SkipErrors_ReportsCount(t *testing.T) {
+	g := NewGlobTool()
+	ctx := newTestCtx(t)
+	// Create a readable file and an unreadable subdirectory
+	require.NoError(t, os.WriteFile(filepath.Join(ctx.WorkDir, "ok.go"), []byte("go"), 0644))
+	badDir := filepath.Join(ctx.WorkDir, "noperm")
+	require.NoError(t, os.MkdirAll(badDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(badDir, "hidden.go"), []byte("go"), 0644))
+	require.NoError(t, os.Chmod(badDir, 0000))
+	t.Cleanup(func() { os.Chmod(badDir, 0755) })
+
+	result := g.Execute(ctx, `{"pattern":"**/*.go","path":"`+ctx.WorkDir+`"}`)
+	require.NoError(t, result.Error)
+	assert.Contains(t, result.Output, "ok.go")
+	assert.Contains(t, result.Output, "paths skipped:")
+	assert.Contains(t, result.Output, "permission denied")
+}
+
+func TestGlob_RelativePath_ResolvesFromWorkDir(t *testing.T) {
+	g := NewGlobTool()
+	ctx := newTestCtx(t)
+	sub := filepath.Join(ctx.WorkDir, "sub")
+	require.NoError(t, os.MkdirAll(sub, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(sub, "nested.go"), []byte("go"), 0o644))
+
+	other := t.TempDir()
+	oldWD, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(other))
+	t.Cleanup(func() {
+		_ = os.Chdir(oldWD)
+	})
+
+	result := g.Execute(ctx, `{"pattern":"*.go","path":"sub"}`)
+	require.NoError(t, result.Error)
+	assert.Contains(t, result.Output, "nested.go")
 }

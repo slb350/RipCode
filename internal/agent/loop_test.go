@@ -297,15 +297,166 @@ func TestLoop_SessionUpdated(t *testing.T) {
 	require.NotEmpty(t, events)
 
 	// Session should have user + assistant messages
-	assert.Len(t, sess.Messages, 2)
-	assert.Equal(t, "user", sess.Messages[0].Role)
-	assert.Equal(t, "test input", sess.Messages[0].Content)
-	assert.Equal(t, "assistant", sess.Messages[1].Role)
-	assert.Equal(t, "response", sess.Messages[1].Content)
+	assert.Len(t, sess.Records(), 2)
+	assert.Equal(t, provider.RoleUser, sess.Records()[0].Message.Role)
+	assert.Equal(t, "test input", sess.Records()[0].Message.Content)
+	assert.Equal(t, provider.RoleAssistant, sess.Records()[1].Message.Role)
+	assert.Equal(t, "response", sess.Records()[1].Message.Content)
+
+	// Assistant should have metadata
+	require.NotNil(t, sess.Records()[1].Meta)
+	assert.Equal(t, 10, sess.Records()[1].Meta.InputTokens)
+	assert.Equal(t, 5, sess.Records()[1].Meta.OutputTokens)
+	assert.Equal(t, "stop", sess.Records()[1].Meta.FinishReason)
 
 	// Tokens should be tracked
-	assert.Equal(t, 10, sess.Tokens.Input)
-	assert.Equal(t, 5, sess.Tokens.Output)
+	assert.Equal(t, 10, sess.TokenCount().Input)
+	assert.Equal(t, 5, sess.TokenCount().Output)
+}
+
+func TestLoop_StreamEventError(t *testing.T) {
+	// Provider returns EventError mid-stream — verify the loop emits EventError.
+	p := &mockProvider{
+		responses: []mockResponse{
+			{events: []provider.StreamEvent{
+				{Type: provider.EventContentDelta, Content: "partial"},
+				{Type: provider.EventError, Error: fmt.Errorf("stream broke")},
+			}},
+		},
+	}
+
+	reg := newTestRegistry()
+	sess := session.New("/tmp")
+	loop := NewLoop(p, reg, sess, BuildAgent(), 10)
+
+	events := collectEvents(loop.Run(context.Background(), "test"))
+
+	var gotError bool
+	var errMsg string
+	for _, e := range events {
+		if e.Type == EventError {
+			gotError = true
+			errMsg = e.Error.Error()
+		}
+	}
+	assert.True(t, gotError, "should emit EventError for stream error")
+	assert.Contains(t, errMsg, "stream broke")
+}
+
+// trackingTool records whether Execute was called.
+type trackingTool struct {
+	executed *bool
+}
+
+func (t *trackingTool) ID() string                 { return "track" }
+func (t *trackingTool) Description() string        { return "Tracks execution" }
+func (t *trackingTool) Parameters() map[string]any { return map[string]any{"type": "object"} }
+func (t *trackingTool) Execute(_ tool.Context, _ string) tool.Result {
+	*t.executed = true
+	return tool.Result{Output: "executed"}
+}
+
+// slowTool blocks until the context is cancelled, simulating a long-running tool.
+type slowTool struct {
+	started chan struct{} // closed when Execute begins
+}
+
+func (s *slowTool) ID() string                 { return "slow" }
+func (s *slowTool) Description() string        { return "Blocks until cancelled" }
+func (s *slowTool) Parameters() map[string]any { return map[string]any{"type": "object"} }
+func (s *slowTool) Execute(ctx tool.Context, _ string) tool.Result {
+	close(s.started)
+	<-ctx.Abort.Done()
+	return tool.Result{Output: "cancelled"}
+}
+
+func TestLoop_CancelDuringToolExecution(t *testing.T) {
+	st := &slowTool{started: make(chan struct{})}
+
+	p := &mockProvider{
+		responses: []mockResponse{
+			{events: []provider.StreamEvent{
+				{Type: provider.EventToolCall, ToolCall: &provider.ToolCall{
+					ID: "call_slow", Name: "slow", Args: "{}",
+				}},
+				{Type: provider.EventFinish, Meta: &provider.Metadata{
+					FinishReason: "tool_calls",
+				}},
+			}},
+		},
+	}
+
+	reg := newTestRegistry(st)
+	sess := session.New("/tmp")
+	loop := NewLoop(p, reg, sess, BuildAgent(), 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ch := loop.Run(ctx, "run slow tool")
+
+	// Wait for the slow tool to start executing
+	<-st.started
+
+	// Cancel while the tool is running
+	cancel()
+
+	// Drain events
+	events := collectEvents(ch)
+
+	// Should see a ToolStart event for "slow"
+	var gotToolStart bool
+	for _, e := range events {
+		if e.Type == EventToolStart && e.Tool.Name == "slow" {
+			gotToolStart = true
+		}
+	}
+	assert.True(t, gotToolStart, "should have started the slow tool")
+
+	// The loop should terminate (channel closed) — it shouldn't hang
+	// The next iteration's ctx.Done() check prevents further provider calls
+	assert.Equal(t, 1, p.callCount, "should only call provider once before cancellation stops the loop")
+}
+
+func TestLoop_CancelMidStream_DiscardsPartialToolCalls(t *testing.T) {
+	// Provider returns tool calls, but we cancel the context before the loop
+	// processes the tool execution. The loop should discard the tool calls
+	// (set toolCalls = nil) and NOT execute the tool.
+	toolExecuted := false
+	trackTool := &trackingTool{executed: &toolExecuted}
+
+	p := &mockProvider{
+		responses: []mockResponse{
+			{events: []provider.StreamEvent{
+				{Type: provider.EventContentDelta, Content: "planning"},
+				{Type: provider.EventToolCall, ToolCall: &provider.ToolCall{
+					ID: "call_1", Name: "track", Args: "{}",
+				}},
+				{Type: provider.EventFinish, Meta: &provider.Metadata{
+					FinishReason: "tool_calls",
+				}},
+			}},
+		},
+	}
+
+	reg := newTestRegistry(trackTool)
+	sess := session.New("/tmp")
+	loop := NewLoop(p, reg, sess, BuildAgent(), 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Cancel immediately so the loop sees ctx.Err() after consuming the stream
+	cancel()
+
+	events := collectEvents(loop.Run(ctx, "test cancel"))
+
+	// Should get an error event (context cancelled)
+	var hasError bool
+	for _, e := range events {
+		if e.Type == EventError {
+			hasError = true
+		}
+	}
+	assert.True(t, hasError, "should emit error on cancellation")
+	assert.False(t, toolExecuted, "tool should NOT be executed when context is cancelled mid-stream")
 }
 
 func TestLoop_UnknownTool(t *testing.T) {

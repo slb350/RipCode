@@ -15,12 +15,10 @@ func TestRead_ImplementsTool(t *testing.T) {
 }
 
 func TestRead_SimpleFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.txt")
-	require.NoError(t, os.WriteFile(path, []byte("line one\nline two\nline three\n"), 0644))
-
 	r := NewReadTool()
 	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "test.txt")
+	require.NoError(t, os.WriteFile(path, []byte("line one\nline two\nline three\n"), 0644))
 
 	result := r.Execute(ctx, `{"file_path":"`+path+`"}`)
 	require.NoError(t, result.Error)
@@ -30,13 +28,11 @@ func TestRead_SimpleFile(t *testing.T) {
 }
 
 func TestRead_WithOffset(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.txt")
-	content := "line1\nline2\nline3\nline4\nline5\n"
-	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
-
 	r := NewReadTool()
 	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "test.txt")
+	content := "line1\nline2\nline3\nline4\nline5\n"
+	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
 
 	result := r.Execute(ctx, `{"file_path":"`+path+`","offset":3}`)
 	require.NoError(t, result.Error)
@@ -46,13 +42,11 @@ func TestRead_WithOffset(t *testing.T) {
 }
 
 func TestRead_WithLimit(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.txt")
-	content := "line1\nline2\nline3\nline4\nline5\n"
-	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
-
 	r := NewReadTool()
 	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "test.txt")
+	content := "line1\nline2\nline3\nline4\nline5\n"
+	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
 
 	result := r.Execute(ctx, `{"file_path":"`+path+`","limit":2}`)
 	require.NoError(t, result.Error)
@@ -65,19 +59,18 @@ func TestRead_MissingFile(t *testing.T) {
 	r := NewReadTool()
 	ctx := newTestCtx(t)
 
-	result := r.Execute(ctx, `{"file_path":"/nonexistent/file.txt"}`)
+	path := filepath.Join(ctx.WorkDir, "nonexistent.txt")
+	result := r.Execute(ctx, `{"file_path":"`+path+`"}`)
 	assert.Error(t, result.Error)
 }
 
 func TestRead_BinaryDetection(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "binary.bin")
+	r := NewReadTool()
+	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "binary.bin")
 	// Write bytes with null chars — indicates binary
 	data := []byte{0x89, 0x50, 0x4E, 0x47, 0x00, 0x00, 0x00}
 	require.NoError(t, os.WriteFile(path, data, 0644))
-
-	r := NewReadTool()
-	ctx := newTestCtx(t)
 
 	result := r.Execute(ctx, `{"file_path":"`+path+`"}`)
 	require.NoError(t, result.Error)
@@ -85,17 +78,15 @@ func TestRead_BinaryDetection(t *testing.T) {
 }
 
 func TestRead_MaxLines(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "big.txt")
+	r := NewReadTool()
+	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "big.txt")
 
 	var sb strings.Builder
 	for i := 0; i < 3000; i++ {
 		sb.WriteString("line\n")
 	}
 	require.NoError(t, os.WriteFile(path, []byte(sb.String()), 0644))
-
-	r := NewReadTool()
-	ctx := newTestCtx(t)
 
 	result := r.Execute(ctx, `{"file_path":"`+path+`"}`)
 	require.NoError(t, result.Error)
@@ -113,12 +104,10 @@ func TestRead_InvalidJSON(t *testing.T) {
 }
 
 func TestRead_EmptyFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "empty.txt")
-	require.NoError(t, os.WriteFile(path, []byte{}, 0644))
-
 	r := NewReadTool()
 	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "empty.txt")
+	require.NoError(t, os.WriteFile(path, []byte{}, 0644))
 
 	result := r.Execute(ctx, `{"file_path":"`+path+`"}`)
 	require.NoError(t, result.Error)
@@ -133,4 +122,41 @@ func TestRead_Parameters(t *testing.T) {
 	assert.Contains(t, props, "file_path")
 	assert.Contains(t, props, "offset")
 	assert.Contains(t, props, "limit")
+}
+
+func TestRead_PathTraversalBlocked(t *testing.T) {
+	r := NewReadTool()
+	ctx := newTestCtx(t)
+
+	result := r.Execute(ctx, `{"file_path":"../../../etc/passwd"}`)
+	assert.Error(t, result.Error)
+}
+
+func TestRead_SymlinkOutsideBlocked(t *testing.T) {
+	r := NewReadTool()
+	ctx := newTestCtx(t)
+
+	link := filepath.Join(ctx.WorkDir, "outside_link")
+	require.NoError(t, os.Symlink("/etc/hosts", link))
+
+	result := r.Execute(ctx, `{"file_path":"`+link+`"}`)
+	assert.Error(t, result.Error)
+	assert.Contains(t, result.Error.Error(), "outside")
+}
+
+func TestRead_SymlinkWithinWorkDir_Blocked(t *testing.T) {
+	r := NewReadTool()
+	ctx := newTestCtx(t)
+
+	// Create a real file and a symlink to it, both within workdir
+	target := filepath.Join(ctx.WorkDir, "real.txt")
+	require.NoError(t, os.WriteFile(target, []byte("secret content\n"), 0644))
+
+	link := filepath.Join(ctx.WorkDir, "link.txt")
+	require.NoError(t, os.Symlink(target, link))
+
+	// Read via symlink should be blocked (O_NOFOLLOW rejects symlinks)
+	result := r.Execute(ctx, `{"file_path":"`+link+`"}`)
+	require.Error(t, result.Error)
+	assert.Contains(t, result.Error.Error(), "symlink")
 }

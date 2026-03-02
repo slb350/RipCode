@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
 
 // MaxReadLines is the default maximum number of lines returned.
+// 2000 lines at ~80 chars/line is ~160 KB, well within typical LLM context
+// limits while covering most source files in full.
 const MaxReadLines = 2000
 
 // ReadTool reads file contents with line numbers.
@@ -52,10 +55,20 @@ type readArgs struct {
 func (r *ReadTool) Execute(ctx Context, argsJSON string) Result {
 	var args readArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return Result{Error: fmt.Errorf("parse args: %w", err)}
+		return Result{Error: fmt.Errorf("%s: parse args: %w", r.ID(), err)}
 	}
 
-	data, err := os.ReadFile(args.FilePath)
+	validated, err := ValidatePath(args.FilePath, ctx.WorkDir, true)
+	if err != nil {
+		return Result{Error: err}
+	}
+
+	f, err := OpenNoFollow(validated, os.O_RDONLY, 0)
+	if err != nil {
+		return Result{Error: fmt.Errorf("open file: %w", err)}
+	}
+	defer f.Close()
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return Result{Error: fmt.Errorf("read file: %w", err)}
 	}
@@ -63,7 +76,7 @@ func (r *ReadTool) Execute(ctx Context, argsJSON string) Result {
 	if len(data) == 0 {
 		return Result{
 			Output: "(empty file)",
-			Title:  args.FilePath,
+			Title:  validated,
 		}
 	}
 
@@ -75,7 +88,7 @@ func (r *ReadTool) Execute(ctx Context, argsJSON string) Result {
 	if bytes.ContainsRune(data[:checkLen], 0) {
 		return Result{
 			Output: fmt.Sprintf("(binary file, %d bytes)", len(data)),
-			Title:  args.FilePath,
+			Title:  validated,
 		}
 	}
 
@@ -117,6 +130,6 @@ func (r *ReadTool) Execute(ctx Context, argsJSON string) Result {
 
 	return Result{
 		Output: output,
-		Title:  args.FilePath,
+		Title:  validated,
 	}
 }

@@ -21,6 +21,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
 		os.Exit(1)
 	}
+	for _, w := range cfg.Warnings {
+		fmt.Fprintf(os.Stderr, "Warning: %s\n", w)
+	}
 
 	// Provider
 	provider := client.NewOpenRouter(cfg.APIKey, cfg.Model)
@@ -50,6 +53,7 @@ func main() {
 	app.SetSession(sess)
 	app.SetAgent(ag)
 	app.SetModel(shortModel(cfg.Model))
+	app.SetFullModelID(cfg.Model)
 	app.SetMaxSteps(cfg.MaxSteps)
 
 	p := tea.NewProgram(app)

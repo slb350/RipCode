@@ -216,6 +216,51 @@ func TestOpenRouter_HandlesAPIError(t *testing.T) {
 	}, nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "401")
+	assert.Contains(t, err.Error(), "Invalid API key")
+}
+
+func TestOpenRouter_ChatErrorIncludesBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"error":{"message":"model not found","code":400}}`)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "bad-model")
+	c.baseURL = srv.URL
+
+	_, err := c.Chat(context.Background(), []provider.Message{
+		{Role: "user", Content: "hi"},
+	}, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "400")
+	assert.Contains(t, err.Error(), "model not found")
+}
+
+func TestOpenRouter_ChatErrorEmptyBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.baseURL = srv.URL
+
+	_, err := c.Chat(context.Background(), []provider.Message{
+		{Role: "user", Content: "hi"},
+	}, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "500")
+}
+
+func TestOpenRouter_SetModelRejectsEmpty(t *testing.T) {
+	c := NewOpenRouter("test-key", "original-model")
+	c.SetModel("")
+
+	c.mu.RLock()
+	model := c.model
+	c.mu.RUnlock()
+	assert.Equal(t, "original-model", model, "empty model should be rejected")
 }
 
 func TestOpenRouter_ContextCancellation(t *testing.T) {
@@ -348,4 +393,408 @@ func TestOpenRouter_SendsToolResults(t *testing.T) {
 	toolMsg := sentMsgs[2].(map[string]any)
 	assert.Equal(t, "tool", toolMsg["role"])
 	assert.Equal(t, "call_1", toolMsg["tool_call_id"])
+}
+
+func TestOpenRouter_ListModels(t *testing.T) {
+	body := `{"data":[{"id":"anthropic/claude-sonnet-4","name":"Claude Sonnet 4"},{"id":"openai/gpt-4o","name":"GPT-4o"}]}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.modelsURL = srv.URL
+
+	models, err := c.ListModels(context.Background())
+	require.NoError(t, err)
+	require.Len(t, models, 2)
+
+	assert.Equal(t, "anthropic/claude-sonnet-4", models[0].ID)
+	assert.Equal(t, "Claude Sonnet 4", models[0].Name)
+	assert.Equal(t, "openai/gpt-4o", models[1].ID)
+}
+
+func TestListModels_ParsesPricing(t *testing.T) {
+	body := `{"data":[{"id":"anthropic/claude-4","name":"Claude 4","pricing":{"prompt":"0.003","completion":"0.015"}}]}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.modelsURL = srv.URL
+
+	models, err := c.ListModels(context.Background())
+	require.NoError(t, err)
+	require.Len(t, models, 1)
+	require.NotNil(t, models[0].Pricing)
+	assert.InDelta(t, 0.003, models[0].Pricing.PromptPerMillion, 0.0001)
+	assert.InDelta(t, 0.015, models[0].Pricing.CompletionPerMillion, 0.0001)
+}
+
+func TestListModels_ParsesContextLength(t *testing.T) {
+	body := `{"data":[{"id":"anthropic/claude-4","name":"Claude 4","context_length":200000}]}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.modelsURL = srv.URL
+
+	models, err := c.ListModels(context.Background())
+	require.NoError(t, err)
+	require.Len(t, models, 1)
+	assert.Equal(t, 200000, models[0].ContextLength)
+}
+
+func TestListModels_ParsesDescription(t *testing.T) {
+	body := `{"data":[{"id":"anthropic/claude-4","name":"Claude 4","description":"A powerful model"}]}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.modelsURL = srv.URL
+
+	models, err := c.ListModels(context.Background())
+	require.NoError(t, err)
+	require.Len(t, models, 1)
+	assert.Equal(t, "A powerful model", models[0].Description)
+}
+
+func TestListModels_NullPricing_NilModelPricing(t *testing.T) {
+	body := `{"data":[{"id":"free/model","name":"Free Model"}]}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.modelsURL = srv.URL
+
+	models, err := c.ListModels(context.Background())
+	require.NoError(t, err)
+	require.Len(t, models, 1)
+	assert.Nil(t, models[0].Pricing)
+}
+
+func TestListModels_MalformedPricing_Fallback(t *testing.T) {
+	body := `{"data":[{"id":"test/model","name":"Test","pricing":{"prompt":"free","completion":"free"}}]}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.modelsURL = srv.URL
+
+	models, err := c.ListModels(context.Background())
+	require.NoError(t, err)
+	require.Len(t, models, 1)
+	assert.Nil(t, models[0].Pricing, "malformed pricing should result in nil")
+	assert.True(t, models[0].PricingUnknown, "malformed pricing should set PricingUnknown")
+	assert.False(t, models[0].IsFree(), "unknown pricing should not report as free")
+}
+
+func TestStreamResponse_ScannerError_EmitsErrorEvent(t *testing.T) {
+	// Create a server that sends a partial response then closes abruptly
+	// by writing a line that exceeds the default scanner buffer (64KB)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		// Send one valid content chunk
+		fmt.Fprint(w, "data: "+chatChunk("partial", "")+"\n\n")
+		w.(http.Flusher).Flush()
+		// Write a single line exceeding bufio.Scanner's max token size
+		// to force a scanner error
+		huge := "data: " + strings.Repeat("x", 1024*1024) // 1MB line
+		fmt.Fprint(w, huge)
+		w.(http.Flusher).Flush()
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.baseURL = srv.URL
+
+	ch, err := c.Chat(context.Background(), []provider.Message{
+		{Role: "user", Content: "hi"},
+	}, nil)
+	require.NoError(t, err)
+
+	var events []provider.StreamEvent
+	for e := range ch {
+		events = append(events, e)
+	}
+
+	// Should get the content delta, then an error event
+	hasContent := false
+	hasError := false
+	for _, e := range events {
+		if e.Type == provider.EventContentDelta {
+			hasContent = true
+		}
+		if e.Type == provider.EventError {
+			hasError = true
+			assert.Contains(t, e.Error.Error(), "stream read error")
+		}
+	}
+	assert.True(t, hasContent, "should have received partial content")
+	assert.True(t, hasError, "should have received error event from scanner failure")
+	// Should NOT have a finish event since scanner errored
+	for _, e := range events {
+		assert.NotEqual(t, provider.EventFinish, e.Type, "should not emit finish after scanner error")
+	}
+}
+
+func TestOpenRouter_StreamClosesWithoutDone(t *testing.T) {
+	// Server sends one content chunk then closes the connection without [DONE].
+	// Verify the content delta is received and the stream ends gracefully
+	// (with a finish event since scanner.Err() is nil on clean EOF).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: "+chatChunk("partial content", "")+"\n\n")
+		// Close without sending [DONE]
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.baseURL = srv.URL
+
+	ch, err := c.Chat(context.Background(), []provider.Message{
+		{Role: "user", Content: "hi"},
+	}, nil)
+	require.NoError(t, err)
+
+	var events []provider.StreamEvent
+	for e := range ch {
+		events = append(events, e)
+	}
+
+	// Should get the content delta
+	hasContent := false
+	hasFinish := false
+	for _, e := range events {
+		if e.Type == provider.EventContentDelta {
+			hasContent = true
+			assert.Equal(t, "partial content", e.Content)
+		}
+		if e.Type == provider.EventFinish {
+			hasFinish = true
+		}
+	}
+	assert.True(t, hasContent, "should have received content delta")
+	// When scanner hits clean EOF (no error), streamResponse falls through
+	// to emit tool calls and finish event
+	assert.True(t, hasFinish, "should still emit finish event on clean close")
+}
+
+func TestOpenRouter_ListModels_APIError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		fmt.Fprint(w, `{"error":"unavailable"}`)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.modelsURL = srv.URL
+
+	_, err := c.ListModels(context.Background())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "503")
+}
+
+func TestOpenRouter_ConcurrentSetModelAndChat(t *testing.T) {
+	body := sseResponse(
+		chatChunk("ok", ""),
+		chatChunkWithUsage("stop", 1, 1),
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.baseURL = srv.URL
+
+	const goroutines = 10
+	done := make(chan struct{})
+
+	// 10 goroutines calling SetModel concurrently
+	for i := 0; i < goroutines; i++ {
+		go func(n int) {
+			defer func() { done <- struct{}{} }()
+			c.SetModel(fmt.Sprintf("model-%d", n))
+		}(i)
+	}
+
+	// 10 goroutines calling Chat concurrently
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			ch, err := c.Chat(context.Background(), []provider.Message{
+				{Role: "user", Content: "hi"},
+			}, nil)
+			if err != nil {
+				return
+			}
+			for range ch {
+			}
+		}()
+	}
+
+	// Wait for all goroutines
+	for i := 0; i < goroutines*2; i++ {
+		<-done
+	}
+}
+
+func TestOpenRouter_StreamMetadataUsesRequestModel(t *testing.T) {
+	firstChunkSent := make(chan struct{})
+	allowFinish := make(chan struct{})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+
+		// Send one chunk so the stream starts, then wait while model changes.
+		fmt.Fprint(w, "data: "+chatChunk("hello", "")+"\n\n")
+		w.(http.Flusher).Flush()
+		close(firstChunkSent)
+
+		<-allowFinish
+		fmt.Fprint(w, "data: "+chatChunkWithUsage("stop", 2, 1)+"\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		w.(http.Flusher).Flush()
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "model-a")
+	c.baseURL = srv.URL
+
+	ch, err := c.Chat(context.Background(), []provider.Message{
+		{Role: provider.RoleUser, Content: "hi"},
+	}, nil)
+	require.NoError(t, err)
+
+	<-firstChunkSent
+	c.SetModel("model-b")
+	close(allowFinish)
+
+	var finish *provider.StreamEvent
+	for e := range ch {
+		if e.Type == provider.EventFinish {
+			evt := e
+			finish = &evt
+		}
+	}
+
+	require.NotNil(t, finish)
+	assert.Equal(t, "model-a", finish.Meta.Model, "finish metadata should reflect the request model")
+}
+
+func TestOpenRouter_ImplementsReasoningEffortSetter(t *testing.T) {
+	var _ provider.ReasoningEffortSetter = &OpenRouter{}
+}
+
+func TestOpenRouter_SetReasoningEffort(t *testing.T) {
+	c := NewOpenRouter("key", "model")
+	c.SetReasoningEffort("high")
+	c.mu.RLock()
+	assert.Equal(t, "high", c.reasoningEffort)
+	c.mu.RUnlock()
+}
+
+func TestOpenRouter_ReasoningEffortInRequest(t *testing.T) {
+	c := NewOpenRouter("key", "model")
+	c.SetReasoningEffort("low")
+
+	msgs := []provider.Message{{Role: provider.RoleUser, Content: "hello"}}
+	body, err := c.buildRequest(msgs, nil)
+	require.NoError(t, err)
+
+	var req map[string]any
+	require.NoError(t, json.Unmarshal(body, &req))
+	reasoning, ok := req["reasoning"].(map[string]any)
+	require.True(t, ok, "request should have reasoning field")
+	assert.Equal(t, "low", reasoning["effort"])
+}
+
+func TestStreamResponse_IncompleteToolCall(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		tool string
+	}{
+		{"missing name", "call_incomplete", ""},
+		{"missing ID", "", "bash"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := sseResponse(
+				toolCallChunk(0, tt.id, tt.tool, `{"command":"ls"}`),
+				chatChunkWithUsage("tool_calls", 10, 5),
+			)
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, body)
+			}))
+			defer srv.Close()
+
+			c := NewOpenRouter("test-key", "test-model")
+			c.baseURL = srv.URL
+
+			ch, err := c.Chat(context.Background(), []provider.Message{
+				{Role: "user", Content: "hi"},
+			}, nil)
+			require.NoError(t, err)
+
+			var events []provider.StreamEvent
+			for e := range ch {
+				events = append(events, e)
+			}
+
+			var gotError bool
+			for _, e := range events {
+				if e.Type == provider.EventError {
+					gotError = true
+					assert.Contains(t, e.Error.Error(), "incomplete tool call")
+				}
+			}
+			assert.True(t, gotError, "should emit error for incomplete tool call (%s)", tt.name)
+
+			for _, e := range events {
+				assert.NotEqual(t, provider.EventToolCall, e.Type, "should not emit tool call for incomplete data")
+			}
+		})
+	}
+}
+
+func TestOpenRouter_ReasoningEffortEmpty_OmitsField(t *testing.T) {
+	c := NewOpenRouter("key", "model")
+	// No SetReasoningEffort call — effort is empty
+
+	msgs := []provider.Message{{Role: provider.RoleUser, Content: "hello"}}
+	body, err := c.buildRequest(msgs, nil)
+	require.NoError(t, err)
+
+	var req map[string]any
+	require.NoError(t, json.Unmarshal(body, &req))
+	_, ok := req["reasoning"]
+	assert.False(t, ok, "request should not have reasoning field when effort is empty")
 }

@@ -3,6 +3,7 @@ package tool
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,11 +15,9 @@ func TestWrite_ImplementsTool(t *testing.T) {
 }
 
 func TestWrite_CreateNewFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "new.txt")
-
 	w := NewWriteTool()
 	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "new.txt")
 
 	result := w.Execute(ctx, `{"file_path":"`+path+`","content":"hello world"}`)
 	require.NoError(t, result.Error)
@@ -30,12 +29,10 @@ func TestWrite_CreateNewFile(t *testing.T) {
 }
 
 func TestWrite_OverwriteFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "existing.txt")
-	require.NoError(t, os.WriteFile(path, []byte("old content"), 0644))
-
 	w := NewWriteTool()
 	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "existing.txt")
+	require.NoError(t, os.WriteFile(path, []byte("old content"), 0644))
 
 	result := w.Execute(ctx, `{"file_path":"`+path+`","content":"new content"}`)
 	require.NoError(t, result.Error)
@@ -45,12 +42,42 @@ func TestWrite_OverwriteFile(t *testing.T) {
 	assert.Equal(t, "new content", string(data))
 }
 
-func TestWrite_CreatesParentDirs(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "a", "b", "c", "deep.txt")
+func TestWrite_OverwritePreservesPermissions(t *testing.T) {
+	w := NewWriteTool()
+	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "script.sh")
+	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\necho old\n"), 0o755))
+
+	result := w.Execute(ctx, `{"file_path":"`+path+`","content":"#!/bin/sh\necho new\n"}`)
+	require.NoError(t, result.Error)
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm())
+}
+
+func TestWrite_ReadOnlyFileBlocked(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("read-only mode semantics differ on Windows")
+	}
 
 	w := NewWriteTool()
 	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "readonly.txt")
+	require.NoError(t, os.WriteFile(path, []byte("old"), 0o444))
+
+	result := w.Execute(ctx, `{"file_path":"`+path+`","content":"new"}`)
+	assert.Error(t, result.Error)
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "old", string(data))
+}
+
+func TestWrite_CreatesParentDirs(t *testing.T) {
+	w := NewWriteTool()
+	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "a", "b", "c", "deep.txt")
 
 	result := w.Execute(ctx, `{"file_path":"`+path+`","content":"deep file"}`)
 	require.NoError(t, result.Error)
@@ -77,11 +104,9 @@ func TestWrite_MissingFilePath(t *testing.T) {
 }
 
 func TestWrite_EmptyContent(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "empty.txt")
-
 	w := NewWriteTool()
 	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "empty.txt")
 
 	result := w.Execute(ctx, `{"file_path":"`+path+`","content":""}`)
 	require.NoError(t, result.Error)
@@ -102,4 +127,41 @@ func TestWrite_Parameters(t *testing.T) {
 	required := params["required"].([]string)
 	assert.Contains(t, required, "file_path")
 	assert.Contains(t, required, "content")
+}
+
+func TestWrite_PathTraversalBlocked(t *testing.T) {
+	w := NewWriteTool()
+	ctx := newTestCtx(t)
+
+	result := w.Execute(ctx, `{"file_path":"../../../tmp/evil.txt","content":"pwned"}`)
+	assert.Error(t, result.Error)
+}
+
+func TestWrite_SymlinkOverwriteBlocked(t *testing.T) {
+	w := NewWriteTool()
+	ctx := newTestCtx(t)
+	outside := t.TempDir()
+	target := filepath.Join(outside, "secret.txt")
+	require.NoError(t, os.WriteFile(target, []byte("secret"), 0644))
+
+	link := filepath.Join(ctx.WorkDir, "link.txt")
+	require.NoError(t, os.Symlink(target, link))
+
+	result := w.Execute(ctx, `{"file_path":"`+link+`","content":"overwritten"}`)
+	assert.Error(t, result.Error)
+
+	// Verify original file is untouched
+	data, err := os.ReadFile(target)
+	require.NoError(t, err)
+	assert.Equal(t, "secret", string(data))
+}
+
+func TestWrite_AbsoluteOutsideBlocked(t *testing.T) {
+	w := NewWriteTool()
+	ctx := newTestCtx(t)
+	outside := t.TempDir()
+	path := filepath.Join(outside, "evil.txt")
+
+	result := w.Execute(ctx, `{"file_path":"`+path+`","content":"pwned"}`)
+	assert.Error(t, result.Error)
 }

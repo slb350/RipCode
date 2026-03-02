@@ -6,27 +6,44 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 )
 
 // MaxOutputBytes is the limit beyond which tool output is truncated.
+// 50 KB keeps output within typical LLM context budgets while still providing
+// enough detail for most command results.
 const MaxOutputBytes = 50 * 1024 // 50 KB
 
 const defaultTimeout = 2 * time.Minute
 
-// blockedPatterns contains command prefixes/patterns that are never allowed.
-var blockedPatterns = []string{
-	"rm -rf /",
-	"rm -rf /*",
-	"sudo rm",
-	"sudo dd",
-	"mkfs",
-	"dd if=/dev/zero of=/dev/sd",
-	"dd if=/dev/zero of=/dev/nvm",
-	":(){ :|:& };:",
-	"> /dev/sd",
-	"chmod -R 777 /",
+// blockedPatterns contains regex patterns for commands that are never allowed.
+// These are defense-in-depth — not a security sandbox. They catch common
+// destructive patterns but cannot prevent all evasion techniques.
+var blockedPatterns = []*regexp.Regexp{
+	// rm with -r and -f flags in any order, targeting root
+	regexp.MustCompile(`\brm\s+(-[a-z]*r[a-z]*\s+)*-[a-z]*f[a-z]*\s+/(?:\*|\s|$)`),
+	regexp.MustCompile(`\brm\s+(-[a-z]*f[a-z]*\s+)*-[a-z]*r[a-z]*\s+/(?:\*|\s|$)`),
+	regexp.MustCompile(`\brm\s+-rf\s+/(?:\*|\s|$)`),
+	// sudo with destructive commands (rm, dd, mkfs, chmod)
+	regexp.MustCompile(`\bsudo\s+rm\b`),
+	regexp.MustCompile(`\bsudo\s+dd\b`),
+	// mkfs variants — can format disks
+	regexp.MustCompile(`\bmkfs\b`),
+	// dd to block devices — can overwrite disks
+	regexp.MustCompile(`\bdd\s+.*of=/dev/(sd|nvm)`),
+	// Fork bomb — exhausts process table
+	regexp.MustCompile(`:\(\)\s*\{.*\|.*&.*\}\s*;`),
+	// Write to block devices — can corrupt disks
+	regexp.MustCompile(`>\s*/dev/sd`),
+	// chmod 777 root — opens entire filesystem
+	regexp.MustCompile(`\bchmod\s+(-[a-zA-Z]*\s+)*777\s+/(\s|$)`),
+	// eval — enables arbitrary code construction to bypass blocklist
+	regexp.MustCompile(`\beval\s+`),
+	// Nested shell — enables blocklist bypass via inner command
+	regexp.MustCompile(`\bsh\s+-c\s+`),
+	regexp.MustCompile(`\bbash\s+-c\s+`),
 }
 
 // BashTool executes shell commands.
@@ -73,12 +90,15 @@ type bashArgs struct {
 func (b *BashTool) Execute(ctx Context, argsJSON string) Result {
 	var args bashArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return Result{Error: fmt.Errorf("parse args: %w", err)}
+		return Result{Error: fmt.Errorf("%s: parse args: %w", b.ID(), err)}
 	}
 
 	if args.Command == "" {
 		return Result{Error: fmt.Errorf("command is required")}
 	}
+
+	// Strip null bytes — they cause exec failures and could be used to bypass checks
+	args.Command = strings.ReplaceAll(args.Command, "\x00", "")
 
 	if err := checkBlocked(args.Command); err != nil {
 		return Result{Error: err}
@@ -92,11 +112,17 @@ func (b *BashTool) Execute(ctx Context, argsJSON string) Result {
 	cmdCtx, cancel := context.WithTimeout(ctx.Abort, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(cmdCtx, "sh", "-c", args.Command)
-	cmd.Dir = args.WorkDir
-	if cmd.Dir == "" {
-		cmd.Dir = ctx.WorkDir
+	workdir := ctx.WorkDir
+	if args.WorkDir != "" {
+		validated, err := ValidatePath(args.WorkDir, ctx.WorkDir, true)
+		if err != nil {
+			return Result{Error: fmt.Errorf("invalid workdir: %w", err)}
+		}
+		workdir = validated
 	}
+
+	cmd := exec.CommandContext(cmdCtx, "sh", "-c", args.Command)
+	cmd.Dir = workdir
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -130,13 +156,31 @@ func (b *BashTool) Execute(ctx Context, argsJSON string) Result {
 
 // checkBlocked returns an error if the command matches a blocked pattern.
 func checkBlocked(cmd string) error {
-	lower := strings.ToLower(strings.TrimSpace(cmd))
+	normalized := normalizeCommand(cmd)
 	for _, pattern := range blockedPatterns {
-		if strings.Contains(lower, pattern) {
-			return fmt.Errorf("blocked: command matches dangerous pattern %q", pattern)
+		if pattern.MatchString(normalized) {
+			return fmt.Errorf("blocked: command matches dangerous pattern %q", pattern.String())
 		}
 	}
 	return nil
+}
+
+// normalizeCommand prepares a command for blocklist matching:
+//   - Strips null bytes: prevents injection via embedded NUL
+//   - Removes backslashes: prevents escape-based bypass (r\m → rm)
+//   - Normalizes whitespace: prevents bypass via tabs or extra spaces
+//   - Lowercases: ensures case-insensitive pattern matching
+func normalizeCommand(cmd string) string {
+	// Strip null bytes — defense-in-depth against injection via embedded NUL
+	cmd = strings.ReplaceAll(cmd, "\x00", "")
+	// Remove backslash escapes (e.g. r\m → rm)
+	cmd = strings.ReplaceAll(cmd, "\\", "")
+	// Replace tabs with spaces
+	cmd = strings.ReplaceAll(cmd, "\t", " ")
+	// Collapse multiple spaces
+	parts := strings.Fields(cmd)
+	cmd = strings.Join(parts, " ")
+	return strings.ToLower(strings.TrimSpace(cmd))
 }
 
 // truncate shortens output to maxBytes, appending a notice if truncated.

@@ -11,15 +11,6 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
-// skipDirs contains directory names to skip during glob traversal.
-var skipDirs = map[string]bool{
-	".git":         true,
-	"node_modules": true,
-	".next":        true,
-	"__pycache__":  true,
-	".venv":        true,
-}
-
 // GlobTool finds files matching a pattern.
 type GlobTool struct{}
 
@@ -56,7 +47,7 @@ type globArgs struct {
 func (g *GlobTool) Execute(ctx Context, argsJSON string) Result {
 	var args globArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return Result{Error: fmt.Errorf("parse args: %w", err)}
+		return Result{Error: fmt.Errorf("%s: parse args: %w", g.ID(), err)}
 	}
 
 	root := args.Path
@@ -64,10 +55,18 @@ func (g *GlobTool) Execute(ctx Context, argsJSON string) Result {
 		root = ctx.WorkDir
 	}
 
+	validatedRoot, err := ValidatePath(root, ctx.WorkDir, true)
+	if err != nil {
+		return Result{Error: err}
+	}
+	root = validatedRoot
+
 	var matches []string
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	skips := newSkipTracker()
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil // skip errors
+			skips.addPath(path, err)
+			return nil
 		}
 
 		if d.IsDir() {
@@ -79,6 +78,7 @@ func (g *GlobTool) Execute(ctx Context, argsJSON string) Result {
 
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
+			skips.add(err)
 			return nil
 		}
 
@@ -111,6 +111,7 @@ func (g *GlobTool) Execute(ctx Context, argsJSON string) Result {
 		sb.WriteByte('\n')
 	}
 	sb.WriteString(fmt.Sprintf("\n%d files matched", len(matches)))
+	sb.WriteString(skips.note("paths"))
 
 	return Result{
 		Output: sb.String(),
