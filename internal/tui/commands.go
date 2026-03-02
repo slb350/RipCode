@@ -14,6 +14,15 @@ import (
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 )
 
+// toggleToast returns a toast command with "X shown" or "X hidden" message.
+func toggleToast(a *App, label string, enabled bool) tea.Cmd {
+	state := "hidden"
+	if enabled {
+		state = "shown"
+	}
+	return a.ShowToast(fmt.Sprintf("%s %s", label, state), components.ToastInfo)
+}
+
 func (a *App) initRegistry() {
 	r := NewCommandRegistry()
 
@@ -173,7 +182,7 @@ func (a *App) initRegistry() {
 			var last string
 			for i := len(entries) - 1; i >= 0; i-- {
 				if entries[i].Role == components.RoleAssistant {
-					last = entries[i].Content
+					last = entries[i].CopyableContent()
 					break
 				}
 			}
@@ -192,12 +201,8 @@ func (a *App) initRegistry() {
 		Title: "Details", Description: "Toggle tool detail display",
 		Execute: true,
 		Handler: func(a *App) tea.Cmd {
-			a.showDetails = !a.showDetails
-			state := "shown"
-			if !a.showDetails {
-				state = "hidden"
-			}
-			return a.ShowToast(fmt.Sprintf("Tool details %s", state), components.ToastInfo)
+			a.chat.SetShowDetails(!a.chat.ShowDetails())
+			return toggleToast(a, "Tool details", a.chat.ShowDetails())
 		},
 	})
 
@@ -334,12 +339,8 @@ func (a *App) initRegistry() {
 		Title: "Thinking", Description: "Toggle thinking block display",
 		Execute: true,
 		Handler: func(a *App) tea.Cmd {
-			a.showThinking = !a.showThinking
-			state := "shown"
-			if !a.showThinking {
-				state = "hidden"
-			}
-			return a.ShowToast(fmt.Sprintf("Thinking blocks %s", state), components.ToastInfo)
+			a.chat.SetShowThinking(!a.chat.ShowThinking())
+			return toggleToast(a, "Thinking blocks", a.chat.ShowThinking())
 		},
 	})
 
@@ -361,12 +362,8 @@ func (a *App) initRegistry() {
 		Title: "Timestamps", Description: "Toggle message timestamps",
 		Execute: true,
 		Handler: func(a *App) tea.Cmd {
-			a.showTimestamps = !a.showTimestamps
-			state := "shown"
-			if !a.showTimestamps {
-				state = "hidden"
-			}
-			return a.ShowToast(fmt.Sprintf("Timestamps %s", state), components.ToastInfo)
+			a.chat.SetShowTimestamps(!a.chat.ShowTimestamps())
+			return toggleToast(a, "Timestamps", a.chat.ShowTimestamps())
 		},
 	})
 
@@ -461,6 +458,16 @@ func (a *App) initRegistry() {
 			a.stashDialog.open = true
 			a.stashDialog.selected = 0
 			return nil
+		},
+	})
+
+	r.Register(Command{
+		Name: "conceal", Category: CategoryView,
+		Title: "Conceal", Description: "Toggle code block visibility",
+		Hidden: true, Execute: true,
+		Handler: func(a *App) tea.Cmd {
+			a.chat.SetShowCodeBlocks(!a.chat.ShowCodeBlocks())
+			return toggleToast(a, "Code blocks", a.chat.ShowCodeBlocks())
 		},
 	})
 

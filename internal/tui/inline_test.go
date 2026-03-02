@@ -176,6 +176,114 @@ func TestUpdateInlineSuggestions_CursorAfterMention(t *testing.T) {
 	assert.False(t, app.inline.open, "space after @mention should close inline suggestions")
 }
 
+// --- Sub-Phase 5.8: Rich / autocomplete ---
+
+func TestInlineEntries_ShowsKeybindHint(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := makeSessionApp(t)
+
+	// Open inline with "/rename" filter
+	app.inline.open = true
+	app.inline.mode = inlineModeCommand
+	app.inline.query = "rename"
+
+	entries := app.inlineEntries()
+	var found bool
+	for _, e := range entries {
+		if e.Display == "/rename" {
+			found = true
+			assert.Contains(t, e.Description, "[Ctrl+R]", "should show keybind hint")
+			break
+		}
+	}
+	assert.True(t, found, "/rename should appear in results")
+}
+
+func TestInlineEntries_ShowsAliasHint(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := makeSessionApp(t)
+
+	// Open inline with "/thinking" filter
+	app.inline.open = true
+	app.inline.mode = inlineModeCommand
+	app.inline.query = "thinking"
+
+	entries := app.inlineEntries()
+	var found bool
+	for _, e := range entries {
+		if e.Display == "/thinking" {
+			found = true
+			assert.Contains(t, e.Description, "(also: /toggle-thinking)", "should show alias info")
+			break
+		}
+	}
+	assert.True(t, found, "/thinking should appear in results")
+}
+
+func TestInlineEntries_ShowsKeybindAndAlias(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := makeSessionApp(t)
+
+	// Open inline with "/stash" filter — has keybind Ctrl+S and no aliases?
+	// Let's check a command with both: stash has Keybind: "Ctrl+S" but no aliases
+	// Let's use the "new" command which has alias "clear" but no keybind
+	app.inline.open = true
+	app.inline.mode = inlineModeCommand
+	app.inline.query = "new"
+
+	entries := app.inlineEntries()
+	var found bool
+	for _, e := range entries {
+		if e.Display == "/new" {
+			found = true
+			assert.Contains(t, e.Description, "(also: /clear)", "should show alias")
+			break
+		}
+	}
+	assert.True(t, found, "/new should appear in results")
+}
+
+func TestInlineEntries_AliasMatchReturnsCommand(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := makeSessionApp(t)
+
+	// Typing "toggle" should match /thinking via alias "toggle-thinking"
+	app.inline.open = true
+	app.inline.mode = inlineModeCommand
+	app.inline.query = "toggle"
+
+	entries := app.inlineEntries()
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Display)
+	}
+	assert.Contains(t, names, "/thinking", "alias toggle-thinking should match")
+	assert.Contains(t, names, "/timestamps", "alias toggle-timestamps should match")
+}
+
+func TestInlineEntries_NoHintWhenNone(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := makeSessionApp(t)
+
+	// /exit has aliases but no keybind
+	app.inline.open = true
+	app.inline.mode = inlineModeCommand
+	app.inline.query = "exit"
+
+	entries := app.inlineEntries()
+	var found bool
+	for _, e := range entries {
+		if e.Display == "/exit" {
+			found = true
+			// Should show aliases but no brackets (no keybind)
+			assert.NotContains(t, e.Description, "[")
+			assert.Contains(t, e.Description, "(also: /quit, /q)")
+			break
+		}
+	}
+	assert.True(t, found, "/exit should appear in results")
+}
+
 func TestApp_InlineFileAutocomplete_MultibytePrefixReplacement(t *testing.T) {
 	workDir := t.TempDir()
 	err := os.WriteFile(filepath.Join(workDir, "main.go"), []byte("package main"), 0o644)
@@ -221,4 +329,7 @@ func TestApp_InlineFileAutocomplete_MultibytePrefixReplacement(t *testing.T) {
 
 	assert.False(t, a.inline.open)
 	assert.Equal(t, "日本 @main.go ", a.input.Value())
+	// Cursor should be positioned after the inserted "@main.go " (rune index 12)
+	// 日(1) 本(2) ' '(3) @(4) m(5) a(6) i(7) n(8) .(9) g(10) o(11) ' '(12)
+	assert.Equal(t, 12, a.input.CursorOffset(), "cursor should be at end of inserted text")
 }

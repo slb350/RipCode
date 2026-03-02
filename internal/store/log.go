@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+// LogErrorf appends a formatted error line to the error log (no underlying error).
+func LogErrorf(format string, args ...any) {
+	LogError(fmt.Sprintf(format, args...), nil)
+}
+
 // LogError appends a timestamped error line to the error log.
 // Falls back to stderr if the log file cannot be opened.
 func LogError(msg string, err error) {

@@ -35,6 +35,7 @@ type Command struct {
 	Execute     bool
 	Disabled    func() bool
 	Handler     func(a *App) tea.Cmd
+	searchText  string // pre-computed lowercase haystack for Filter()
 }
 
 func (c *Command) isDisabled() bool {
@@ -59,6 +60,7 @@ func (r *CommandRegistry) Register(cmd Command) {
 		panic(fmt.Sprintf("duplicate command name: %s", cmd.Name))
 	}
 	c := cmd // copy
+	c.searchText = strings.ToLower(c.Name + " " + strings.Join(c.Aliases, " ") + " " + c.Title + " " + c.Description)
 	r.byName[c.Name] = &c
 	for _, alias := range c.Aliases {
 		if _, ok := r.byName[alias]; ok {
@@ -109,7 +111,7 @@ func (r *CommandRegistry) ByCategory() map[CommandCategory][]*Command {
 	return out
 }
 
-// Filter returns commands matching the query against name, title, and description.
+// Filter returns commands matching the query against name, aliases, title, and description.
 func (r *CommandRegistry) Filter(query string) []*Command {
 	q := strings.ToLower(strings.TrimSpace(query))
 	if q == "" {
@@ -120,8 +122,7 @@ func (r *CommandRegistry) Filter(query string) []*Command {
 		if c.Hidden || c.isDisabled() {
 			continue
 		}
-		haystack := strings.ToLower(c.Name + " " + c.Title + " " + c.Description)
-		if strings.Contains(haystack, q) {
+		if strings.Contains(c.searchText, q) {
 			out = append(out, c)
 		}
 	}

@@ -8,14 +8,17 @@ import (
 
 	"github.com/stephenbrandon/ripcode/internal/provider"
 	"github.com/stephenbrandon/ripcode/internal/session"
+	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tool"
 )
 
 // EventType identifies the kind of agent loop event.
+// Ordinals differ from provider.EventType — these are separate iota sequences.
 type EventType int
 
 const (
 	EventContentDelta EventType = iota
+	EventReasoningDelta
 	EventToolStart
 	EventToolEnd
 	EventDone
@@ -38,6 +41,63 @@ type Event struct {
 	Tool    *ToolEvent // for EventToolStart, EventToolEnd
 	Meta    *provider.Metadata
 	Error   error // for EventError
+}
+
+// Valid checks that the Event has a recognized type and required fields.
+func (e Event) Valid() error {
+	switch e.Type {
+	case EventContentDelta:
+		// Content may be empty (whitespace-only deltas are valid in SSE streams)
+	case EventReasoningDelta:
+		// Content may be empty (whitespace-only deltas are valid in SSE streams)
+	case EventToolStart:
+		if e.Tool == nil {
+			return fmt.Errorf("tool start event missing Tool")
+		}
+	case EventToolEnd:
+		if e.Tool == nil {
+			return fmt.Errorf("tool end event missing Tool")
+		}
+	case EventDone:
+		// No required fields
+	case EventError:
+		if e.Error == nil {
+			return fmt.Errorf("error event missing Error")
+		}
+	default:
+		return fmt.Errorf("unknown event type: %d", e.Type)
+	}
+	return nil
+}
+
+// NewContentEvent creates a content delta event.
+func NewContentEvent(content string) Event {
+	return Event{Type: EventContentDelta, Content: content}
+}
+
+// NewReasoningEvent creates a reasoning delta event.
+func NewReasoningEvent(content string) Event {
+	return Event{Type: EventReasoningDelta, Content: content}
+}
+
+// NewToolStartEvent creates a tool start event.
+func NewToolStartEvent(t *ToolEvent) Event {
+	return Event{Type: EventToolStart, Tool: t}
+}
+
+// NewToolEndEvent creates a tool end event.
+func NewToolEndEvent(t *ToolEvent) Event {
+	return Event{Type: EventToolEnd, Tool: t}
+}
+
+// NewDoneEvent creates a done event with optional metadata.
+func NewDoneEvent(meta *provider.Metadata) Event {
+	return Event{Type: EventDone, Meta: meta}
+}
+
+// NewErrorEvent creates an error event.
+func NewErrorEvent(err error) Event {
+	return Event{Type: EventError, Error: err}
 }
 
 // Loop orchestrates the agent's prompt-stream-tool cycle.
@@ -78,7 +138,7 @@ func (l *Loop) run(ctx context.Context, input string, ch chan<- Event) {
 	for step := 0; step < l.maxSteps; step++ {
 		select {
 		case <-ctx.Done():
-			ch <- Event{Type: EventError, Error: ctx.Err()}
+			ch <- NewErrorEvent(ctx.Err())
 			return
 		default:
 		}
@@ -86,7 +146,7 @@ func (l *Loop) run(ctx context.Context, input string, ch chan<- Event) {
 		toolDefs := l.agent.FilterRegistry(l.registry)
 		streamCh, err := l.provider.Chat(ctx, l.session.History(), toolDefs)
 		if err != nil {
-			ch <- Event{Type: EventError, Error: fmt.Errorf("provider error: %w", err)}
+			ch <- NewErrorEvent(fmt.Errorf("provider error: %w", err))
 			return
 		}
 
@@ -115,7 +175,7 @@ func (l *Loop) run(ctx context.Context, input string, ch chan<- Event) {
 		}
 
 		if len(toolCalls) == 0 {
-			ch <- Event{Type: EventDone, Meta: meta}
+			ch <- NewDoneEvent(meta)
 			return
 		}
 
@@ -125,7 +185,7 @@ func (l *Loop) run(ctx context.Context, input string, ch chan<- Event) {
 		}
 	}
 
-	ch <- Event{Type: EventError, Error: fmt.Errorf("max steps reached (%d)", l.maxSteps)}
+	ch <- NewErrorEvent(fmt.Errorf("max steps reached (%d)", l.maxSteps))
 }
 
 // consumeStream reads all events from the provider stream, forwarding content
@@ -145,7 +205,10 @@ func (l *Loop) consumeStream(ctx context.Context, streamCh <-chan provider.Strea
 		switch event.Type {
 		case provider.EventContentDelta:
 			content.WriteString(event.Content)
-			ch <- Event{Type: EventContentDelta, Content: event.Content}
+			ch <- NewContentEvent(event.Content)
+
+		case provider.EventReasoningDelta:
+			ch <- NewReasoningEvent(event.Content)
 
 		case provider.EventToolCall:
 			if event.ToolCall != nil {
@@ -156,8 +219,11 @@ func (l *Loop) consumeStream(ctx context.Context, streamCh <-chan provider.Strea
 			meta = event.Meta
 
 		case provider.EventError:
-			ch <- Event{Type: EventError, Error: event.Error}
+			ch <- NewErrorEvent(event.Error)
 			return content.String(), toolCalls, meta
+
+		default:
+			store.LogErrorf("loop: unknown provider event type %d", event.Type)
 		}
 	}
 
@@ -166,14 +232,11 @@ func (l *Loop) consumeStream(ctx context.Context, streamCh <-chan provider.Strea
 
 // executeTool runs a single tool call and emits start/end events.
 func (l *Loop) executeTool(ctx context.Context, tc provider.ToolCall, ch chan<- Event) {
-	ch <- Event{
-		Type: EventToolStart,
-		Tool: &ToolEvent{
-			ID:   tc.ID,
-			Name: tc.Name,
-			Args: tc.Args,
-		},
-	}
+	ch <- NewToolStartEvent(&ToolEvent{
+		ID:   tc.ID,
+		Name: tc.Name,
+		Args: tc.Args,
+	})
 
 	t, ok := l.registry.Get(tc.Name)
 	if !ok {
@@ -206,27 +269,21 @@ func (l *Loop) executeTool(ctx context.Context, tc provider.ToolCall, ch chan<- 
 
 	l.session.AddToolResult(tc.ID, output)
 
-	ch <- Event{
-		Type: EventToolEnd,
-		Tool: &ToolEvent{
-			ID:     tc.ID,
-			Name:   tc.Name,
-			Args:   tc.Args,
-			Output: output,
-			Error:  errStr,
-		},
-	}
+	ch <- NewToolEndEvent(&ToolEvent{
+		ID:     tc.ID,
+		Name:   tc.Name,
+		Args:   tc.Args,
+		Output: output,
+		Error:  errStr,
+	})
 }
 
 // emitToolError records a tool error result and emits an EventToolEnd with the error.
 func (l *Loop) emitToolError(tc provider.ToolCall, errMsg string, ch chan<- Event) {
 	l.session.AddToolResult(tc.ID, "error: "+errMsg)
-	ch <- Event{
-		Type: EventToolEnd,
-		Tool: &ToolEvent{
-			ID:    tc.ID,
-			Name:  tc.Name,
-			Error: errMsg,
-		},
-	}
+	ch <- NewToolEndEvent(&ToolEvent{
+		ID:    tc.ID,
+		Name:  tc.Name,
+		Error: errMsg,
+	})
 }

@@ -205,13 +205,13 @@ func TestApp_SlashDetails_TogglesShowDetails(t *testing.T) {
 	a := model.(App)
 	a.state = StateSession
 
-	assert.False(t, a.showDetails)
+	assert.False(t, a.chat.ShowDetails())
 	model, _ = a.Update(components.InputSubmitMsg{Value: "/details"})
 	a = model.(App)
-	assert.True(t, a.showDetails)
+	assert.True(t, a.chat.ShowDetails())
 	model, _ = a.Update(components.InputSubmitMsg{Value: "/details"})
 	a = model.(App)
-	assert.False(t, a.showDetails)
+	assert.False(t, a.chat.ShowDetails())
 }
 
 func TestApp_SlashThinking_TogglesShowThinking(t *testing.T) {
@@ -225,10 +225,10 @@ func TestApp_SlashThinking_TogglesShowThinking(t *testing.T) {
 	a := model.(App)
 	a.state = StateSession
 
-	assert.False(t, a.showThinking)
+	assert.False(t, a.chat.ShowThinking())
 	model, _ = a.Update(components.InputSubmitMsg{Value: "/thinking"})
 	a = model.(App)
-	assert.True(t, a.showThinking)
+	assert.True(t, a.chat.ShowThinking())
 }
 
 func TestApp_SlashTimestamps_TogglesShowTimestamps(t *testing.T) {
@@ -242,10 +242,10 @@ func TestApp_SlashTimestamps_TogglesShowTimestamps(t *testing.T) {
 	a := model.(App)
 	a.state = StateSession
 
-	assert.False(t, a.showTimestamps)
+	assert.False(t, a.chat.ShowTimestamps())
 	model, _ = a.Update(components.InputSubmitMsg{Value: "/timestamps"})
 	a = model.(App)
-	assert.True(t, a.showTimestamps)
+	assert.True(t, a.chat.ShowTimestamps())
 }
 
 func TestApp_SlashRename_OpensDialog(t *testing.T) {
@@ -403,6 +403,41 @@ func TestApp_CopyCommand_ShowsSuccessToast(t *testing.T) {
 	// May succeed or fail depending on clipboard availability in test env
 	assert.NotNil(t, cmd)
 	assert.NotNil(t, a.toasts.Current())
+}
+
+func TestApp_CopyCommand_MixedPartsNotTreatedAsEmpty(t *testing.T) {
+	a := makeSessionApp(t)
+	a.chat.Clear()
+	a.chat.StreamPart(components.PartReasoning, "thinking")
+	a.chat.StreamPart(components.PartText, "visible answer")
+	a.chat.CommitStream()
+
+	model, cmd := a.Update(components.InputSubmitMsg{Value: "/copy"})
+	a = model.(App)
+	assert.NotNil(t, cmd)
+	toast := a.toasts.Current()
+	assert.NotNil(t, toast)
+	assert.NotContains(t, toast.Message, "No assistant response")
+}
+
+func TestApp_CopyCommand_AllReasoningEntry_IsCopyable(t *testing.T) {
+	a := makeSessionApp(t)
+	a.chat.Clear()
+	// Add an entry with only reasoning parts (no text parts)
+	a.chat.AddEntry(components.ChatEntry{
+		Role: components.RoleAssistant,
+		Parts: []components.MessagePart{
+			{Type: components.PartReasoning, Content: "deep reasoning only"},
+		},
+	})
+
+	model, cmd := a.Update(components.InputSubmitMsg{Value: "/copy"})
+	a = model.(App)
+	assert.NotNil(t, cmd)
+	toast := a.toasts.Current()
+	assert.NotNil(t, toast)
+	// Should NOT warn about no response — CopyableContent() falls back to parts
+	assert.NotContains(t, toast.Message, "No assistant response")
 }
 
 func TestApp_CompactCommand_ShowsToast(t *testing.T) {

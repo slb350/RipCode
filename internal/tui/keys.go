@@ -294,6 +294,11 @@ func (a App) handleLeaderKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		a.agentDialog.query = ""
 		a.agentDialog.selected = 0
 		return a, nil
+	case msg.Code == 'h':
+		if cmd := a.cmdRegistry.Get("conceal"); cmd != nil && cmd.Handler != nil {
+			return a, cmd.Handler(&a)
+		}
+		return a, nil
 	default:
 		return a, nil
 	}

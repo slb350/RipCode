@@ -173,25 +173,43 @@ func (a *App) rebuildChatFromSession() {
 	if a.session == nil {
 		return
 	}
-	for _, rec := range a.session.Records() {
+	records := a.session.Records()
+
+	// Build callID→toolName index once to avoid O(n²) lookup per tool result.
+	toolNames := make(map[string]string)
+	for _, rec := range records {
+		for _, tc := range rec.Message.ToolCalls {
+			toolNames[tc.ID] = tc.Name
+		}
+	}
+
+	for _, rec := range records {
 		switch rec.Message.Role {
 		case provider.RoleUser:
 			a.chat.AddEntry(components.ChatEntry{
-				Role:    components.RoleUser,
-				Content: rec.Message.Content,
+				Role:      components.RoleUser,
+				Content:   rec.Message.Content,
+				CreatedAt: rec.CreatedAt,
 			})
 		case provider.RoleAssistant:
 			a.chat.AddEntry(components.ChatEntry{
-				Role:    components.RoleAssistant,
-				Content: rec.Message.Content,
+				Role:      components.RoleAssistant,
+				Content:   rec.Message.Content,
+				CreatedAt: rec.CreatedAt,
 			})
 		case provider.RoleTool:
 			a.chat.AddEntry(components.ChatEntry{
 				Role:       components.RoleTool,
 				Content:    rec.Message.Content,
 				ToolID:     rec.Message.ToolCallID,
+				ToolName:   toolNames[rec.Message.ToolCallID],
 				ToolStatus: components.StatusSuccess,
+				CreatedAt:  rec.CreatedAt,
 			})
+		case provider.RoleSystem:
+			// System prompt messages are set separately; not displayed in chat.
+		default:
+			store.LogErrorf("sessions: unhandled role %q in rebuildChatFromSession", rec.Message.Role)
 		}
 	}
 }

@@ -89,10 +89,17 @@ func (a App) inlineEntries() []inlineEntry {
 		}
 		out := make([]inlineEntry, 0, len(commands))
 		for _, cmd := range commands {
+			desc := cmd.Description
+			if cmd.Keybind != "" {
+				desc += "  [" + cmd.Keybind + "]"
+			}
+			if len(cmd.Aliases) > 0 {
+				desc += "  (also: /" + strings.Join(cmd.Aliases, ", /") + ")"
+			}
 			out = append(out, inlineEntry{
 				Display:     "/" + cmd.Name,
 				Insert:      "/" + cmd.Name,
-				Description: cmd.Description,
+				Description: desc,
 				Execute:     cmd.Execute,
 			})
 		}

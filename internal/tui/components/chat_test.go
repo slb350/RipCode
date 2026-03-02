@@ -1,9 +1,12 @@
 package components
 
 import (
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
+	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -14,6 +17,19 @@ func TestChat_AddEntry(t *testing.T) {
 	c.AddEntry(ChatEntry{Role: RoleUser, Content: "hello"})
 	view := c.View()
 	assert.Contains(t, view, "hello")
+}
+
+func TestChat_AddEntry_SetsCreatedAtWhenUnset(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+
+	before := time.Now()
+	c.AddEntry(ChatEntry{Role: RoleUser, Content: "hello"})
+
+	entries := c.Entries()
+	assert.Len(t, entries, 1)
+	assert.False(t, entries[0].CreatedAt.IsZero(), "add entry should default CreatedAt")
+	assert.False(t, entries[0].CreatedAt.Before(before), "CreatedAt should be set at add time")
 }
 
 func TestChat_UserMessage_HasAccentBorder(t *testing.T) {
@@ -150,6 +166,41 @@ func TestChat_Clear(t *testing.T) {
 
 	view := c.View()
 	assert.NotContains(t, view, "hello")
+}
+
+func TestChat_Clear_ResetsStreamingParts(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+	c.StreamPart(PartText, "streaming content")
+	c.Clear()
+
+	assert.Empty(t, c.streamingParts, "Clear should reset streamingParts")
+	assert.Empty(t, c.streaming, "Clear should reset legacy streaming")
+	assert.Equal(t, 0, c.scrollPos, "Clear should reset scroll position")
+}
+
+func TestChat_RenderEntry_UnknownRole_RendersAsPlainText(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+
+	c.AddEntry(ChatEntry{Role: "unknown", Content: "mystery content"})
+	view := c.View()
+	assert.Contains(t, view, "mystery content")
+}
+
+func TestChat_CommitStream_BothPaths_LogsWarning(t *testing.T) {
+	c := NewChat()
+	c.SetSize(80, 20)
+
+	// Populate both paths
+	c.StreamContent("legacy")
+	c.StreamPart(PartText, "parts")
+	c.CommitStream()
+
+	// Parts should win, legacy discarded
+	entries := c.Entries()
+	assert.Len(t, entries, 1)
+	assert.Equal(t, "parts", entries[0].Content)
 }
 
 func TestChat_Entries_ReturnsAllEntries(t *testing.T) {
@@ -335,4 +386,76 @@ func TestChat_PrevUserMessage_UsesRenderedHeights(t *testing.T) {
 	c.PrevUserMessage()
 
 	assert.Equal(t, firstOffset, c.scrollPos)
+}
+
+func TestChat_ConcealCodeAcrossInterleavedParts(t *testing.T) {
+	c := NewChat()
+	c.SetSize(100, 20)
+	c.SetShowCodeBlocks(false)
+	c.SetShowThinking(true)
+
+	c.AddEntry(ChatEntry{
+		Role: RoleAssistant,
+		Parts: []MessagePart{
+			{Type: PartText, Content: "```go\nfmt"},
+			{Type: PartReasoning, Content: "thinking"},
+			{Type: PartText, Content: ".Println(1)\n```\nAfter"},
+		},
+	})
+
+	view := c.View()
+	assert.Contains(t, view, "[code block hidden]")
+	assert.Equal(t, 1, strings.Count(view, "[code block hidden]"))
+	assert.NotContains(t, view, "Println(1)")
+	assert.Contains(t, view, "thinking")
+	assert.Contains(t, view, "After")
+}
+
+func TestChat_HiddenReasoning_PreservesAssistantTextFlow(t *testing.T) {
+	c := NewChat()
+	c.SetSize(100, 20)
+	c.SetShowThinking(false)
+
+	c.AddEntry(ChatEntry{
+		Role: RoleAssistant,
+		Parts: []MessagePart{
+			{Type: PartText, Content: "The sea is "},
+			{Type: PartReasoning, Content: "hidden reasoning"},
+			{Type: PartText, Content: "calm tonight."},
+		},
+	})
+
+	view := c.View()
+	assert.Contains(t, view, "The sea is calm tonight.")
+}
+
+func TestChat_RenderUserEntry_TimestampedFirstLine_RespectsViewportWidth(t *testing.T) {
+	c := NewChat()
+	c.SetSize(40, 20)
+	c.SetShowTimestamps(true)
+
+	lines := c.renderUserEntry(ChatEntry{
+		Role:      RoleUser,
+		Content:   strings.TrimSpace(strings.Repeat("word ", 9)),
+		CreatedAt: time.Date(2026, time.January, 1, 15, 4, 0, 0, time.UTC),
+	}, c.effectiveTheme())
+
+	assert.NotEmpty(t, lines)
+	assert.LessOrEqual(t, lipgloss.Width(lines[0]), c.width, "timestamp prefix should be accounted for in wrapping")
+}
+
+func TestChat_RenderToolEntry_DetailsTruncation_PreservesUTF8(t *testing.T) {
+	c := NewChat()
+	c.SetSize(28, 20) // details width = 20
+	c.SetShowDetails(true)
+
+	lines := c.renderToolEntry(ChatEntry{
+		Role:       RoleTool,
+		Content:    strings.Repeat("a", 19) + "éz",
+		ToolName:   "read",
+		ToolStatus: StatusSuccess,
+	}, c.effectiveTheme())
+
+	assert.GreaterOrEqual(t, len(lines), 2, "details line should render")
+	assert.True(t, utf8.ValidString(lines[1]), "detail truncation should not cut through UTF-8 bytes")
 }

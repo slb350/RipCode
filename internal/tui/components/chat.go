@@ -2,11 +2,14 @@ package components
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tui/styles"
 )
 
@@ -34,32 +37,61 @@ type CompleteMeta struct {
 	Duration time.Duration
 }
 
+// PartType identifies the kind of content in a message part.
+// When adding new variants, update Valid() and all switch statements
+// in parts.go and chat.go.
+type PartType string
+
+const (
+	PartText      PartType = "text"      // user-visible assistant response content
+	PartReasoning PartType = "reasoning" // model reasoning/thinking (may be hidden)
+)
+
+// MessagePart is a single content segment within an assistant message.
+type MessagePart struct {
+	Type    PartType
+	Content string
+}
+
 // ChatEntry represents a single rendered entry in the chat.
 type ChatEntry struct {
 	Role       string // RoleUser, RoleAssistant, RoleTool, RoleError, RoleSystem, RoleComplete
 	Content    string
+	Parts      []MessagePart // non-nil for assistant entries with mixed parts; nil for simple
+	CreatedAt  time.Time     // for timestamp display
 	ToolID     string        // tool call ID for matching updates
 	ToolName   string        // tool name (bash, read, write, etc.)
 	ToolStatus string        // StatusPending, StatusSuccess, StatusError
 	Meta       *CompleteMeta // for RoleComplete entries
 }
 
+// minContentWidth is the floor for wrapped content width, preventing
+// degenerate layouts when the terminal is very narrow.
+const minContentWidth = 20
+
 // Chat is a scrollable viewport displaying conversation messages.
 type Chat struct {
-	entries   []ChatEntry
-	scrollPos int
-	width     int
-	height    int
-	streaming string
-	mode      string
-	theme     *styles.Theme
+	entries        []ChatEntry
+	scrollPos      int
+	width          int
+	height         int
+	streaming      string        // legacy streaming content
+	streamingParts []MessagePart // part-based streaming accumulator
+	mode           string
+	theme          *styles.Theme
+
+	showThinking   bool // controls reasoning part visibility
+	showDetails    bool // controls tool output detail level
+	showTimestamps bool // controls timestamp prefix on entries
+	showCodeBlocks bool // true = show code, false = conceal
 }
 
 // NewChat creates a new chat component.
 func NewChat() Chat {
 	return Chat{
-		mode:  "build",
-		theme: styles.DefaultTheme,
+		mode:           "build",
+		theme:          styles.DefaultTheme,
+		showCodeBlocks: true,
 	}
 }
 
@@ -75,8 +107,35 @@ func (c *Chat) SetMode(mode string) { c.mode = mode }
 // SetTheme sets the theme.
 func (c *Chat) SetTheme(t *styles.Theme) { c.theme = t }
 
+// SetShowThinking controls whether reasoning parts are rendered.
+func (c *Chat) SetShowThinking(v bool) { c.showThinking = v }
+
+// ShowThinking reports whether reasoning parts are rendered.
+func (c Chat) ShowThinking() bool { return c.showThinking }
+
+// SetShowDetails controls whether tool output details are shown.
+func (c *Chat) SetShowDetails(v bool) { c.showDetails = v }
+
+// ShowDetails reports whether tool output details are shown.
+func (c Chat) ShowDetails() bool { return c.showDetails }
+
+// SetShowTimestamps controls whether timestamp prefixes are shown.
+func (c *Chat) SetShowTimestamps(v bool) { c.showTimestamps = v }
+
+// ShowTimestamps reports whether timestamp prefixes are shown.
+func (c Chat) ShowTimestamps() bool { return c.showTimestamps }
+
+// SetShowCodeBlocks controls whether fenced code blocks are visible.
+func (c *Chat) SetShowCodeBlocks(v bool) { c.showCodeBlocks = v }
+
+// ShowCodeBlocks reports whether fenced code blocks are visible.
+func (c Chat) ShowCodeBlocks() bool { return c.showCodeBlocks }
+
 // AddEntry adds a completed message to the chat.
 func (c *Chat) AddEntry(entry ChatEntry) {
+	if entry.CreatedAt.IsZero() {
+		entry.CreatedAt = time.Now()
+	}
 	c.entries = append(c.entries, entry)
 	c.streaming = ""
 	c.scrollToBottom()
@@ -92,21 +151,92 @@ func (c *Chat) UpdateLastTool(id string, entry ChatEntry) {
 	}
 }
 
-// StreamContent appends to the current streaming content.
+// StreamContent appends to the current streaming content (legacy path).
 func (c *Chat) StreamContent(delta string) {
 	c.streaming += delta
 	c.scrollToBottom()
 }
 
+// StreamPart appends a delta to the streaming parts accumulator.
+// Consecutive deltas of the same type are merged into one part; a type change
+// starts a new part. Invalid PartTypes are logged but still accumulated
+// (non-blocking) to preserve content visibility during streaming.
+func (c *Chat) StreamPart(typ PartType, delta string) {
+	if delta == "" {
+		return
+	}
+	if !typ.Valid() {
+		store.LogErrorf("chat: StreamPart called with invalid type %q", typ)
+	}
+	if n := len(c.streamingParts); n > 0 && c.streamingParts[n-1].Type == typ {
+		c.streamingParts[n-1].Content += delta
+	} else {
+		c.streamingParts = append(c.streamingParts, MessagePart{Type: typ, Content: delta})
+	}
+	c.scrollToBottom()
+}
+
 // CommitStream finalizes streaming content as an assistant entry.
+// Two streaming paths exist for backward compatibility:
+//   - Legacy: StreamContent() accumulates raw deltas (pre-Phase 5 path)
+//   - Parts: StreamPart() accumulates typed content segments (text/reasoning)
+//
+// When using the parts path with a single text-only part, the entry uses only
+// the Content field (not Parts) for backward compatibility with code that
+// expects plain Content-based entries.
+//
+// If both paths are populated (shouldn't happen in normal use), parts take
+// precedence and legacy streaming is cleared with a warning log.
 func (c *Chat) CommitStream() {
+	now := time.Now()
+
+	// Part-based streaming path — takes precedence over legacy
+	if len(c.streamingParts) > 0 {
+		if c.streaming != "" {
+			store.LogError("chat: CommitStream called with both streamingParts and legacy streaming populated; legacy content discarded", nil)
+		}
+		// Single text part — fall back to Content field for backward compat
+		if len(c.streamingParts) == 1 && c.streamingParts[0].Type == PartText {
+			c.entries = append(c.entries, ChatEntry{
+				Role:      RoleAssistant,
+				Content:   c.streamingParts[0].Content,
+				CreatedAt: now,
+			})
+		} else {
+			parts := make([]MessagePart, len(c.streamingParts))
+			copy(parts, c.streamingParts)
+			c.entries = append(c.entries, ChatEntry{
+				Role:      RoleAssistant,
+				Content:   plainTextFromParts(parts),
+				Parts:     parts,
+				CreatedAt: now,
+			})
+		}
+		c.streamingParts = nil
+		c.streaming = ""
+		return
+	}
+
+	// Legacy streaming path
 	if c.streaming != "" {
 		c.entries = append(c.entries, ChatEntry{
-			Role:    RoleAssistant,
-			Content: c.streaming,
+			Role:      RoleAssistant,
+			Content:   c.streaming,
+			CreatedAt: now,
 		})
 		c.streaming = ""
 	}
+}
+
+// plainTextFromParts extracts and concatenates user-visible text segments.
+func plainTextFromParts(parts []MessagePart) string {
+	var b strings.Builder
+	for _, p := range parts {
+		if p.Type == PartText {
+			b.WriteString(p.Content)
+		}
+	}
+	return b.String()
 }
 
 // PageUp scrolls up by one page height.
@@ -209,6 +339,7 @@ func (c Chat) Entries() []ChatEntry {
 func (c *Chat) Clear() {
 	c.entries = nil
 	c.streaming = ""
+	c.streamingParts = nil
 	c.scrollPos = 0
 }
 
@@ -235,8 +366,10 @@ func (c Chat) View() string {
 		lines = append(lines, "") // blank line between entries
 	}
 
-	// Streaming content
-	if c.streaming != "" {
+	// Streaming content (part-based or legacy)
+	if len(c.streamingParts) > 0 {
+		lines = append(lines, c.renderAssistantParts(c.streamingParts, c.effectiveTheme())...)
+	} else if c.streaming != "" {
 		lines = append(lines, "   "+c.streaming)
 	}
 
@@ -245,11 +378,12 @@ func (c Chat) View() string {
 	visibleLines := c.height
 
 	maxScroll := max(0, totalLines-visibleLines)
-	if c.scrollPos > maxScroll {
-		c.scrollPos = maxScroll
+	scrollPos := c.scrollPos
+	if scrollPos > maxScroll {
+		scrollPos = maxScroll
 	}
 
-	start := c.scrollPos
+	start := scrollPos
 	end := min(start+visibleLines, totalLines)
 
 	if start >= totalLines {
@@ -266,11 +400,16 @@ func (c Chat) View() string {
 	return strings.Join(visible, "\n")
 }
 
-func (c Chat) renderEntry(entry ChatEntry) []string {
-	t := c.theme
-	if t == nil {
-		t = styles.DefaultTheme
+// effectiveTheme returns the chat's theme, falling back to the default.
+func (c Chat) effectiveTheme() *styles.Theme {
+	if c.theme != nil {
+		return c.theme
 	}
+	return styles.DefaultTheme
+}
+
+func (c Chat) renderEntry(entry ChatEntry) []string {
+	t := c.effectiveTheme()
 
 	switch entry.Role {
 	case RoleUser:
@@ -286,6 +425,7 @@ func (c Chat) renderEntry(entry ChatEntry) []string {
 	case RoleComplete:
 		return c.renderCompleteEntry(entry, t)
 	default:
+		store.LogErrorf("chat: unknown entry role %q rendered as plain text", entry.Role)
 		return []string{entry.Content}
 	}
 }
@@ -296,33 +436,122 @@ func (c Chat) renderUserEntry(entry ChatEntry, t *styles.Theme) []string {
 	accentStyle := lipgloss.NewStyle().Foreground(modeColor)
 
 	maxWidth := c.width - 4 // ┃ + space + padding
-	if maxWidth < 20 {
-		maxWidth = 20
+	if maxWidth < minContentWidth {
+		maxWidth = minContentWidth
 	}
 
-	wrapped := wrapText(entry.Content, maxWidth)
+	tsPrefix := c.timestampPrefix(entry, t)
+	firstLineWidth := maxWidth - lipgloss.Width(tsPrefix)
+	if firstLineWidth < 1 {
+		firstLineWidth = 1
+	}
+
+	wrapped := wrapTextWithFirstLineWidth(entry.Content, firstLineWidth, maxWidth)
 	contentLines := strings.Split(wrapped, "\n")
 
 	result := make([]string, 0, len(contentLines)+1)
-	for _, line := range contentLines {
-		result = append(result, accentStyle.Render("┃")+" "+line)
+	for i, line := range contentLines {
+		rendered := accentStyle.Render("┃") + " " + line
+		if i == 0 {
+			rendered = tsPrefix + rendered
+		}
+		result = append(result, rendered)
 	}
 	result = append(result, accentStyle.Render("╹"))
 	return result
 }
 
+// contentWidth returns the maximum content width for assistant messages.
+func (c Chat) contentWidth() int {
+	maxWidth := c.width - 3 // 3-space indent
+	if maxWidth < minContentWidth {
+		return minContentWidth
+	}
+	return maxWidth
+}
+
 // renderAssistantEntry renders assistant messages with 3-space indent.
-func (c Chat) renderAssistantEntry(entry ChatEntry, _ *styles.Theme) []string {
-	maxWidth := c.width - 3
-	if maxWidth < 20 {
-		maxWidth = 20
+func (c Chat) renderAssistantEntry(entry ChatEntry, t *styles.Theme) []string {
+	if len(entry.Parts) > 0 {
+		result := c.renderAssistantParts(entry.Parts, t)
+		if len(result) > 0 {
+			result[0] = c.prependTimestamp(result[0], entry, t)
+		}
+		return result
 	}
 
-	wrapped := wrapText(entry.Content, maxWidth)
+	maxWidth := c.contentWidth()
+	content := entry.Content
+	if !c.showCodeBlocks {
+		content = concealCodeBlocks(content)
+	}
+
+	wrapped := wrapText(content, maxWidth)
 	lines := strings.Split(wrapped, "\n")
 	result := make([]string, len(lines))
 	for i, line := range lines {
 		result[i] = "   " + line
+	}
+	if len(result) > 0 {
+		result[0] = c.prependTimestamp(result[0], entry, t)
+	}
+	return result
+}
+
+// renderAssistantParts renders a parts-based assistant message.
+// Unknown PartTypes are logged as errors but rendered as text to preserve
+// content visibility — graceful degradation over data loss.
+func (c Chat) renderAssistantParts(parts []MessagePart, t *styles.Theme) []string {
+	maxWidth := c.contentWidth()
+
+	var result []string
+	inConcealedBlock := false
+	var textBuf strings.Builder
+	flushText := func() {
+		if textBuf.Len() == 0 {
+			return
+		}
+		wrapped := wrapText(textBuf.String(), maxWidth)
+		for _, line := range strings.Split(wrapped, "\n") {
+			result = append(result, "   "+line)
+		}
+		textBuf.Reset()
+	}
+
+	for _, p := range parts {
+		switch p.Type {
+		case PartReasoning:
+			if !c.showThinking {
+				continue
+			}
+			flushText()
+			reasoningStyle := t.TextMutedStyle.Italic(true)
+			wrapped := wrapText(p.Content, maxWidth)
+			for _, line := range strings.Split(wrapped, "\n") {
+				result = append(result, "   "+reasoningStyle.Render(line))
+			}
+		default: // PartText or unknown (unknown types are logged and rendered as text)
+			if p.Type != PartText {
+				store.LogErrorf("chat: unknown part type %q rendered as text", p.Type)
+			}
+			text := p.Content
+			if !c.showCodeBlocks {
+				text, inConcealedBlock = concealCodeBlocksWithState(text, inConcealedBlock)
+			}
+			textBuf.WriteString(text)
+		}
+	}
+	flushText()
+	if len(result) == 0 {
+		// All parts were hidden reasoning — show muted indicator
+		hasReasoning := slices.ContainsFunc(parts, func(p MessagePart) bool {
+			return p.Type == PartReasoning
+		})
+		if hasReasoning && !c.showThinking {
+			result = append(result, "   "+t.TextMutedStyle.Render("[thinking]"))
+		} else {
+			result = append(result, "   ")
+		}
 	}
 	return result
 }
@@ -377,7 +606,22 @@ func (c Chat) renderToolEntry(entry ChatEntry, t *styles.Theme) []string {
 		t.TextMutedStyle.Render(entry.ToolName) + " · " +
 		t.TextMutedStyle.Render(content)
 
-	return []string{line}
+	lines := []string{line}
+
+	if c.showDetails && entry.Content != "" && entry.ToolStatus != StatusPending {
+		maxW := c.width - 8
+		if maxW < minContentWidth {
+			maxW = minContentWidth
+		}
+		for _, dl := range strings.Split(entry.Content, "\n") {
+			if lipgloss.Width(dl) > maxW {
+				dl = ansi.Truncate(dl, maxW, "")
+			}
+			lines = append(lines, "      "+t.TextMutedStyle.Render(dl))
+		}
+	}
+
+	return lines
 }
 
 // renderErrorEntry renders error messages.
@@ -390,8 +634,8 @@ func (c Chat) renderSystemEntry(entry ChatEntry, t *styles.Theme) []string {
 	prefix := t.TextMutedStyle.Render("~") + " "
 
 	maxWidth := c.width - lipgloss.Width(prefix)
-	if maxWidth < 20 {
-		maxWidth = 20
+	if maxWidth < minContentWidth {
+		maxWidth = minContentWidth
 	}
 
 	wrapped := wrapText(entry.Content, maxWidth)
@@ -425,6 +669,63 @@ func (c Chat) renderCompleteEntry(entry ChatEntry, t *styles.Theme) []string {
 	return []string{line}
 }
 
+// concealCodeBlocks replaces fenced code blocks (``` ... ```) with a placeholder.
+// Inline `code` is not affected. Unclosed blocks are concealed to end of string.
+func concealCodeBlocks(text string) string {
+	out, _ := concealCodeBlocksWithState(text, false)
+	return out
+}
+
+// concealCodeBlocksWithState replaces fenced code blocks while preserving
+// whether concealment is currently inside an unclosed fence. This enables
+// processing text across multiple message parts where a code block may
+// start in one part and end in another.
+//
+// State machine:
+//   - inBlock=false: output lines until ``` opens a block
+//   - inBlock=true: skip lines until ``` closes the block
+//   - One-line blocks (```code```) are detected and handled
+//   - Unclosed blocks at end of text remain in inBlock=true state
+func concealCodeBlocksWithState(text string, inBlock bool) (string, bool) {
+	lines := strings.Split(text, "\n")
+	var result []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !inBlock && strings.HasPrefix(trimmed, "```") {
+			inBlock = true
+			result = append(result, "[code block hidden]")
+			// Check if the same line closes it (e.g. ```code``` on one line)
+			// Only if there's a second ``` after the opening one
+			rest := trimmed[3:]
+			if idx := strings.Index(rest, "```"); idx >= 0 {
+				inBlock = false
+			}
+			continue
+		}
+		if inBlock {
+			if strings.HasPrefix(trimmed, "```") {
+				inBlock = false
+			}
+			continue
+		}
+		result = append(result, line)
+	}
+	return strings.Join(result, "\n"), inBlock
+}
+
+// prependTimestamp prepends a 12-hour timestamp prefix to a line if timestamps are enabled
+// and the entry has a non-zero CreatedAt.
+func (c Chat) prependTimestamp(line string, entry ChatEntry, t *styles.Theme) string {
+	return c.timestampPrefix(entry, t) + line
+}
+
+func (c Chat) timestampPrefix(entry ChatEntry, t *styles.Theme) string {
+	if !c.showTimestamps || entry.CreatedAt.IsZero() {
+		return ""
+	}
+	return t.TextMutedStyle.Render(entry.CreatedAt.Format("3:04 PM") + "  ")
+}
+
 func (c *Chat) scrollToBottom() {
 	c.scrollPos = max(0, c.totalLines()-c.height)
 }
@@ -434,24 +735,51 @@ func (c Chat) totalLines() int {
 	for _, entry := range c.entries {
 		count += len(c.renderEntry(entry)) + 1
 	}
-	if c.streaming != "" {
+	if len(c.streamingParts) > 0 {
+		count += len(c.renderAssistantParts(c.streamingParts, c.effectiveTheme()))
+	} else if c.streaming != "" {
 		count++
 	}
 	return count
 }
 
 func wrapText(text string, width int) string {
+	return wrapTextWithFirstLineWidth(text, width, width)
+}
+
+// wrapTextWithFirstLineWidth wraps text with a custom width for the first
+// rendered line, and a separate width for all subsequent lines.
+func wrapTextWithFirstLineWidth(text string, firstWidth, width int) string {
 	if width <= 0 {
 		return text
 	}
+	if firstWidth < 1 {
+		firstWidth = 1
+	}
+	if firstWidth > width {
+		firstWidth = width
+	}
 
 	var result strings.Builder
+	firstRendered := true
+	appendLine := func(line string) {
+		if result.Len() > 0 {
+			result.WriteByte('\n')
+		}
+		result.WriteString(line)
+		firstRendered = false
+	}
+	currentLimit := func() int {
+		if firstRendered {
+			return firstWidth
+		}
+		return width
+	}
+
 	for _, line := range strings.Split(text, "\n") {
-		if lipgloss.Width(line) <= width {
-			if result.Len() > 0 {
-				result.WriteByte('\n')
-			}
-			result.WriteString(line)
+		limit := currentLimit()
+		if lipgloss.Width(line) <= limit {
+			appendLine(line)
 			continue
 		}
 
@@ -460,21 +788,16 @@ func wrapText(text string, width int) string {
 		for _, word := range words {
 			if currentLine == "" {
 				currentLine = word
-			} else if lipgloss.Width(currentLine+" "+word) <= width {
+			} else if lipgloss.Width(currentLine+" "+word) <= limit {
 				currentLine += " " + word
 			} else {
-				if result.Len() > 0 {
-					result.WriteByte('\n')
-				}
-				result.WriteString(currentLine)
+				appendLine(currentLine)
+				limit = currentLimit()
 				currentLine = word
 			}
 		}
 		if currentLine != "" {
-			if result.Len() > 0 {
-				result.WriteByte('\n')
-			}
-			result.WriteString(currentLine)
+			appendLine(currentLine)
 		}
 	}
 	return result.String()

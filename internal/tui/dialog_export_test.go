@@ -96,6 +96,25 @@ func TestApp_ExportDialog_WritesFile(t *testing.T) {
 	}
 }
 
+func TestApp_ExportDialog_WritesMixedPartsAssistantContent(t *testing.T) {
+	a := makeSessionApp(t)
+	a.chat.Clear()
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: "question"})
+	a.chat.StreamPart(components.PartReasoning, "internal")
+	a.chat.StreamPart(components.PartText, "final answer")
+	a.chat.CommitStream()
+
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/export"})
+	a = model.(App)
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+
+	exportPath := filepath.Join(a.session.WorkDir, a.exportDialog.filename)
+	data, err := os.ReadFile(exportPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "final answer")
+}
+
 func TestApp_ExportDialog_EmptyChat_ShowsWarning(t *testing.T) {
 	// Create an app without the 30 pre-loaded entries from makeSessionApp
 	app := NewApp()
@@ -297,6 +316,155 @@ func TestWriteExportFile_RenameFailure_PreservesExistingTarget(t *testing.T) {
 	data, readErr := os.ReadFile(target)
 	require.NoError(t, readErr)
 	assert.Equal(t, "original", string(data))
+}
+
+func TestApp_ExportDialog_IncludeThinking_WritesReasoningParts(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	sess := session.New(t.TempDir())
+	app.SetSession(sess)
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	// Add a part-based assistant entry with reasoning
+	a.chat.Clear()
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: "question"})
+	a.chat.StreamPart(components.PartReasoning, "deep thinking")
+	a.chat.StreamPart(components.PartText, "visible answer")
+	a.chat.CommitStream()
+
+	// Open export dialog with includeThinking enabled
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/export"})
+	a = model.(App)
+	a.exportDialog.includeThinking = true
+	a.exportDialog.filename = "thinking-export.md"
+	a.exportDialog.focusedField = 3
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+
+	data, err := os.ReadFile(filepath.Join(sess.WorkDir, "thinking-export.md"))
+	require.NoError(t, err)
+	content := string(data)
+	assert.Contains(t, content, "deep thinking", "reasoning should be included when includeThinking is true")
+	assert.Contains(t, content, "visible answer")
+}
+
+func TestApp_ExportDialog_ExcludeThinking_OmitsReasoningParts(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	sess := session.New(t.TempDir())
+	app.SetSession(sess)
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	// Add a part-based assistant entry with reasoning
+	a.chat.Clear()
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: "question"})
+	a.chat.StreamPart(components.PartReasoning, "secret thinking")
+	a.chat.StreamPart(components.PartText, "visible answer")
+	a.chat.CommitStream()
+
+	// Open export dialog with includeThinking disabled
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/export"})
+	a = model.(App)
+	a.exportDialog.includeThinking = false
+	a.exportDialog.filename = "no-thinking-export.md"
+	a.exportDialog.focusedField = 3
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+
+	data, err := os.ReadFile(filepath.Join(sess.WorkDir, "no-thinking-export.md"))
+	require.NoError(t, err)
+	content := string(data)
+	assert.NotContains(t, content, "secret thinking", "reasoning should be excluded when includeThinking is false")
+	assert.Contains(t, content, "visible answer")
+}
+
+func TestApp_ExportDialog_OnlyReasoningParts_ExcludeThinking_EmptyAssistant(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	sess := session.New(t.TempDir())
+	app.SetSession(sess)
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	// Add assistant entry with ONLY reasoning parts (no text)
+	a.chat.Clear()
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: "question"})
+	a.chat.AddEntry(components.ChatEntry{
+		Role: components.RoleAssistant,
+		Parts: []components.MessagePart{
+			{Type: components.PartReasoning, Content: "only thinking"},
+		},
+	})
+
+	// Export with includeThinking disabled
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/export"})
+	a = model.(App)
+	a.exportDialog.includeThinking = false
+	a.exportDialog.filename = "reasoning-only-export.md"
+	a.exportDialog.focusedField = 3
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+
+	data, err := os.ReadFile(filepath.Join(sess.WorkDir, "reasoning-only-export.md"))
+	require.NoError(t, err)
+	content := string(data)
+	assert.NotContains(t, content, "only thinking", "reasoning-only entry should not leak thinking content")
+	assert.Contains(t, content, "question")
+}
+
+func TestApp_ExportDialog_SkippedEntries_ShowsWarningToast(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	sess := session.New(t.TempDir())
+	app.SetSession(sess)
+	app.SetAgent(agent.BuildAgent())
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	a.chat.Clear()
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: "hello"})
+	// Add an entry with an unknown role — should be skipped during export
+	a.chat.AddEntry(components.ChatEntry{Role: "future_role", Content: "unknown"})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleAssistant, Content: "world"})
+
+	model, _ = a.Update(components.InputSubmitMsg{Value: "/export"})
+	a = model.(App)
+	a.exportDialog.filename = "skipped-export.md"
+	a.exportDialog.focusedField = 3
+
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+
+	toast := a.toasts.Current()
+	require.NotNil(t, toast, "should show toast")
+	assert.Contains(t, toast.Message, "skipped", "toast should mention skipped entries")
+
+	// Verify the file was still written
+	data, err := os.ReadFile(filepath.Join(sess.WorkDir, "skipped-export.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "hello")
+	assert.Contains(t, string(data), "world")
+	assert.NotContains(t, string(data), "unknown", "skipped entry content should not appear")
 }
 
 // Ensure unused imports don't cause issues

@@ -16,10 +16,17 @@ import (
 func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 	switch event.Type {
 	case agent.EventContentDelta:
-		a.chat.StreamContent(event.Content)
+		a.chat.StreamPart(components.PartText, event.Content)
+		return a, listenForEvents(a.eventCh)
+
+	case agent.EventReasoningDelta:
+		a.chat.StreamPart(components.PartReasoning, event.Content)
 		return a, listenForEvents(a.eventCh)
 
 	case agent.EventToolStart:
+		// Tool boundaries split assistant output into distinct messages.
+		// This prevents pre-tool deltas from being merged into post-tool content.
+		a.chat.CommitStream()
 		if event.Tool != nil {
 			a.chat.AddEntry(components.ChatEntry{
 				Role:       components.RoleTool,
@@ -112,9 +119,11 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 			})
 		}
 		return a, nil
-	}
 
-	return a, nil
+	default:
+		store.LogErrorf("events: unhandled agent event type %d", event.Type)
+		return a, listenForEvents(a.eventCh)
+	}
 }
 
 // toolSummary extracts a short summary from tool args.
@@ -137,7 +146,7 @@ func listenForEvents(ch <-chan agent.Event) tea.Cmd {
 	return func() tea.Msg {
 		event, ok := <-ch
 		if !ok {
-			return AgentEventMsg{Event: agent.Event{Type: agent.EventDone}}
+			return AgentEventMsg{Event: agent.NewDoneEvent(nil)}
 		}
 		return AgentEventMsg{Event: event}
 	}

@@ -296,6 +296,20 @@ func (c *OpenRouter) streamResponse(ctx context.Context, resp *http.Response, ch
 			}
 		}
 
+		// Reasoning deltas
+		for _, rd := range choice.Delta.ReasoningDetails {
+			text, known := rd.content()
+			if !known {
+				store.LogErrorf("unknown reasoning detail type %q from model %s", rd.Type, requestModel)
+				continue
+			}
+			if text != "" {
+				if !send(provider.NewReasoningDelta(text)) {
+					return
+				}
+			}
+		}
+
 		// Tool call deltas — accumulate fragments
 		for _, tcDelta := range choice.Delta.ToolCalls {
 			acc, exists := toolCalls[tcDelta.Index]
@@ -420,8 +434,43 @@ type apiChoice struct {
 }
 
 type apiDelta struct {
-	Content   string             `json:"content,omitempty"`
-	ToolCalls []apiToolCallDelta `json:"tool_calls,omitempty"`
+	Content          string               `json:"content,omitempty"`
+	ToolCalls        []apiToolCallDelta   `json:"tool_calls,omitempty"`
+	ReasoningDetails []apiReasoningDetail `json:"reasoning_details,omitempty"`
+}
+
+// Reasoning detail type constants from the OpenRouter streaming API.
+const (
+	reasoningTypeText      = "reasoning.text"
+	reasoningTypeSummary   = "reasoning.summary"
+	reasoningTypeEncrypted = "reasoning.encrypted"
+)
+
+// apiReasoningDetail represents a single reasoning detail from OpenRouter's
+// streaming API. The Type field determines which content field is populated:
+//   - "reasoning.text": raw thinking text in Text field
+//   - "reasoning.summary": summarized reasoning in Summary field
+//   - "reasoning.encrypted": encrypted reasoning blob in Data field (shown as [REDACTED])
+type apiReasoningDetail struct {
+	Type    string `json:"type"`
+	Text    string `json:"text,omitempty"`    // for reasoningTypeText
+	Summary string `json:"summary,omitempty"` // for reasoningTypeSummary
+	Data    string `json:"data,omitempty"`    // for reasoningTypeEncrypted
+}
+
+// content returns the user-facing text for this reasoning detail based on its
+// type. The bool is false for unrecognized types (which the caller should log).
+func (r apiReasoningDetail) content() (string, bool) {
+	switch r.Type {
+	case reasoningTypeText:
+		return r.Text, true
+	case reasoningTypeSummary:
+		return r.Summary, true
+	case reasoningTypeEncrypted:
+		return "[REDACTED]", true
+	default:
+		return "", false
+	}
 }
 
 type apiToolCallDelta struct {

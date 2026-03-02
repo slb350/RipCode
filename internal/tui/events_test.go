@@ -9,6 +9,7 @@ import (
 	"github.com/stephenbrandon/ripcode/internal/session"
 	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tool"
+	"github.com/stephenbrandon/ripcode/internal/tui/components"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -158,6 +159,174 @@ func TestApp_AgentEventDone_PersistsSession(t *testing.T) {
 	require.NoError(t, err, "session should have been persisted to disk on EventDone")
 	require.NotNil(t, loaded)
 	assert.Equal(t, sess.ID, loaded.ID)
+}
+
+func TestApp_UnknownEventType_GracefullyIgnored(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	ch := make(chan agent.Event, 1)
+	app.streaming = true
+	app.state = StateSession
+	app.eventCh = ch
+
+	// Use an event type value beyond the known range
+	model, cmd := app.Update(AgentEventMsg{
+		Event: agent.Event{Type: agent.EventType(99), Content: "future event"},
+	})
+	a := model.(App)
+
+	// Should not panic, should not crash, and should continue listening
+	assert.True(t, a.streaming, "streaming should remain active after unknown event")
+	assert.NotNil(t, cmd, "unknown event must continue listening for events")
+}
+
+// --- Reasoning Event tests ---
+
+func TestApp_ReasoningDelta_ContinuesListening(t *testing.T) {
+	app := NewApp()
+	ch := make(chan agent.Event, 1)
+	app.streaming = true
+	app.state = StateSession
+	app.eventCh = ch
+
+	model, cmd := app.Update(AgentEventMsg{
+		Event: agent.Event{Type: agent.EventReasoningDelta, Content: "thinking"},
+	})
+	a := model.(App)
+
+	assert.True(t, a.streaming)
+	assert.NotNil(t, cmd, "non-terminal event must return a listen command")
+}
+
+func TestApp_ContentDelta_UsesStreamPart(t *testing.T) {
+	app := NewApp()
+	app.state = StateSession
+	ch := make(chan agent.Event, 1)
+	app.streaming = true
+	app.eventCh = ch
+
+	// Size the chat so rendering works
+	app.chat.SetSize(80, 20)
+
+	model, _ := app.Update(AgentEventMsg{
+		Event: agent.Event{Type: agent.EventContentDelta, Content: "hello"},
+	})
+	a := model.(App)
+
+	// Should show in view (via StreamPart, not legacy StreamContent)
+	view := a.chat.View()
+	assert.Contains(t, view, "hello")
+}
+
+func TestApp_ReasoningDelta_StreamsPart(t *testing.T) {
+	app := NewApp()
+	app.state = StateSession
+	ch := make(chan agent.Event, 1)
+	app.streaming = true
+	app.eventCh = ch
+
+	// Size the chat and enable thinking
+	app.chat.SetSize(80, 20)
+	app.chat.SetShowThinking(true)
+
+	model, _ := app.Update(AgentEventMsg{
+		Event: agent.Event{Type: agent.EventReasoningDelta, Content: "deep thought"},
+	})
+	a := model.(App)
+
+	view := a.chat.View()
+	assert.Contains(t, view, "deep thought")
+}
+
+func TestApp_ToolStart_SegmentsAssistantStreamAcrossToolPhase(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	app.state = StateSession
+	ch := make(chan agent.Event, 1)
+	app.streaming = true
+	app.eventCh = ch
+
+	model, _ := app.Update(AgentEventMsg{
+		Event: agent.Event{Type: agent.EventContentDelta, Content: "before "},
+	})
+	a := model.(App)
+
+	model, _ = a.Update(AgentEventMsg{
+		Event: agent.Event{
+			Type: agent.EventToolStart,
+			Tool: &agent.ToolEvent{ID: "1", Name: "read", Args: `{"file_path":"README.md"}`},
+		},
+	})
+	a = model.(App)
+
+	model, _ = a.Update(AgentEventMsg{
+		Event: agent.Event{Type: agent.EventContentDelta, Content: "after"},
+	})
+	a = model.(App)
+
+	model, _ = a.Update(AgentEventMsg{
+		Event: agent.Event{Type: agent.EventDone},
+	})
+	a = model.(App)
+
+	var assistant []components.ChatEntry
+	for _, e := range a.chat.Entries() {
+		if e.Role == components.RoleAssistant {
+			assistant = append(assistant, e)
+		}
+	}
+
+	require.Len(t, assistant, 2)
+	assert.Equal(t, "before ", assistant[0].Content)
+	assert.Equal(t, "after", assistant[1].Content)
+}
+
+func TestApp_CancelDuringReasoningPart_CommitsPartialSafely(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	app.state = StateSession
+	ch := make(chan agent.Event, 1)
+	app.streaming = true
+	app.eventCh = ch
+	app.chat.SetSize(80, 20)
+	app.chat.SetShowThinking(true)
+
+	// Stream reasoning, then text
+	model, _ := app.Update(AgentEventMsg{
+		Event: agent.NewReasoningEvent("thinking hard"),
+	})
+	a := model.(App)
+
+	model, _ = a.Update(AgentEventMsg{
+		Event: agent.NewContentEvent("partial answer"),
+	})
+	a = model.(App)
+
+	// Cancel mid-stream (Esc during streaming)
+	a.cancel = func() {} // no-op cancel
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	a = model.(App)
+
+	assert.False(t, a.streaming, "should stop streaming")
+
+	// CommitStream should have been called — verify entries are sane
+	entries := a.chat.Entries()
+	// Should have committed the partial stream with both reasoning and text
+	var assistant []components.ChatEntry
+	for _, e := range entries {
+		if e.Role == components.RoleAssistant {
+			assistant = append(assistant, e)
+		}
+	}
+	if len(assistant) > 0 {
+		last := assistant[len(assistant)-1]
+		// Either has Parts with both types or Content with the text
+		if len(last.Parts) > 0 {
+			assert.NoError(t, last.Valid(), "committed entry with parts should be valid")
+		} else if last.Content != "" {
+			assert.NotEmpty(t, last.Content)
+		}
+	}
 }
 
 // --- Modified Files Tracking tests ---

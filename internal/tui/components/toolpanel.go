@@ -69,17 +69,3 @@ func (tp ToolPanel) View() string {
 
 	return sb.String()
 }
-
-func truncateStr(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n-3] + "..."
-}
-
-func firstLine(s string) string {
-	if idx := strings.IndexByte(s, '\n'); idx >= 0 {
-		return s[:idx]
-	}
-	return s
-}

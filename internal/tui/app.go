@@ -89,9 +89,6 @@ type App struct {
 	toasts           components.ToastManager
 	shellMode        bool
 	cmdRegistry      *CommandRegistry
-	showDetails      bool
-	showThinking     bool
-	showTimestamps   bool
 
 	// Leader key prefix
 	leaderPending bool

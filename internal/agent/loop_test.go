@@ -459,6 +459,167 @@ func TestLoop_CancelMidStream_DiscardsPartialToolCalls(t *testing.T) {
 	assert.False(t, toolExecuted, "tool should NOT be executed when context is cancelled mid-stream")
 }
 
+func TestLoop_CancelDuringReasoningStream_GracefulTermination(t *testing.T) {
+	p := &mockProvider{
+		responses: []mockResponse{
+			{events: []provider.StreamEvent{
+				{Type: provider.EventReasoningDelta, Content: "thinking hard"},
+				{Type: provider.EventContentDelta, Content: "answer"},
+				{Type: provider.EventFinish, Meta: &provider.Metadata{
+					InputTokens: 10, OutputTokens: 5, FinishReason: "stop",
+				}},
+			}},
+		},
+	}
+
+	reg := newTestRegistry()
+	sess := session.New("/tmp")
+	loop := NewLoop(p, reg, sess, BuildAgent(), 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	events := collectEvents(loop.Run(ctx, "cancel during reasoning"))
+
+	var hasError bool
+	for _, e := range events {
+		if e.Type == EventError {
+			hasError = true
+		}
+	}
+	assert.True(t, hasError, "should emit error when cancelled during reasoning stream")
+}
+
+func TestLoop_ReasoningDeltaEmitted(t *testing.T) {
+	p := &mockProvider{
+		responses: []mockResponse{
+			{events: []provider.StreamEvent{
+				{Type: provider.EventReasoningDelta, Content: "Let me think..."},
+				{Type: provider.EventContentDelta, Content: "Answer"},
+				{Type: provider.EventFinish, Meta: &provider.Metadata{
+					InputTokens: 10, OutputTokens: 5, FinishReason: "stop",
+				}},
+			}},
+		},
+	}
+
+	reg := newTestRegistry()
+	sess := session.New("/tmp")
+	loop := NewLoop(p, reg, sess, BuildAgent(), 10)
+
+	events := collectEvents(loop.Run(context.Background(), "think"))
+
+	var reasoning, content string
+	var gotDone bool
+	for _, e := range events {
+		switch e.Type {
+		case EventReasoningDelta:
+			reasoning += e.Content
+		case EventContentDelta:
+			content += e.Content
+		case EventDone:
+			gotDone = true
+		}
+	}
+
+	assert.Equal(t, "Let me think...", reasoning)
+	assert.Equal(t, "Answer", content)
+	assert.True(t, gotDone)
+}
+
+func TestLoop_ReasoningDelta_NotPersisted(t *testing.T) {
+	p := &mockProvider{
+		responses: []mockResponse{
+			{events: []provider.StreamEvent{
+				{Type: provider.EventReasoningDelta, Content: "secret thoughts"},
+				{Type: provider.EventContentDelta, Content: "visible answer"},
+				{Type: provider.EventFinish, Meta: &provider.Metadata{
+					InputTokens: 10, OutputTokens: 5, FinishReason: "stop",
+				}},
+			}},
+		},
+	}
+
+	reg := newTestRegistry()
+	sess := session.New("/tmp")
+	loop := NewLoop(p, reg, sess, BuildAgent(), 10)
+
+	_ = collectEvents(loop.Run(context.Background(), "think"))
+
+	// Session should only have user + assistant with content (no reasoning)
+	records := sess.Records()
+	assert.Len(t, records, 2)
+	assert.Equal(t, "visible answer", records[1].Message.Content)
+	// Content should NOT include reasoning text
+	assert.NotContains(t, records[1].Message.Content, "secret thoughts")
+}
+
+func TestLoop_InterleavedReasoningAndContent(t *testing.T) {
+	p := &mockProvider{
+		responses: []mockResponse{
+			{events: []provider.StreamEvent{
+				{Type: provider.EventReasoningDelta, Content: "thinking "},
+				{Type: provider.EventReasoningDelta, Content: "more"},
+				{Type: provider.EventContentDelta, Content: "response "},
+				{Type: provider.EventContentDelta, Content: "text"},
+				{Type: provider.EventFinish, Meta: &provider.Metadata{
+					InputTokens: 10, OutputTokens: 5, FinishReason: "stop",
+				}},
+			}},
+		},
+	}
+
+	reg := newTestRegistry()
+	sess := session.New("/tmp")
+	loop := NewLoop(p, reg, sess, BuildAgent(), 10)
+
+	events := collectEvents(loop.Run(context.Background(), "multi"))
+
+	var types []EventType
+	for _, e := range events {
+		types = append(types, e.Type)
+	}
+
+	// Should see reasoning deltas before content deltas
+	assert.Contains(t, types, EventReasoningDelta)
+	assert.Contains(t, types, EventContentDelta)
+	assert.Contains(t, types, EventDone)
+}
+
+func TestLoop_UnknownProviderEventType_GracefullyIgnored(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	p := &mockProvider{
+		responses: []mockResponse{
+			{events: []provider.StreamEvent{
+				{Type: provider.EventContentDelta, Content: "hello"},
+				{Type: provider.EventType(99)}, // unknown event type
+				{Type: provider.EventFinish, Meta: &provider.Metadata{
+					InputTokens: 10, OutputTokens: 5, FinishReason: "stop",
+				}},
+			}},
+		},
+	}
+
+	reg := newTestRegistry()
+	sess := session.New("/tmp")
+	loop := NewLoop(p, reg, sess, BuildAgent(), 10)
+
+	events := collectEvents(loop.Run(context.Background(), "test"))
+
+	var gotContent bool
+	var gotDone bool
+	for _, e := range events {
+		if e.Type == EventContentDelta {
+			gotContent = true
+		}
+		if e.Type == EventDone {
+			gotDone = true
+		}
+	}
+	assert.True(t, gotContent, "content delta should still be emitted")
+	assert.True(t, gotDone, "loop should complete normally after unknown event")
+}
+
 func TestLoop_UnknownTool(t *testing.T) {
 	p := &mockProvider{
 		responses: []mockResponse{
@@ -492,4 +653,149 @@ func TestLoop_UnknownTool(t *testing.T) {
 		}
 	}
 	assert.Contains(t, toolEndError, "unknown tool")
+}
+
+// --- Event.Valid tests ---
+
+func TestLoop_EmptyReasoningDelta_StillEmitted(t *testing.T) {
+	p := &mockProvider{
+		responses: []mockResponse{
+			{events: []provider.StreamEvent{
+				{Type: provider.EventReasoningDelta, Content: ""},
+				{Type: provider.EventContentDelta, Content: "answer"},
+				{Type: provider.EventFinish, Meta: &provider.Metadata{
+					InputTokens: 10, OutputTokens: 5, FinishReason: "stop",
+				}},
+			}},
+		},
+	}
+
+	reg := newTestRegistry()
+	sess := session.New("/tmp")
+	loop := NewLoop(p, reg, sess, BuildAgent(), 10)
+
+	events := collectEvents(loop.Run(context.Background(), "test"))
+
+	var gotContent, gotDone bool
+	for _, e := range events {
+		if e.Type == EventContentDelta {
+			gotContent = true
+		}
+		if e.Type == EventDone {
+			gotDone = true
+		}
+	}
+	assert.True(t, gotContent, "content delta should still be emitted after empty reasoning")
+	assert.True(t, gotDone, "loop should complete normally")
+}
+
+func TestEvent_Valid_ContentDelta(t *testing.T) {
+	e := Event{Type: EventContentDelta, Content: "hello"}
+	assert.NoError(t, e.Valid())
+}
+
+func TestEvent_Valid_ReasoningDelta(t *testing.T) {
+	e := Event{Type: EventReasoningDelta, Content: "thinking"}
+	assert.NoError(t, e.Valid())
+}
+
+func TestEvent_Valid_ToolStart(t *testing.T) {
+	e := Event{Type: EventToolStart, Tool: &ToolEvent{ID: "1", Name: "bash"}}
+	assert.NoError(t, e.Valid())
+}
+
+func TestEvent_Valid_ToolStart_MissingTool(t *testing.T) {
+	e := Event{Type: EventToolStart}
+	err := e.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing Tool")
+}
+
+func TestEvent_Valid_ToolEnd(t *testing.T) {
+	e := Event{Type: EventToolEnd, Tool: &ToolEvent{ID: "1", Name: "bash", Output: "ok"}}
+	assert.NoError(t, e.Valid())
+}
+
+func TestEvent_Valid_ToolEnd_MissingTool(t *testing.T) {
+	e := Event{Type: EventToolEnd}
+	err := e.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing Tool")
+}
+
+func TestEvent_Valid_Done(t *testing.T) {
+	e := Event{Type: EventDone}
+	assert.NoError(t, e.Valid())
+}
+
+func TestEvent_Valid_Error(t *testing.T) {
+	e := Event{Type: EventError, Error: fmt.Errorf("fail")}
+	assert.NoError(t, e.Valid())
+}
+
+func TestEvent_Valid_Error_MissingError(t *testing.T) {
+	e := Event{Type: EventError}
+	err := e.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "missing Error")
+}
+
+func TestEvent_Valid_UnknownType(t *testing.T) {
+	e := Event{Type: EventType(99)}
+	err := e.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown event type")
+}
+
+// --- Constructor tests ---
+
+func TestNewContentEvent(t *testing.T) {
+	e := NewContentEvent("hello")
+	assert.Equal(t, EventContentDelta, e.Type)
+	assert.Equal(t, "hello", e.Content)
+	assert.NoError(t, e.Valid())
+}
+
+func TestNewReasoningEvent(t *testing.T) {
+	e := NewReasoningEvent("thinking")
+	assert.Equal(t, EventReasoningDelta, e.Type)
+	assert.Equal(t, "thinking", e.Content)
+	assert.NoError(t, e.Valid())
+}
+
+func TestNewToolStartEvent(t *testing.T) {
+	te := &ToolEvent{ID: "1", Name: "bash"}
+	e := NewToolStartEvent(te)
+	assert.Equal(t, EventToolStart, e.Type)
+	assert.Equal(t, te, e.Tool)
+	assert.NoError(t, e.Valid())
+}
+
+func TestNewToolEndEvent(t *testing.T) {
+	te := &ToolEvent{ID: "1", Name: "bash", Output: "ok"}
+	e := NewToolEndEvent(te)
+	assert.Equal(t, EventToolEnd, e.Type)
+	assert.Equal(t, te, e.Tool)
+	assert.NoError(t, e.Valid())
+}
+
+func TestNewDoneEvent(t *testing.T) {
+	e := NewDoneEvent(nil)
+	assert.Equal(t, EventDone, e.Type)
+	assert.NoError(t, e.Valid())
+}
+
+func TestNewDoneEvent_WithMeta(t *testing.T) {
+	meta := &provider.Metadata{InputTokens: 10, OutputTokens: 5}
+	e := NewDoneEvent(meta)
+	assert.Equal(t, EventDone, e.Type)
+	assert.Equal(t, meta, e.Meta)
+	assert.NoError(t, e.Valid())
+}
+
+func TestNewErrorEvent(t *testing.T) {
+	e := NewErrorEvent(fmt.Errorf("fail"))
+	assert.Equal(t, EventError, e.Type)
+	assert.EqualError(t, e.Error, "fail")
+	assert.NoError(t, e.Valid())
 }
