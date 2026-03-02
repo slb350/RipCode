@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -147,6 +148,38 @@ func TestCapDiffContent_OverLimit(t *testing.T) {
 	capped := capDiffContent(s)
 	assert.Equal(t, maxDiffContentSize+len("\n[truncated]"), len(capped))
 	assert.True(t, strings.HasSuffix(capped, "\n[truncated]"))
+}
+
+type fixedSizeReader struct {
+	remaining int
+	read      int
+}
+
+func (r *fixedSizeReader) Read(p []byte) (int, error) {
+	if r.remaining == 0 {
+		return 0, io.EOF
+	}
+	n := len(p)
+	if n > r.remaining {
+		n = r.remaining
+	}
+	for i := range p[:n] {
+		p[i] = 'a'
+	}
+	r.remaining -= n
+	r.read += n
+	return n, nil
+}
+
+func TestReadExistingDiffSnapshot_LimitsReadSize(t *testing.T) {
+	r := &fixedSizeReader{remaining: maxDiffContentSize * 4}
+
+	before, binary, err := readExistingDiffSnapshot(r)
+	require.NoError(t, err)
+	assert.False(t, binary)
+	assert.Equal(t, maxDiffContentSize+1, r.read, "reader should be capped at diff limit + sentinel byte")
+	assert.Equal(t, maxDiffContentSize+len("\n[truncated]"), len(before))
+	assert.True(t, strings.HasSuffix(before, "\n[truncated]"))
 }
 
 func TestEdit_EmptyAfter(t *testing.T) {

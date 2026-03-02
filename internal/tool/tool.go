@@ -134,7 +134,7 @@ const maxDiffContentSize = 50 * 1024
 // Transient — exists only in runtime objects, not persisted in session JSON.
 type DiffInfo struct {
 	Path   string
-	Before string // empty for new files; "[truncated]" suffix if over 50KB
+	Before string // empty for new files; "\n[truncated]" appended if over 50KB
 	After  string
 	Binary bool // true if binary detected (skip diff rendering)
 }

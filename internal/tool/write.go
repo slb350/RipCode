@@ -41,6 +41,14 @@ type writeArgs struct {
 	Content  string `json:"content"`
 }
 
+func readExistingDiffSnapshot(r io.Reader) (string, bool, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxDiffContentSize+1))
+	if err != nil {
+		return "", false, err
+	}
+	return capDiffContent(string(data)), isBinaryContent(data), nil
+}
+
 func (w *WriteTool) Execute(ctx Context, argsJSON string) Result {
 	var args writeArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
@@ -67,9 +75,9 @@ func (w *WriteTool) Execute(ctx Context, argsJSON string) Result {
 	var before string
 	var beforeBinary bool
 	if f, err := OpenNoFollow(validated, os.O_RDONLY, 0); err == nil {
-		if existingData, err := io.ReadAll(f); err == nil {
-			before = capDiffContent(string(existingData))
-			beforeBinary = isBinaryContent(existingData)
+		if snap, binary, err := readExistingDiffSnapshot(f); err == nil {
+			before = snap
+			beforeBinary = binary
 		}
 		f.Close()
 	}

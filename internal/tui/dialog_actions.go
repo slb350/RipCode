@@ -9,8 +9,17 @@ import (
 	"github.com/atotto/clipboard"
 
 	"github.com/stephenbrandon/ripcode/internal/provider"
+	"github.com/stephenbrandon/ripcode/internal/session"
 	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
+)
+
+// Action label constants used in actionsForRole and executeMessageAction.
+const (
+	actionCopy       = "Copy"
+	actionCopyOutput = "Copy output"
+	actionRevert     = "Revert to here"
+	actionFork       = "Fork from here"
 )
 
 // realClipboard wraps atotto/clipboard for production use.
@@ -23,16 +32,74 @@ func (realClipboard) WriteAll(text string) error { return clipboard.WriteAll(tex
 func actionsForRole(role string) []string {
 	switch role {
 	case components.RoleUser:
-		return []string{"Copy", "Revert to here", "Fork from here"}
+		return []string{actionCopy, actionRevert, actionFork}
 	case components.RoleAssistant:
-		return []string{"Copy", "Fork from here"}
+		return []string{actionCopy, actionFork}
 	case components.RoleTool:
-		return []string{"Copy output"}
+		return []string{actionCopyOutput}
 	case components.RoleError:
-		return []string{"Copy"}
+		return []string{actionCopy}
 	default:
 		return nil
 	}
+}
+
+// endOfTurn returns the index of the last record in the turn starting at startIdx.
+// A turn is the record at startIdx plus all following non-user records.
+func endOfTurn(records []session.MessageRecord, startIdx int) int {
+	end := startIdx
+	for j := startIdx + 1; j < len(records); j++ {
+		if records[j].Message.Role == provider.RoleUser {
+			break
+		}
+		end = j
+	}
+	return end
+}
+
+func sessionRoleForChatRole(role string) (provider.Role, bool) {
+	switch role {
+	case components.RoleUser:
+		return provider.RoleUser, true
+	case components.RoleAssistant:
+		return provider.RoleAssistant, true
+	case components.RoleTool:
+		return provider.RoleTool, true
+	default:
+		return "", false
+	}
+}
+
+// sessionRecordIndexForChatIndex maps a rendered chat entry index to a concrete
+// session record index, skipping non-session chat rows (system/complete/error).
+func (a App) sessionRecordIndexForChatIndex(chatIdx int) (int, bool) {
+	if a.session == nil {
+		return 0, false
+	}
+	entries := a.chat.Entries()
+	if chatIdx < 0 || chatIdx >= len(entries) {
+		return 0, false
+	}
+
+	records := a.session.Records()
+	recIdx := 0
+	for i, entry := range entries {
+		wantRole, ok := sessionRoleForChatRole(entry.Role)
+		if !ok {
+			continue
+		}
+		for recIdx < len(records) && records[recIdx].Message.Role != wantRole {
+			recIdx++
+		}
+		if recIdx >= len(records) {
+			return 0, false
+		}
+		if i == chatIdx {
+			return recIdx, true
+		}
+		recIdx++
+	}
+	return 0, false
 }
 
 func (a App) handleMessageActionsDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -91,7 +158,7 @@ func (a App) executeMessageAction(action string) (tea.Model, tea.Cmd) {
 	entry := entries[idx]
 
 	switch action {
-	case "Copy", "Copy output":
+	case actionCopy, actionCopyOutput:
 		text := entry.CopyableContent()
 		if text == "" {
 			text = entry.Content
@@ -104,26 +171,27 @@ func (a App) executeMessageAction(action string) (tea.Model, tea.Cmd) {
 		}
 		return a, a.ShowToast("Copied to clipboard", components.ToastSuccess)
 
-	case "Revert to here":
+	case actionRevert:
 		if a.session == nil {
 			return a, a.ShowToast("No active session", components.ToastError)
 		}
 		if !a.session.CanUndo() {
 			return a, a.ShowToast("Nothing to revert", components.ToastWarning)
 		}
-		// Compute target length: keep the clicked message and its full turn
-		// (i.e. user + following assistant/tool messages before the next user).
-		records := a.session.Records()
-		targetLen := idx + 1
-		for j := targetLen; j < len(records); j++ {
-			if records[j].Message.Role == provider.RoleUser {
-				break
-			}
-			targetLen++
+		recordIdx, ok := a.sessionRecordIndexForChatIndex(idx)
+		if !ok {
+			return a, a.ShowToast("Revert failed: message not found", components.ToastError)
 		}
+		// Keep the clicked message and its full turn (user + following
+		// assistant/tool messages before the next user).
+		records := a.session.Records()
+		targetLen := endOfTurn(records, recordIdx) + 1
 		// Revert exchanges until the session length matches.
+		partial := false
 		for a.session.Len() > targetLen && a.session.CanUndo() {
 			if _, err := a.session.Revert(); err != nil {
+				store.LogErrorf("dialog_actions: revert loop error at session len %d (target %d): %v", a.session.Len(), targetLen, err)
+				partial = true
 				break
 			}
 		}
@@ -133,21 +201,22 @@ func (a App) executeMessageAction(action string) (tea.Model, tea.Cmd) {
 			Content: "--- reverted ---",
 		})
 		a.warnOnErr(store.Save(a.session), "session")
+		if partial {
+			return a, a.ShowToast("Partially reverted (error occurred)", components.ToastWarning)
+		}
 		return a, a.ShowToast("Reverted to message", components.ToastInfo)
 
-	case "Fork from here":
+	case actionFork:
 		if a.session == nil {
 			return a, a.ShowToast("No active session", components.ToastError)
 		}
-		// Find the session record index for this chat entry.
-		// The chat entry idx maps to session records; we fork up to idx.
-		forkIdx := idx
-		if forkIdx >= a.session.Len() {
-			forkIdx = a.session.Len() - 1
+		recordIdx, ok := a.sessionRecordIndexForChatIndex(idx)
+		if !ok {
+			return a, a.ShowToast("Fork failed: message not found", components.ToastError)
 		}
-		if forkIdx < 0 {
-			return a, a.ShowToast("Fork failed: invalid index", components.ToastError)
-		}
+		// Include the full clicked turn up to (but not including) the next user.
+		records := a.session.Records()
+		forkIdx := endOfTurn(records, recordIdx)
 		forked, err := a.session.Fork(forkIdx)
 		if err != nil {
 			return a, a.ShowToast("Fork failed: "+err.Error(), components.ToastError)

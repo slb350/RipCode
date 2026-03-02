@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -51,22 +52,22 @@ func makeActionsApp(t *testing.T) App {
 
 func TestActionsForRole_User(t *testing.T) {
 	actions := actionsForRole(components.RoleUser)
-	assert.Equal(t, []string{"Copy", "Revert to here", "Fork from here"}, actions)
+	assert.Equal(t, []string{actionCopy, actionRevert, actionFork}, actions)
 }
 
 func TestActionsForRole_Assistant(t *testing.T) {
 	actions := actionsForRole(components.RoleAssistant)
-	assert.Equal(t, []string{"Copy", "Fork from here"}, actions)
+	assert.Equal(t, []string{actionCopy, actionFork}, actions)
 }
 
 func TestActionsForRole_Tool(t *testing.T) {
 	actions := actionsForRole(components.RoleTool)
-	assert.Equal(t, []string{"Copy output"}, actions)
+	assert.Equal(t, []string{actionCopyOutput}, actions)
 }
 
 func TestActionsForRole_Error(t *testing.T) {
 	actions := actionsForRole(components.RoleError)
-	assert.Equal(t, []string{"Copy"}, actions)
+	assert.Equal(t, []string{actionCopy}, actions)
 }
 
 func TestActionsForRole_System_Nil(t *testing.T) {
@@ -478,12 +479,9 @@ func TestMessageActions_RevertToSpecificMessage(t *testing.T) {
 	model, _ = a.handleMessageActionsDialogKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	result := model.(App)
 	assert.False(t, result.messageActions.open)
-	// After revert: should have q1+a1+q2 = 3 messages (reverted q3+a3 = last exchange, keeping q2 prompt)
-	// Actually Revert() removes the last user + following messages, returning the prompt.
-	// With 3 exchanges, Revert() removes q3+a3 (last exchange), returning "q3".
-	// Then another Revert() removes q2+a2, returning "q2".
-	// We need to check session.Len() is reduced.
-	assert.Less(t, result.session.Len(), 6)
+	// After revert: targetLen = 3 (q1=idx0, a1=idx1, q2=idx2 + scan forward: a2 is non-user so targetLen=4).
+	// Session had 6 records. Revert removes q3+a3 (len → 4), which matches targetLen=4.
+	assert.Equal(t, 4, result.session.Len())
 }
 
 // --- Fork from specific message index ---
@@ -520,4 +518,152 @@ func TestMessageActions_ForkFromAssistant(t *testing.T) {
 	result := model.(App)
 	assert.False(t, result.messageActions.open)
 	assert.NotEqual(t, oldID, result.session.ID)
+}
+
+func TestMessageActions_Revert_IgnoresNonSessionChatRows(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	sess := session.New(t.TempDir())
+	sess.AddUser("q1")
+	sess.AddAssistant("a1", nil, nil)
+	sess.AddUser("q2")
+	sess.AddAssistant("a2", nil, nil)
+	sess.AddUser("q3")
+	sess.AddAssistant("a3", nil, nil)
+	require.Equal(t, 6, sess.Len())
+	app.SetSession(sess)
+	app.SetAgent(agent.BuildAgent())
+	app.clipboard = &mockClipboard{}
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	// Build a chat view with extra non-session rows before q2.
+	a.chat.Clear()
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: "q1"})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleAssistant, Content: "a1"})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleComplete})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleSystem, Content: "--- marker ---"})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: "q2"})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleAssistant, Content: "a2"})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: "q3"})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleAssistant, Content: "a3"})
+
+	a.messageActions.open = true
+	a.messageActions.messageIdx = 4 // q2 in chat entries
+	a.messageActions.entryRole = components.RoleUser
+	a.messageActions.selected = 1 // "Revert to here"
+
+	model, _ = a.handleMessageActionsDialogKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	result := model.(App)
+	assert.False(t, result.messageActions.open)
+	require.Equal(t, 4, result.session.Len(), "revert should target q2 turn even with non-session rows")
+	recs := result.session.Records()
+	require.Len(t, recs, 4)
+	assert.Equal(t, "q2", recs[2].Message.Content)
+	assert.Equal(t, "a2", recs[3].Message.Content)
+}
+
+func TestMessageActions_Fork_IgnoresNonSessionChatRows(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	app.SetProvider(&modelListProvider{})
+	app.SetRegistry(tool.NewRegistry())
+	sess := session.New(t.TempDir())
+	sess.AddUser("q1")
+	sess.AddAssistant("a1", nil, nil)
+	sess.AddUser("q2")
+	sess.AddAssistant("a2", nil, nil)
+	sess.AddUser("q3")
+	sess.AddAssistant("a3", nil, nil)
+	if err := store.Save(sess); err != nil {
+		t.Fatal(err)
+	}
+	app.SetSession(sess)
+	app.SetAgent(agent.BuildAgent())
+	app.clipboard = &mockClipboard{}
+	app.state = StateSession
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a := model.(App)
+
+	// Build a chat view with extra non-session rows before q2/a2.
+	a.chat.Clear()
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: "q1"})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleAssistant, Content: "a1"})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleComplete})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleSystem, Content: "--- marker ---"})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: "q2"})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleAssistant, Content: "a2"})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: "q3"})
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleAssistant, Content: "a3"})
+
+	a.messageActions.open = true
+	a.messageActions.messageIdx = 5 // a2 in chat entries
+	a.messageActions.entryRole = components.RoleAssistant
+	a.messageActions.selected = 1 // "Fork from here"
+
+	model, _ = a.handleMessageActionsDialogKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	result := model.(App)
+	assert.False(t, result.messageActions.open)
+	recs := result.session.Records()
+	require.Len(t, recs, 4, "fork should end at clicked turn, not drift to later messages")
+	assert.Equal(t, "q2", recs[2].Message.Content)
+	assert.Equal(t, "a2", recs[3].Message.Content)
+}
+
+// --- ST-1: Clipboard error propagation ---
+
+func TestMessageActions_CopyFails_ShowsErrorToast(t *testing.T) {
+	a := makeActionsApp(t)
+	clip := &mockClipboard{err: fmt.Errorf("clipboard unavailable")}
+	a.clipboard = clip
+	a.messageActions.open = true
+	a.messageActions.messageIdx = 0
+	a.messageActions.entryRole = components.RoleUser
+	a.messageActions.selected = 0 // "Copy"
+
+	model, cmd := a.handleMessageActionsDialogKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	result := model.(App)
+	assert.False(t, result.messageActions.open)
+	assert.NotNil(t, cmd, "should return toast dismiss command")
+	// The clipboard error should not have written anything
+	assert.Empty(t, clip.written)
+}
+
+func TestMessageActions_CopyNilClipboard_ShowsError(t *testing.T) {
+	a := makeActionsApp(t)
+	a.clipboard = nil
+	a.messageActions.open = true
+	a.messageActions.messageIdx = 0
+	a.messageActions.entryRole = components.RoleUser
+	a.messageActions.selected = 0 // "Copy"
+
+	model, cmd := a.handleMessageActionsDialogKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	result := model.(App)
+	assert.False(t, result.messageActions.open)
+	assert.NotNil(t, cmd, "should return toast dismiss command for nil clipboard")
+}
+
+// --- actionsForRole unknown role ---
+
+func TestActionsForRole_UnknownRole_Nil(t *testing.T) {
+	actions := actionsForRole("unknown")
+	assert.Nil(t, actions)
+}
+
+// --- Invalid message index bounds ---
+
+func TestMessageActions_InvalidIndex_OutOfBounds(t *testing.T) {
+	a := makeActionsApp(t)
+	a.messageActions.open = true
+	a.messageActions.messageIdx = 999
+	a.messageActions.entryRole = components.RoleUser
+	a.messageActions.selected = 0
+
+	model, cmd := a.handleMessageActionsDialogKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	result := model.(App)
+	assert.False(t, result.messageActions.open)
+	assert.NotNil(t, cmd, "should return error toast for out-of-bounds index")
 }

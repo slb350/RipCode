@@ -114,6 +114,15 @@ func TestFrecency_SaveLoad_Roundtrip(t *testing.T) {
 	assert.Equal(t, 1, loaded.Entries["util.go"].Count)
 }
 
+func TestFrecency_Score_FutureTimestamp(t *testing.T) {
+	f := &FileFrecency{Entries: map[string]FrecencyEntry{
+		"future.go": {Count: 3, LastUsed: time.Now().Add(24 * time.Hour)},
+	}}
+	score := f.Score("future.go")
+	// Future timestamps are clamped to days=0, so recencyWeight=1.0, score=3.0
+	assert.InDelta(t, 3.0, score, 0.1)
+}
+
 func TestFrecency_LoadFrecency_MissingFile(t *testing.T) {
 	t.Setenv("RIPCODE_DIR", t.TempDir())
 	f, err := LoadFrecency()

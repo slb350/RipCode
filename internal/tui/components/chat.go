@@ -789,8 +789,8 @@ func (c Chat) timestampPrefix(entry ChatEntry, t *styles.Theme) string {
 }
 
 // fileRefPattern matches @file references: requires start-of-string or whitespace before @,
-// captures the path (no spaces or @), with optional :N or :N-M line range suffix.
-// Rejects emails (user@host) because [^\s@] prevents @ in the path portion.
+// captures the path (no spaces, @ or colons), with optional :N or :N-M line range suffix.
+// Rejects emails (user@host) because (?:^|\s) requires whitespace or start-of-string before @.
 var fileRefPattern = regexp.MustCompile(`(?:^|\s)@([^\s@:]+)(?::\d+(?:-\d+)?)?`)
 
 // ParseFileRefs extracts @file references from text.

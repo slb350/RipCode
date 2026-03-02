@@ -116,7 +116,7 @@ func (a App) inlineEntries() []inlineEntry {
 		}
 		lowerFileQuery := strings.ToLower(fileQuery)
 
-		// Directory expansion: when query ends with "/", show directory contents
+		// Directory expansion: when query ends with "/", match files with that prefix path
 		dirExpand := strings.HasSuffix(fileQuery, "/")
 
 		// Collect matching paths

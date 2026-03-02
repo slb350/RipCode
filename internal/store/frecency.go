@@ -15,6 +15,9 @@ const maxFrecencyAge = 30 * 24 * time.Hour
 // At 7 days since last use, the recency weight is 0.5.
 const frecencyHalfLife = 7.0
 
+// scoreEpsilon is the threshold for treating two frecency scores as equal.
+const scoreEpsilon = 1e-9
+
 // FileFrecency tracks file access patterns for frecency-based ranking.
 type FileFrecency struct {
 	Entries map[string]FrecencyEntry `json:"entries"`
@@ -102,7 +105,7 @@ func (f *FileFrecency) Rank(paths []string) []string {
 	}
 
 	sort.Slice(scored1, func(i, j int) bool {
-		if math.Abs(scored1[i].score-scored1[j].score) > 1e-9 {
+		if math.Abs(scored1[i].score-scored1[j].score) > scoreEpsilon {
 			return scored1[i].score > scored1[j].score
 		}
 		return scored1[i].idx < scored1[j].idx

@@ -19,9 +19,9 @@ import (
 
 // Layout constants used by layout() and chatBounds().
 const (
-	layoutStatusH = 1
-	layoutInputH  = 5
-	layoutFooterH = 1
+	layoutStatusH = 1 // status bar height in lines
+	layoutInputH  = 5 // input area height (border + 3 content lines + border)
+	layoutFooterH = 1 // footer bar height in lines
 )
 
 // AppState represents which screen is active.

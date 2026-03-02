@@ -175,6 +175,24 @@ func TestTimelineEntries_MultipleExchanges_Independent(t *testing.T) {
 	assert.Equal(t, 300, entries[1].Tokens)
 }
 
+func TestTimelineEntries_SumsTokensAcrossAssistantSteps(t *testing.T) {
+	a := makeTimelineApp(t)
+	a.session.AddUser("multi-step")
+	a.session.AddAssistant("step 1", nil, &session.AssistantMeta{
+		InputTokens:  100,
+		OutputTokens: 50,
+	})
+	a.session.AddToolResult("call-1", "ok")
+	a.session.AddAssistant("step 2", nil, &session.AssistantMeta{
+		InputTokens:  60,
+		OutputTokens: 40,
+	})
+
+	entries := a.timelineEntries()
+	require.Len(t, entries, 1)
+	assert.Equal(t, 250, entries[0].Tokens, "timeline token badge should total all assistant steps in the exchange")
+}
+
 func TestTimelineEntries_Interrupted(t *testing.T) {
 	a := makeTimelineApp(t)
 	a.session.AddUser("long request")
@@ -218,7 +236,23 @@ func TestTimelineBadgeRendering_ToolCount(t *testing.T) {
 	a.timelineDialog.open = true
 
 	rendered := a.renderTimelineDialog()
-	assert.Contains(t, rendered, "⚡ 1 tools")
+	assert.Contains(t, rendered, "⚡ 1 tool")
+	assert.NotContains(t, rendered, "⚡ 1 tools")
+}
+
+func TestTimelineBadgeRendering_ToolCountPlural(t *testing.T) {
+	a := makeTimelineApp(t)
+	a.session.AddUser("tools test")
+	a.session.AddAssistant("using tools", []provider.ToolCall{
+		{ID: "t1", Name: "bash", Args: "{}"},
+		{ID: "t2", Name: "read", Args: "{}"},
+	}, &session.AssistantMeta{InputTokens: 100, OutputTokens: 50})
+	a.session.AddToolResult("t1", "ok")
+	a.session.AddToolResult("t2", "ok")
+	a.timelineDialog.open = true
+
+	rendered := a.renderTimelineDialog()
+	assert.Contains(t, rendered, "⚡ 2 tools")
 }
 
 func TestTimelineBadgeRendering_Interrupted(t *testing.T) {

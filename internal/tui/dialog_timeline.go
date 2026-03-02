@@ -54,7 +54,7 @@ func (a App) timelineEntries() []timelineEntry {
 				break
 			}
 			if r.Meta != nil {
-				entry.Tokens = r.Meta.InputTokens + r.Meta.OutputTokens
+				entry.Tokens += r.Meta.InputTokens + r.Meta.OutputTokens
 				entry.Duration = r.Meta.Duration
 				if r.Meta.FinishReason == "length" {
 					entry.Status = timelineStatusInterrupted
@@ -136,7 +136,11 @@ func (a App) renderTimelineDialog() string {
 			badges = append(badges, fmt.Sprintf("⊙ %s", components.FormatTokens(entry.Tokens)))
 		}
 		if entry.Tools > 0 {
-			badges = append(badges, fmt.Sprintf("⚡ %d tools", entry.Tools))
+			word := "tools"
+			if entry.Tools == 1 {
+				word = "tool"
+			}
+			badges = append(badges, fmt.Sprintf("⚡ %d %s", entry.Tools, word))
 		}
 		if entry.Duration > 0 {
 			badges = append(badges, fmt.Sprintf("%.1fs", entry.Duration.Seconds()))
@@ -145,7 +149,7 @@ func (a App) renderTimelineDialog() string {
 			badges = append(badges, "⚠ interrupted")
 		}
 		if len(badges) > 0 {
-			indent := "        " // 8 spaces: 2 marker + 5 time + 2 spaces - 1
+			indent := "        " // 8 spaces: aligns with start of message content after "  HH:MM  "
 			sb.WriteString("\n" + indent + muted.Render(strings.Join(badges, " · ")))
 		}
 	}

@@ -6,7 +6,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/stephenbrandon/ripcode/internal/provider"
 	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 )
@@ -38,15 +37,7 @@ func (a App) handleForkDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		recs := a.session.Records()
 		for i, rec := range recs {
 			if rec.ID == entry.ID {
-				// Include the full turn: selected user message and all
-				// following non-user messages, stopping at the next user.
-				forkIdx = i
-				for j := i + 1; j < len(recs); j++ {
-					if recs[j].Message.Role == provider.RoleUser {
-						break
-					}
-					forkIdx = j
-				}
+				forkIdx = endOfTurn(recs, i)
 				break
 			}
 		}

@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/pmezard/go-difflib/difflib"
 
+	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tui/styles"
 )
 
@@ -35,13 +36,17 @@ func ComputeDiff(before, after string, contextLines int) []string {
 	}
 
 	text, err := difflib.GetUnifiedDiffString(diff)
-	if err != nil || text == "" {
+	if err != nil {
+		store.LogError("diff: GetUnifiedDiffString failed", err)
+		return nil
+	}
+	if text == "" {
 		return nil
 	}
 
 	rawLines := strings.Split(strings.TrimRight(text, "\n"), "\n")
 
-	// Skip the --- / +++ file headers (first 2 lines)
+	// Skip lines before the first @@ hunk header (typically --- and +++ file headers)
 	start := 0
 	for i, line := range rawLines {
 		if strings.HasPrefix(line, "@@") {
