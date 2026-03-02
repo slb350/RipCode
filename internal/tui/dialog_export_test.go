@@ -96,6 +96,25 @@ func TestApp_ExportDialog_WritesFile(t *testing.T) {
 	}
 }
 
+func TestApp_ExportDialog_WritesMixedPartsAssistantContent(t *testing.T) {
+	a := makeSessionApp(t)
+	a.chat.Clear()
+	a.chat.AddEntry(components.ChatEntry{Role: components.RoleUser, Content: "question"})
+	a.chat.StreamPart(components.PartReasoning, "internal")
+	a.chat.StreamPart(components.PartText, "final answer")
+	a.chat.CommitStream()
+
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/export"})
+	a = model.(App)
+	model, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = model.(App)
+
+	exportPath := filepath.Join(a.session.WorkDir, a.exportDialog.filename)
+	data, err := os.ReadFile(exportPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "final answer")
+}
+
 func TestApp_ExportDialog_EmptyChat_ShowsWarning(t *testing.T) {
 	// Create an app without the 30 pre-loaded entries from makeSessionApp
 	app := NewApp()

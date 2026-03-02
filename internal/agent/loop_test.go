@@ -459,6 +459,102 @@ func TestLoop_CancelMidStream_DiscardsPartialToolCalls(t *testing.T) {
 	assert.False(t, toolExecuted, "tool should NOT be executed when context is cancelled mid-stream")
 }
 
+func TestLoop_ReasoningDeltaEmitted(t *testing.T) {
+	p := &mockProvider{
+		responses: []mockResponse{
+			{events: []provider.StreamEvent{
+				{Type: provider.EventReasoningDelta, Content: "Let me think..."},
+				{Type: provider.EventContentDelta, Content: "Answer"},
+				{Type: provider.EventFinish, Meta: &provider.Metadata{
+					InputTokens: 10, OutputTokens: 5, FinishReason: "stop",
+				}},
+			}},
+		},
+	}
+
+	reg := newTestRegistry()
+	sess := session.New("/tmp")
+	loop := NewLoop(p, reg, sess, BuildAgent(), 10)
+
+	events := collectEvents(loop.Run(context.Background(), "think"))
+
+	var reasoning, content string
+	var gotDone bool
+	for _, e := range events {
+		switch e.Type {
+		case EventReasoningDelta:
+			reasoning += e.Content
+		case EventContentDelta:
+			content += e.Content
+		case EventDone:
+			gotDone = true
+		}
+	}
+
+	assert.Equal(t, "Let me think...", reasoning)
+	assert.Equal(t, "Answer", content)
+	assert.True(t, gotDone)
+}
+
+func TestLoop_ReasoningDelta_NotPersisted(t *testing.T) {
+	p := &mockProvider{
+		responses: []mockResponse{
+			{events: []provider.StreamEvent{
+				{Type: provider.EventReasoningDelta, Content: "secret thoughts"},
+				{Type: provider.EventContentDelta, Content: "visible answer"},
+				{Type: provider.EventFinish, Meta: &provider.Metadata{
+					InputTokens: 10, OutputTokens: 5, FinishReason: "stop",
+				}},
+			}},
+		},
+	}
+
+	reg := newTestRegistry()
+	sess := session.New("/tmp")
+	loop := NewLoop(p, reg, sess, BuildAgent(), 10)
+
+	_ = collectEvents(loop.Run(context.Background(), "think"))
+
+	// Session should only have user + assistant with content (no reasoning)
+	records := sess.Records()
+	assert.Len(t, records, 2)
+	assert.Equal(t, "visible answer", records[1].Message.Content)
+	// Content should NOT include reasoning text
+	assert.NotContains(t, records[1].Message.Content, "secret thoughts")
+}
+
+func TestLoop_InterleavedReasoningAndContent(t *testing.T) {
+	p := &mockProvider{
+		responses: []mockResponse{
+			{events: []provider.StreamEvent{
+				{Type: provider.EventReasoningDelta, Content: "thinking "},
+				{Type: provider.EventReasoningDelta, Content: "more"},
+				{Type: provider.EventContentDelta, Content: "response "},
+				{Type: provider.EventContentDelta, Content: "text"},
+				{Type: provider.EventFinish, Meta: &provider.Metadata{
+					InputTokens: 10, OutputTokens: 5, FinishReason: "stop",
+				}},
+			}},
+		},
+	}
+
+	reg := newTestRegistry()
+	sess := session.New("/tmp")
+	loop := NewLoop(p, reg, sess, BuildAgent(), 10)
+
+	events := collectEvents(loop.Run(context.Background(), "multi"))
+
+	var types []EventType
+	for _, e := range events {
+		types = append(types, e.Type)
+	}
+
+	// Should see reasoning deltas before content deltas
+	assert.Contains(t, types, EventReasoningDelta)
+	assert.Contains(t, types, EventContentDelta)
+	assert.Contains(t, types, EventDone)
+}
+
 func TestLoop_UnknownTool(t *testing.T) {
 	p := &mockProvider{
 		responses: []mockResponse{

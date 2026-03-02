@@ -160,6 +160,64 @@ func TestApp_AgentEventDone_PersistsSession(t *testing.T) {
 	assert.Equal(t, sess.ID, loaded.ID)
 }
 
+// --- Reasoning Event tests ---
+
+func TestApp_ReasoningDelta_ContinuesListening(t *testing.T) {
+	app := NewApp()
+	ch := make(chan agent.Event, 1)
+	app.streaming = true
+	app.state = StateSession
+	app.eventCh = ch
+
+	model, cmd := app.Update(AgentEventMsg{
+		Event: agent.Event{Type: agent.EventReasoningDelta, Content: "thinking"},
+	})
+	a := model.(App)
+
+	assert.True(t, a.streaming)
+	assert.NotNil(t, cmd, "non-terminal event must return a listen command")
+}
+
+func TestApp_ContentDelta_UsesStreamPart(t *testing.T) {
+	app := NewApp()
+	app.state = StateSession
+	ch := make(chan agent.Event, 1)
+	app.streaming = true
+	app.eventCh = ch
+
+	// Size the chat so rendering works
+	app.chat.SetSize(80, 20)
+
+	model, _ := app.Update(AgentEventMsg{
+		Event: agent.Event{Type: agent.EventContentDelta, Content: "hello"},
+	})
+	a := model.(App)
+
+	// Should show in view (via StreamPart, not legacy StreamContent)
+	view := a.chat.View()
+	assert.Contains(t, view, "hello")
+}
+
+func TestApp_ReasoningDelta_StreamsPart(t *testing.T) {
+	app := NewApp()
+	app.state = StateSession
+	ch := make(chan agent.Event, 1)
+	app.streaming = true
+	app.eventCh = ch
+
+	// Size the chat and enable thinking
+	app.chat.SetSize(80, 20)
+	app.chat.SetShowThinking(true)
+
+	model, _ := app.Update(AgentEventMsg{
+		Event: agent.Event{Type: agent.EventReasoningDelta, Content: "deep thought"},
+	})
+	a := model.(App)
+
+	view := a.chat.View()
+	assert.Contains(t, view, "deep thought")
+}
+
 // --- Modified Files Tracking tests ---
 
 func TestApp_ModifiedFiles_TracksWriteEvent(t *testing.T) {

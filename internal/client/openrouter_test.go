@@ -785,6 +785,231 @@ func TestStreamResponse_IncompleteToolCall(t *testing.T) {
 	}
 }
 
+// reasoningChunk builds a streaming chunk with reasoning_details.
+func reasoningChunk(details ...map[string]any) string {
+	delta := map[string]any{
+		"reasoning_details": details,
+	}
+
+	choice := map[string]any{
+		"index": 0,
+		"delta": delta,
+	}
+
+	resp := map[string]any{
+		"id":      "gen-123",
+		"model":   "deepseek/deepseek-r1",
+		"choices": []any{choice},
+	}
+
+	b, _ := json.Marshal(resp)
+	return string(b)
+}
+
+// mixedReasoningChunk builds a chunk with both content and reasoning_details.
+func mixedReasoningChunk(content string, details ...map[string]any) string {
+	delta := map[string]any{
+		"content":           content,
+		"reasoning_details": details,
+	}
+
+	choice := map[string]any{
+		"index": 0,
+		"delta": delta,
+	}
+
+	resp := map[string]any{
+		"id":      "gen-123",
+		"model":   "deepseek/deepseek-r1",
+		"choices": []any{choice},
+	}
+
+	b, _ := json.Marshal(resp)
+	return string(b)
+}
+
+func TestOpenRouter_ParsesReasoningText(t *testing.T) {
+	body := sseResponse(
+		reasoningChunk(map[string]any{"type": "reasoning.text", "text": "Let me think"}),
+		chatChunk("answer", ""),
+		chatChunkWithUsage("stop", 10, 5),
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.baseURL = srv.URL
+
+	ch, err := c.Chat(context.Background(), []provider.Message{
+		{Role: "user", Content: "hi"},
+	}, nil)
+	require.NoError(t, err)
+
+	var reasoning, content strings.Builder
+	for e := range ch {
+		switch e.Type {
+		case provider.EventReasoningDelta:
+			reasoning.WriteString(e.Content)
+		case provider.EventContentDelta:
+			content.WriteString(e.Content)
+		}
+	}
+
+	assert.Equal(t, "Let me think", reasoning.String())
+	assert.Equal(t, "answer", content.String())
+}
+
+func TestOpenRouter_ParsesReasoningSummary(t *testing.T) {
+	body := sseResponse(
+		reasoningChunk(map[string]any{"type": "reasoning.summary", "summary": "Summary text"}),
+		chatChunkWithUsage("stop", 10, 5),
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.baseURL = srv.URL
+
+	ch, err := c.Chat(context.Background(), []provider.Message{
+		{Role: "user", Content: "hi"},
+	}, nil)
+	require.NoError(t, err)
+
+	var reasoning strings.Builder
+	for e := range ch {
+		if e.Type == provider.EventReasoningDelta {
+			reasoning.WriteString(e.Content)
+		}
+	}
+
+	assert.Equal(t, "Summary text", reasoning.String())
+}
+
+func TestOpenRouter_ParsesReasoningEncrypted(t *testing.T) {
+	body := sseResponse(
+		reasoningChunk(map[string]any{"type": "reasoning.encrypted", "data": "abc123"}),
+		chatChunkWithUsage("stop", 10, 5),
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.baseURL = srv.URL
+
+	ch, err := c.Chat(context.Background(), []provider.Message{
+		{Role: "user", Content: "hi"},
+	}, nil)
+	require.NoError(t, err)
+
+	var reasoning strings.Builder
+	for e := range ch {
+		if e.Type == provider.EventReasoningDelta {
+			reasoning.WriteString(e.Content)
+		}
+	}
+
+	assert.Equal(t, "[REDACTED]", reasoning.String())
+}
+
+func TestOpenRouter_ParsesMixedContentAndReasoning(t *testing.T) {
+	body := sseResponse(
+		mixedReasoningChunk("text", map[string]any{"type": "reasoning.text", "text": "think"}),
+		chatChunkWithUsage("stop", 10, 5),
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.baseURL = srv.URL
+
+	ch, err := c.Chat(context.Background(), []provider.Message{
+		{Role: "user", Content: "hi"},
+	}, nil)
+	require.NoError(t, err)
+
+	var reasoning, content strings.Builder
+	for e := range ch {
+		switch e.Type {
+		case provider.EventReasoningDelta:
+			reasoning.WriteString(e.Content)
+		case provider.EventContentDelta:
+			content.WriteString(e.Content)
+		}
+	}
+
+	assert.Equal(t, "think", reasoning.String())
+	assert.Equal(t, "text", content.String())
+}
+
+func TestOpenRouter_ParsesEmptyReasoningDetails_Skip(t *testing.T) {
+	body := sseResponse(
+		reasoningChunk(), // empty reasoning_details array
+		chatChunk("content", ""),
+		chatChunkWithUsage("stop", 10, 5),
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.baseURL = srv.URL
+
+	ch, err := c.Chat(context.Background(), []provider.Message{
+		{Role: "user", Content: "hi"},
+	}, nil)
+	require.NoError(t, err)
+
+	for e := range ch {
+		assert.NotEqual(t, provider.EventReasoningDelta, e.Type,
+			"empty reasoning details should not produce events")
+	}
+}
+
+func TestOpenRouter_ParsesUnknownReasoningType_Skip(t *testing.T) {
+	body := sseResponse(
+		reasoningChunk(map[string]any{"type": "reasoning.future_type", "text": "unknown"}),
+		chatChunkWithUsage("stop", 10, 5),
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	c := NewOpenRouter("test-key", "test-model")
+	c.baseURL = srv.URL
+
+	ch, err := c.Chat(context.Background(), []provider.Message{
+		{Role: "user", Content: "hi"},
+	}, nil)
+	require.NoError(t, err)
+
+	for e := range ch {
+		assert.NotEqual(t, provider.EventReasoningDelta, e.Type,
+			"unknown reasoning type should not produce events")
+	}
+}
+
 func TestOpenRouter_ReasoningEffortEmpty_OmitsField(t *testing.T) {
 	c := NewOpenRouter("key", "model")
 	// No SetReasoningEffort call — effort is empty

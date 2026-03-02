@@ -296,6 +296,26 @@ func (c *OpenRouter) streamResponse(ctx context.Context, resp *http.Response, ch
 			}
 		}
 
+		// Reasoning deltas
+		for _, rd := range choice.Delta.ReasoningDetails {
+			var text string
+			switch rd.Type {
+			case reasoningTypeText:
+				text = rd.Text
+			case reasoningTypeSummary:
+				text = rd.Summary
+			case reasoningTypeEncrypted:
+				text = "[REDACTED]"
+			default:
+				continue
+			}
+			if text != "" {
+				if !send(provider.NewReasoningDelta(text)) {
+					return
+				}
+			}
+		}
+
 		// Tool call deltas — accumulate fragments
 		for _, tcDelta := range choice.Delta.ToolCalls {
 			acc, exists := toolCalls[tcDelta.Index]
@@ -420,8 +440,23 @@ type apiChoice struct {
 }
 
 type apiDelta struct {
-	Content   string             `json:"content,omitempty"`
-	ToolCalls []apiToolCallDelta `json:"tool_calls,omitempty"`
+	Content          string               `json:"content,omitempty"`
+	ToolCalls        []apiToolCallDelta   `json:"tool_calls,omitempty"`
+	ReasoningDetails []apiReasoningDetail `json:"reasoning_details,omitempty"`
+}
+
+// Reasoning detail type constants from the OpenRouter streaming API.
+const (
+	reasoningTypeText      = "reasoning.text"
+	reasoningTypeSummary   = "reasoning.summary"
+	reasoningTypeEncrypted = "reasoning.encrypted"
+)
+
+type apiReasoningDetail struct {
+	Type    string `json:"type"`
+	Text    string `json:"text,omitempty"`    // for reasoningTypeText
+	Summary string `json:"summary,omitempty"` // for reasoningTypeSummary
+	Data    string `json:"data,omitempty"`    // for reasoningTypeEncrypted
 }
 
 type apiToolCallDelta struct {

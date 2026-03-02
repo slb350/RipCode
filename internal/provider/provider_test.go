@@ -104,6 +104,7 @@ func TestEventType_Values(t *testing.T) {
 	assert.Equal(t, EventType(1), EventToolCall)
 	assert.Equal(t, EventType(2), EventFinish)
 	assert.Equal(t, EventType(3), EventError)
+	assert.Equal(t, EventType(4), EventReasoningDelta)
 }
 
 func TestModelInfo_ProviderName_ExtractsFromID(t *testing.T) {
@@ -326,6 +327,20 @@ func TestStreamEvent_Constructors(t *testing.T) {
 	e4 := NewErrorEvent(fmt.Errorf("fail"))
 	assert.Equal(t, EventError, e4.Type)
 	assert.Equal(t, "fail", e4.Error.Error())
+
+	e5 := NewReasoningDelta("thinking")
+	assert.Equal(t, EventReasoningDelta, e5.Type)
+	assert.Equal(t, "thinking", e5.Content)
+}
+
+func TestStreamEvent_Valid_ReasoningDelta(t *testing.T) {
+	e := StreamEvent{Type: EventReasoningDelta, Content: "thought"}
+	assert.NoError(t, e.Valid())
+}
+
+func TestStreamEvent_Valid_ReasoningDelta_Empty(t *testing.T) {
+	e := StreamEvent{Type: EventReasoningDelta}
+	assert.NoError(t, e.Valid(), "empty reasoning delta is valid")
 }
 
 func TestParseRole_ValidRoles(t *testing.T) {

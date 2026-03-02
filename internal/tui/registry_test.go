@@ -105,3 +105,56 @@ func TestRegistry_Register_DuplicateName_Panics(t *testing.T) {
 		r.Register(Command{Name: "help", Handler: dummyHandler})
 	})
 }
+
+// --- Sub-Phase 5.8: Filter matches aliases ---
+
+func TestRegistry_Filter_MatchesAlias(t *testing.T) {
+	r := NewCommandRegistry()
+	r.Register(Command{
+		Name:        "thinking",
+		Aliases:     []string{"toggle-thinking"},
+		Description: "Show reasoning blocks",
+		Handler:     dummyHandler,
+	})
+	r.Register(Command{
+		Name:        "exit",
+		Description: "Quit ripcode",
+		Handler:     dummyHandler,
+	})
+
+	// "toggle-thinking" only appears in the alias, not name/title/description
+	matches := r.Filter("toggle-thinking")
+	assert.Len(t, matches, 1)
+	assert.Equal(t, "thinking", matches[0].Name)
+}
+
+func TestRegistry_Filter_MatchesPartialAlias(t *testing.T) {
+	r := NewCommandRegistry()
+	r.Register(Command{
+		Name:        "foo",
+		Title:       "Foo",
+		Aliases:     []string{"bar-baz"},
+		Description: "Does something",
+		Handler:     dummyHandler,
+	})
+
+	// "bar" only appears in alias "bar-baz", not in name/title/description
+	matches := r.Filter("bar")
+	assert.Len(t, matches, 1)
+	assert.Equal(t, "foo", matches[0].Name)
+}
+
+func TestRegistry_Filter_AliasNotInDescription(t *testing.T) {
+	r := NewCommandRegistry()
+	r.Register(Command{
+		Name:        "new",
+		Aliases:     []string{"reset"},
+		Description: "Start fresh session",
+		Handler:     dummyHandler,
+	})
+
+	// "reset" only appears in alias, not in name/title/description
+	matches := r.Filter("reset")
+	assert.Len(t, matches, 1)
+	assert.Equal(t, "new", matches[0].Name)
+}

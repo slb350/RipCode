@@ -192,9 +192,9 @@ func (a *App) initRegistry() {
 		Title: "Details", Description: "Toggle tool detail display",
 		Execute: true,
 		Handler: func(a *App) tea.Cmd {
-			a.showDetails = !a.showDetails
+			a.chat.SetShowDetails(!a.chat.ShowDetails())
 			state := "shown"
-			if !a.showDetails {
+			if !a.chat.ShowDetails() {
 				state = "hidden"
 			}
 			return a.ShowToast(fmt.Sprintf("Tool details %s", state), components.ToastInfo)
@@ -334,9 +334,9 @@ func (a *App) initRegistry() {
 		Title: "Thinking", Description: "Toggle thinking block display",
 		Execute: true,
 		Handler: func(a *App) tea.Cmd {
-			a.showThinking = !a.showThinking
+			a.chat.SetShowThinking(!a.chat.ShowThinking())
 			state := "shown"
-			if !a.showThinking {
+			if !a.chat.ShowThinking() {
 				state = "hidden"
 			}
 			return a.ShowToast(fmt.Sprintf("Thinking blocks %s", state), components.ToastInfo)
@@ -361,9 +361,9 @@ func (a *App) initRegistry() {
 		Title: "Timestamps", Description: "Toggle message timestamps",
 		Execute: true,
 		Handler: func(a *App) tea.Cmd {
-			a.showTimestamps = !a.showTimestamps
+			a.chat.SetShowTimestamps(!a.chat.ShowTimestamps())
 			state := "shown"
-			if !a.showTimestamps {
+			if !a.chat.ShowTimestamps() {
 				state = "hidden"
 			}
 			return a.ShowToast(fmt.Sprintf("Timestamps %s", state), components.ToastInfo)
@@ -461,6 +461,20 @@ func (a *App) initRegistry() {
 			a.stashDialog.open = true
 			a.stashDialog.selected = 0
 			return nil
+		},
+	})
+
+	r.Register(Command{
+		Name: "conceal", Category: CategoryView,
+		Title: "Conceal", Description: "Toggle code block visibility",
+		Hidden: true, Execute: true,
+		Handler: func(a *App) tea.Cmd {
+			a.chat.SetShowCodeBlocks(!a.chat.ShowCodeBlocks())
+			state := "shown"
+			if !a.chat.ShowCodeBlocks() {
+				state = "hidden"
+			}
+			return a.ShowToast(fmt.Sprintf("Code blocks %s", state), components.ToastInfo)
 		},
 	})
 

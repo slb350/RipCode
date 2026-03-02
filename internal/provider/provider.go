@@ -103,6 +103,7 @@ const (
 	EventToolCall
 	EventFinish
 	EventError
+	EventReasoningDelta
 )
 
 // StreamEvent is a single event in a streaming LLM response.
@@ -118,6 +119,8 @@ type StreamEvent struct {
 func (e StreamEvent) Valid() error {
 	switch e.Type {
 	case EventContentDelta:
+		// Content may be empty (e.g. whitespace-only delta)
+	case EventReasoningDelta:
 		// Content may be empty (e.g. whitespace-only delta)
 	case EventToolCall:
 		if e.ToolCall == nil {
@@ -140,6 +143,11 @@ func (e StreamEvent) Valid() error {
 // NewContentDelta creates a content delta event.
 func NewContentDelta(content string) StreamEvent {
 	return StreamEvent{Type: EventContentDelta, Content: content}
+}
+
+// NewReasoningDelta creates a reasoning delta event.
+func NewReasoningDelta(content string) StreamEvent {
+	return StreamEvent{Type: EventReasoningDelta, Content: content}
 }
 
 // NewToolCallEvent creates a tool call event.

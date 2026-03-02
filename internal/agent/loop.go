@@ -16,6 +16,7 @@ type EventType int
 
 const (
 	EventContentDelta EventType = iota
+	EventReasoningDelta
 	EventToolStart
 	EventToolEnd
 	EventDone
@@ -146,6 +147,9 @@ func (l *Loop) consumeStream(ctx context.Context, streamCh <-chan provider.Strea
 		case provider.EventContentDelta:
 			content.WriteString(event.Content)
 			ch <- Event{Type: EventContentDelta, Content: event.Content}
+
+		case provider.EventReasoningDelta:
+			ch <- Event{Type: EventReasoningDelta, Content: event.Content}
 
 		case provider.EventToolCall:
 			if event.ToolCall != nil {

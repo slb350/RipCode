@@ -16,7 +16,11 @@ import (
 func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 	switch event.Type {
 	case agent.EventContentDelta:
-		a.chat.StreamContent(event.Content)
+		a.chat.StreamPart(components.PartText, event.Content)
+		return a, listenForEvents(a.eventCh)
+
+	case agent.EventReasoningDelta:
+		a.chat.StreamPart(components.PartReasoning, event.Content)
 		return a, listenForEvents(a.eventCh)
 
 	case agent.EventToolStart:

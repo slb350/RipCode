@@ -38,6 +38,8 @@ type CompleteMeta struct {
 type ChatEntry struct {
 	Role       string // RoleUser, RoleAssistant, RoleTool, RoleError, RoleSystem, RoleComplete
 	Content    string
+	Parts      []MessagePart // non-nil for assistant entries with mixed parts; nil for simple
+	CreatedAt  time.Time     // for timestamp display
 	ToolID     string        // tool call ID for matching updates
 	ToolName   string        // tool name (bash, read, write, etc.)
 	ToolStatus string        // StatusPending, StatusSuccess, StatusError
@@ -46,20 +48,27 @@ type ChatEntry struct {
 
 // Chat is a scrollable viewport displaying conversation messages.
 type Chat struct {
-	entries   []ChatEntry
-	scrollPos int
-	width     int
-	height    int
-	streaming string
-	mode      string
-	theme     *styles.Theme
+	entries        []ChatEntry
+	scrollPos      int
+	width          int
+	height         int
+	streaming      string        // legacy streaming content
+	streamingParts []MessagePart // part-based streaming accumulator
+	mode           string
+	theme          *styles.Theme
+
+	showThinking   bool // controls reasoning part visibility
+	showDetails    bool // controls tool output detail level
+	showTimestamps bool // controls timestamp prefix on entries
+	showCodeBlocks bool // true = show code, false = conceal
 }
 
 // NewChat creates a new chat component.
 func NewChat() Chat {
 	return Chat{
-		mode:  "build",
-		theme: styles.DefaultTheme,
+		mode:           "build",
+		theme:          styles.DefaultTheme,
+		showCodeBlocks: true,
 	}
 }
 
@@ -74,6 +83,30 @@ func (c *Chat) SetMode(mode string) { c.mode = mode }
 
 // SetTheme sets the theme.
 func (c *Chat) SetTheme(t *styles.Theme) { c.theme = t }
+
+// SetShowThinking controls whether reasoning parts are rendered.
+func (c *Chat) SetShowThinking(v bool) { c.showThinking = v }
+
+// ShowThinking reports whether reasoning parts are rendered.
+func (c Chat) ShowThinking() bool { return c.showThinking }
+
+// SetShowDetails controls whether tool output details are shown.
+func (c *Chat) SetShowDetails(v bool) { c.showDetails = v }
+
+// ShowDetails reports whether tool output details are shown.
+func (c Chat) ShowDetails() bool { return c.showDetails }
+
+// SetShowTimestamps controls whether timestamp prefixes are shown.
+func (c *Chat) SetShowTimestamps(v bool) { c.showTimestamps = v }
+
+// ShowTimestamps reports whether timestamp prefixes are shown.
+func (c Chat) ShowTimestamps() bool { return c.showTimestamps }
+
+// SetShowCodeBlocks controls whether fenced code blocks are visible.
+func (c *Chat) SetShowCodeBlocks(v bool) { c.showCodeBlocks = v }
+
+// ShowCodeBlocks reports whether fenced code blocks are visible.
+func (c Chat) ShowCodeBlocks() bool { return c.showCodeBlocks }
 
 // AddEntry adds a completed message to the chat.
 func (c *Chat) AddEntry(entry ChatEntry) {
@@ -92,14 +125,52 @@ func (c *Chat) UpdateLastTool(id string, entry ChatEntry) {
 	}
 }
 
-// StreamContent appends to the current streaming content.
+// StreamContent appends to the current streaming content (legacy path).
 func (c *Chat) StreamContent(delta string) {
 	c.streaming += delta
 	c.scrollToBottom()
 }
 
+// StreamPart appends a delta to the streaming parts accumulator.
+// If the last part matches the type, the delta is appended; otherwise a new part starts.
+func (c *Chat) StreamPart(typ PartType, delta string) {
+	if delta == "" {
+		return
+	}
+	if n := len(c.streamingParts); n > 0 && c.streamingParts[n-1].Type == typ {
+		c.streamingParts[n-1].Content += delta
+	} else {
+		c.streamingParts = append(c.streamingParts, MessagePart{Type: typ, Content: delta})
+	}
+	c.scrollToBottom()
+}
+
 // CommitStream finalizes streaming content as an assistant entry.
+// Handles both legacy streaming (single string) and part-based streaming.
 func (c *Chat) CommitStream() {
+	// Part-based streaming path
+	if len(c.streamingParts) > 0 {
+		// Single text part — fall back to Content field for backward compat
+		if len(c.streamingParts) == 1 && c.streamingParts[0].Type == PartText {
+			c.entries = append(c.entries, ChatEntry{
+				Role:    RoleAssistant,
+				Content: c.streamingParts[0].Content,
+			})
+		} else {
+			parts := make([]MessagePart, len(c.streamingParts))
+			copy(parts, c.streamingParts)
+			c.entries = append(c.entries, ChatEntry{
+				Role:    RoleAssistant,
+				Content: plainTextFromParts(parts),
+				Parts:   parts,
+			})
+		}
+		c.streamingParts = nil
+		c.streaming = ""
+		return
+	}
+
+	// Legacy streaming path
 	if c.streaming != "" {
 		c.entries = append(c.entries, ChatEntry{
 			Role:    RoleAssistant,
@@ -107,6 +178,17 @@ func (c *Chat) CommitStream() {
 		})
 		c.streaming = ""
 	}
+}
+
+// plainTextFromParts extracts and concatenates user-visible text segments.
+func plainTextFromParts(parts []MessagePart) string {
+	var b strings.Builder
+	for _, p := range parts {
+		if p.Type == PartText {
+			b.WriteString(p.Content)
+		}
+	}
+	return b.String()
 }
 
 // PageUp scrolls up by one page height.
@@ -209,6 +291,7 @@ func (c Chat) Entries() []ChatEntry {
 func (c *Chat) Clear() {
 	c.entries = nil
 	c.streaming = ""
+	c.streamingParts = nil
 	c.scrollPos = 0
 }
 
@@ -235,8 +318,10 @@ func (c Chat) View() string {
 		lines = append(lines, "") // blank line between entries
 	}
 
-	// Streaming content
-	if c.streaming != "" {
+	// Streaming content (part-based or legacy)
+	if len(c.streamingParts) > 0 {
+		lines = append(lines, c.renderAssistantParts(c.streamingParts, c.effectiveTheme())...)
+	} else if c.streaming != "" {
 		lines = append(lines, "   "+c.streaming)
 	}
 
@@ -266,11 +351,16 @@ func (c Chat) View() string {
 	return strings.Join(visible, "\n")
 }
 
-func (c Chat) renderEntry(entry ChatEntry) []string {
-	t := c.theme
-	if t == nil {
-		t = styles.DefaultTheme
+// effectiveTheme returns the chat's theme, falling back to the default.
+func (c Chat) effectiveTheme() *styles.Theme {
+	if c.theme != nil {
+		return c.theme
 	}
+	return styles.DefaultTheme
+}
+
+func (c Chat) renderEntry(entry ChatEntry) []string {
+	t := c.effectiveTheme()
 
 	switch entry.Role {
 	case RoleUser:
@@ -304,25 +394,81 @@ func (c Chat) renderUserEntry(entry ChatEntry, t *styles.Theme) []string {
 	contentLines := strings.Split(wrapped, "\n")
 
 	result := make([]string, 0, len(contentLines)+1)
-	for _, line := range contentLines {
-		result = append(result, accentStyle.Render("┃")+" "+line)
+	for i, line := range contentLines {
+		rendered := accentStyle.Render("┃") + " " + line
+		if i == 0 {
+			rendered = c.prependTimestamp(rendered, entry, t)
+		}
+		result = append(result, rendered)
 	}
 	result = append(result, accentStyle.Render("╹"))
 	return result
 }
 
 // renderAssistantEntry renders assistant messages with 3-space indent.
-func (c Chat) renderAssistantEntry(entry ChatEntry, _ *styles.Theme) []string {
+func (c Chat) renderAssistantEntry(entry ChatEntry, t *styles.Theme) []string {
+	if len(entry.Parts) > 0 {
+		result := c.renderAssistantParts(entry.Parts, t)
+		if len(result) > 0 {
+			result[0] = c.prependTimestamp(result[0], entry, t)
+		}
+		return result
+	}
+
 	maxWidth := c.width - 3
 	if maxWidth < 20 {
 		maxWidth = 20
 	}
 
-	wrapped := wrapText(entry.Content, maxWidth)
+	content := entry.Content
+	if !c.showCodeBlocks {
+		content = concealCodeBlocks(content)
+	}
+
+	wrapped := wrapText(content, maxWidth)
 	lines := strings.Split(wrapped, "\n")
 	result := make([]string, len(lines))
 	for i, line := range lines {
 		result[i] = "   " + line
+	}
+	if len(result) > 0 {
+		result[0] = c.prependTimestamp(result[0], entry, t)
+	}
+	return result
+}
+
+// renderAssistantParts renders a parts-based assistant message.
+func (c Chat) renderAssistantParts(parts []MessagePart, t *styles.Theme) []string {
+	maxWidth := c.width - 3
+	if maxWidth < 20 {
+		maxWidth = 20
+	}
+
+	var result []string
+	for _, p := range parts {
+		switch p.Type {
+		case PartReasoning:
+			if !c.showThinking {
+				continue
+			}
+			reasoningStyle := t.TextMutedStyle.Italic(true)
+			wrapped := wrapText(p.Content, maxWidth)
+			for _, line := range strings.Split(wrapped, "\n") {
+				result = append(result, "   "+reasoningStyle.Render(line))
+			}
+		default: // PartText and any future types
+			text := p.Content
+			if !c.showCodeBlocks {
+				text = concealCodeBlocks(text)
+			}
+			wrapped := wrapText(text, maxWidth)
+			for _, line := range strings.Split(wrapped, "\n") {
+				result = append(result, "   "+line)
+			}
+		}
+	}
+	if len(result) == 0 {
+		result = append(result, "   ")
 	}
 	return result
 }
@@ -377,7 +523,22 @@ func (c Chat) renderToolEntry(entry ChatEntry, t *styles.Theme) []string {
 		t.TextMutedStyle.Render(entry.ToolName) + " · " +
 		t.TextMutedStyle.Render(content)
 
-	return []string{line}
+	lines := []string{line}
+
+	if c.showDetails && entry.Content != "" && entry.ToolStatus != StatusPending {
+		maxW := c.width - 8
+		if maxW < 20 {
+			maxW = 20
+		}
+		for _, dl := range strings.Split(entry.Content, "\n") {
+			if lipgloss.Width(dl) > maxW {
+				dl = dl[:maxW]
+			}
+			lines = append(lines, "      "+t.TextMutedStyle.Render(dl))
+		}
+	}
+
+	return lines
 }
 
 // renderErrorEntry renders error messages.
@@ -425,6 +586,46 @@ func (c Chat) renderCompleteEntry(entry ChatEntry, t *styles.Theme) []string {
 	return []string{line}
 }
 
+// concealCodeBlocks replaces fenced code blocks (``` ... ```) with a placeholder.
+// Inline `code` is not affected. Unclosed blocks are concealed to end of string.
+func concealCodeBlocks(text string) string {
+	lines := strings.Split(text, "\n")
+	var result []string
+	inBlock := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !inBlock && strings.HasPrefix(trimmed, "```") {
+			inBlock = true
+			result = append(result, "[code block hidden]")
+			// Check if the same line closes it (e.g. ```code``` on one line)
+			// Only if there's a second ``` after the opening one
+			rest := trimmed[3:]
+			if idx := strings.Index(rest, "```"); idx >= 0 {
+				inBlock = false
+			}
+			continue
+		}
+		if inBlock {
+			if strings.HasPrefix(trimmed, "```") {
+				inBlock = false
+			}
+			continue
+		}
+		result = append(result, line)
+	}
+	return strings.Join(result, "\n")
+}
+
+// prependTimestamp prepends a 12-hour timestamp prefix to a line if timestamps are enabled
+// and the entry has a non-zero CreatedAt.
+func (c Chat) prependTimestamp(line string, entry ChatEntry, t *styles.Theme) string {
+	if !c.showTimestamps || entry.CreatedAt.IsZero() {
+		return line
+	}
+	ts := entry.CreatedAt.Format("3:04 PM")
+	return t.TextMutedStyle.Render(ts+"  ") + line
+}
+
 func (c *Chat) scrollToBottom() {
 	c.scrollPos = max(0, c.totalLines()-c.height)
 }
@@ -434,7 +635,9 @@ func (c Chat) totalLines() int {
 	for _, entry := range c.entries {
 		count += len(c.renderEntry(entry)) + 1
 	}
-	if c.streaming != "" {
+	if len(c.streamingParts) > 0 {
+		count += len(c.renderAssistantParts(c.streamingParts, c.effectiveTheme()))
+	} else if c.streaming != "" {
 		count++
 	}
 	return count
