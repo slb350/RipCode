@@ -10,6 +10,7 @@ import (
 )
 
 // Session manages a conversation's message history and metadata.
+// All exported methods are safe for concurrent use.
 type Session struct {
 	ID           string
 	Title        string

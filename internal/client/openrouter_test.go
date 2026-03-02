@@ -734,6 +734,57 @@ func TestOpenRouter_ReasoningEffortInRequest(t *testing.T) {
 	assert.Equal(t, "low", reasoning["effort"])
 }
 
+func TestStreamResponse_IncompleteToolCall(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		tool string
+	}{
+		{"missing name", "call_incomplete", ""},
+		{"missing ID", "", "bash"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := sseResponse(
+				toolCallChunk(0, tt.id, tt.tool, `{"command":"ls"}`),
+				chatChunkWithUsage("tool_calls", 10, 5),
+			)
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, body)
+			}))
+			defer srv.Close()
+
+			c := NewOpenRouter("test-key", "test-model")
+			c.baseURL = srv.URL
+
+			ch, err := c.Chat(context.Background(), []provider.Message{
+				{Role: "user", Content: "hi"},
+			}, nil)
+			require.NoError(t, err)
+
+			var events []provider.StreamEvent
+			for e := range ch {
+				events = append(events, e)
+			}
+
+			var gotError bool
+			for _, e := range events {
+				if e.Type == provider.EventError {
+					gotError = true
+					assert.Contains(t, e.Error.Error(), "incomplete tool call")
+				}
+			}
+			assert.True(t, gotError, "should emit error for incomplete tool call (%s)", tt.name)
+
+			for _, e := range events {
+				assert.NotEqual(t, provider.EventToolCall, e.Type, "should not emit tool call for incomplete data")
+			}
+		})
+	}
+}
+
 func TestOpenRouter_ReasoningEffortEmpty_OmitsField(t *testing.T) {
 	c := NewOpenRouter("key", "model")
 	// No SetReasoningEffort call — effort is empty

@@ -118,10 +118,11 @@ func (e *EditTool) Execute(ctx Context, argsJSON string) Result {
 // Atomic write-to-temp-then-rename prevents corruption on crash or close failure.
 // Each call uses a unique temp file so concurrent writes to the same path are safe.
 //
-// NOTE: The Lstat-then-Rename sequence has a TOCTOU race window where a symlink
-// could be created between the check and the rename. This is defense-in-depth for
-// a single-user local CLI, not a security boundary. Full prevention would require
-// OS-level atomic operations not available in pure Go.
+// OpenNoFollow above protects the read path by rejecting symlinks at open time.
+// This Lstat check provides defense-in-depth for the write/rename path. A TOCTOU
+// race exists between Lstat and Rename, but this is acceptable for a single-user
+// CLI tool — full prevention would require OS-level atomic operations not available
+// in pure Go.
 func writeAtomic(path string, data []byte, perm os.FileMode) error {
 	// Reject symlinks at the target path (best-effort; see TOCTOU note above).
 	if info, err := os.Lstat(path); err == nil {
@@ -166,9 +167,9 @@ func writeAtomic(path string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
-// whitespaceFlexibleReplace normalizes leading whitespace (tabs → spaces)
-// to find a match when exact matching fails. Returns the modified content
-// and whether a unique match was found.
+// whitespaceFlexibleReplace normalizes leading whitespace (tabs expanded to
+// 4 spaces) to find a match when exact matching fails. Returns the modified
+// content and whether a unique match was found.
 func whitespaceFlexibleReplace(content, oldStr, newStr string) (string, bool) {
 	normContent := normalizeWhitespace(content)
 	normOld := normalizeWhitespace(oldStr)

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 )
 
+const historyScanMaxLineBytes = 1024 * 1024 // 1 MiB
+
 // HistoryEntry is a single prompt history record.
 type HistoryEntry struct {
 	Prompt string `json:"prompt"`
@@ -34,6 +36,7 @@ func LoadHistory() (entries []HistoryEntry, skipped int, err error) {
 	defer f.Close()
 
 	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), historyScanMaxLineBytes)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {

@@ -26,6 +26,16 @@ func (r Role) Valid() bool {
 	return false
 }
 
+// ParseRole validates a string and returns the corresponding Role.
+// Returns an error for unrecognized role values.
+func ParseRole(s string) (Role, error) {
+	r := Role(s)
+	if !r.Valid() {
+		return "", fmt.Errorf("invalid role: %q", s)
+	}
+	return r, nil
+}
+
 // Message represents a single message in a conversation.
 type Message struct {
 	Role       Role // RoleSystem, RoleUser, RoleAssistant, or RoleTool
@@ -173,6 +183,17 @@ func (m ModelInfo) ProviderName() string {
 		return m.ID[:idx]
 	}
 	return m.ID
+}
+
+// Valid checks that required fields are set and pricing state is consistent.
+func (m ModelInfo) Valid() error {
+	if m.ID == "" {
+		return fmt.Errorf("model info: ID is required")
+	}
+	if m.PricingUnknown && m.Pricing != nil {
+		return fmt.Errorf("model info %s: PricingUnknown and Pricing are mutually exclusive", m.ID)
+	}
+	return nil
 }
 
 // IsFree returns true if the model has no pricing and pricing is not unknown,

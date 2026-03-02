@@ -140,6 +140,10 @@ func (a App) resumeSession(id string) (tea.Model, tea.Cmd) {
 	a.footer.SetWorkDir(loaded.WorkDir)
 	// Session workdir changed; invalidate stale @-mention cache.
 	a.resetFileCache()
+	// Clear session-scoped sidebar state from the previous session.
+	a.modifiedFiles = nil
+	a.modifiedFilesSet = nil
+	a.toolpanel.Clear()
 	a.sessionsDialog.open = false
 	a.input.Focus()
 

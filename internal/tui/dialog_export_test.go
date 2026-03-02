@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -279,6 +280,23 @@ func TestApp_ExportDialog_Symlink_Blocked(t *testing.T) {
 	toast := a.toasts.Current()
 	require.NotNil(t, toast)
 	assert.Contains(t, toast.Message, "symlink")
+}
+
+func TestWriteExportFile_RenameFailure_PreservesExistingTarget(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "session-export.md")
+	require.NoError(t, os.WriteFile(target, []byte("original"), 0o644))
+
+	origRename := exportRename
+	exportRename = func(_, _ string) error { return fmt.Errorf("forced rename failure") }
+	t.Cleanup(func() { exportRename = origRename })
+
+	err := writeExportFile(target, []byte("replacement"))
+	require.Error(t, err)
+
+	data, readErr := os.ReadFile(target)
+	require.NoError(t, readErr)
+	assert.Equal(t, "original", string(data))
 }
 
 // Ensure unused imports don't cause issues

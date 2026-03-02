@@ -123,6 +123,8 @@ func TestBash_BlockedCommandVariants(t *testing.T) {
 		`{"command":"rm -r -f /"}`,
 		// Extra whitespace
 		`{"command":"rm  -rf  /"}`,
+		// Root wildcard delete
+		`{"command":"rm -rf /*"}`,
 		// Backslash escapes in command
 		`{"command":"r\\m -rf /"}`,
 		// sudo with extra spaces

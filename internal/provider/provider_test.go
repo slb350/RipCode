@@ -317,3 +317,55 @@ func TestStreamEvent_Constructors(t *testing.T) {
 	assert.Equal(t, EventError, e4.Type)
 	assert.Equal(t, "fail", e4.Error.Error())
 }
+
+func TestParseRole_ValidRoles(t *testing.T) {
+	for _, s := range []string{"system", "user", "assistant", "tool"} {
+		r, err := ParseRole(s)
+		assert.NoError(t, err, "ParseRole(%q)", s)
+		assert.Equal(t, Role(s), r)
+	}
+}
+
+func TestParseRole_InvalidRoles(t *testing.T) {
+	for _, s := range []string{"", "admin", "USER", "Admin"} {
+		_, err := ParseRole(s)
+		assert.Error(t, err, "ParseRole(%q) should fail", s)
+		assert.Contains(t, err.Error(), "invalid role")
+	}
+}
+
+func TestModelInfo_Valid_OK(t *testing.T) {
+	m := ModelInfo{ID: "anthropic/claude-4", Name: "Claude 4"}
+	assert.NoError(t, m.Valid())
+}
+
+func TestModelInfo_Valid_WithPricing(t *testing.T) {
+	m := ModelInfo{
+		ID:      "anthropic/claude-4",
+		Pricing: &ModelPricing{PromptPerMillion: 3.0, CompletionPerMillion: 15.0},
+	}
+	assert.NoError(t, m.Valid())
+}
+
+func TestModelInfo_Valid_WithPricingUnknown(t *testing.T) {
+	m := ModelInfo{ID: "test/model", PricingUnknown: true}
+	assert.NoError(t, m.Valid())
+}
+
+func TestModelInfo_Valid_EmptyID(t *testing.T) {
+	m := ModelInfo{ID: ""}
+	err := m.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "ID is required")
+}
+
+func TestModelInfo_Valid_PricingAndUnknownMutuallyExclusive(t *testing.T) {
+	m := ModelInfo{
+		ID:             "test/model",
+		PricingUnknown: true,
+		Pricing:        &ModelPricing{PromptPerMillion: 1.0},
+	}
+	err := m.Valid()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "mutually exclusive")
+}

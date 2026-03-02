@@ -23,9 +23,9 @@ const defaultTimeout = 2 * time.Minute
 // destructive patterns but cannot prevent all evasion techniques.
 var blockedPatterns = []*regexp.Regexp{
 	// rm with -r and -f flags in any order, targeting root
-	regexp.MustCompile(`\brm\s+(-[a-z]*r[a-z]*\s+)*-[a-z]*f[a-z]*\s+/(\s|$)`),
-	regexp.MustCompile(`\brm\s+(-[a-z]*f[a-z]*\s+)*-[a-z]*r[a-z]*\s+/(\s|$)`),
-	regexp.MustCompile(`\brm\s+-rf\s+/(\s|$)`),
+	regexp.MustCompile(`\brm\s+(-[a-z]*r[a-z]*\s+)*-[a-z]*f[a-z]*\s+/(?:\*|\s|$)`),
+	regexp.MustCompile(`\brm\s+(-[a-z]*f[a-z]*\s+)*-[a-z]*r[a-z]*\s+/(?:\*|\s|$)`),
+	regexp.MustCompile(`\brm\s+-rf\s+/(?:\*|\s|$)`),
 	// sudo with destructive commands (rm, dd, mkfs, chmod)
 	regexp.MustCompile(`\bsudo\s+rm\b`),
 	regexp.MustCompile(`\bsudo\s+dd\b`),
@@ -165,8 +165,11 @@ func checkBlocked(cmd string) error {
 	return nil
 }
 
-// normalizeCommand strips null bytes, backslash escapes, collapses whitespace,
-// and lowercases for blocklist matching.
+// normalizeCommand prepares a command for blocklist matching:
+//   - Strips null bytes: prevents injection via embedded NUL
+//   - Removes backslashes: prevents escape-based bypass (r\m → rm)
+//   - Normalizes whitespace: prevents bypass via tabs or extra spaces
+//   - Lowercases: ensures case-insensitive pattern matching
 func normalizeCommand(cmd string) string {
 	// Strip null bytes — defense-in-depth against injection via embedded NUL
 	cmd = strings.ReplaceAll(cmd, "\x00", "")

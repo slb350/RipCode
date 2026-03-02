@@ -54,7 +54,7 @@ func PlanAgent() Agent {
 		Mode:         ModePlan,
 		SystemPrompt: planSystemPrompt,
 		// NOTE: these must match tool IDs registered in cmd/ripcode/main.go.
-		// No compile-time check exists — update if tools are added/renamed.
+		// TestPlanAgent_AllowedToolsMatchRegistry validates this at test time.
 		AllowedTools: []string{"read", "glob", "grep", "ls", "todo"},
 	}
 }

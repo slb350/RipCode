@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -10,6 +11,8 @@ import (
 	"github.com/stephenbrandon/ripcode/internal/tool"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 )
+
+var exportRename = os.Rename
 
 func (a App) handleExportDialogKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// When editing filename, handle text input
@@ -114,18 +117,51 @@ func (a *App) executeExport() tea.Cmd {
 	if err != nil {
 		return a.ShowToast("Export failed: invalid path", components.ToastError)
 	}
-	f, err := tool.OpenNoFollow(exportPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
-	if err != nil {
-		return a.ShowToast("Export failed: "+err.Error(), components.ToastError)
-	}
-	if _, err := f.Write([]byte(sb.String())); err != nil {
-		f.Close()
-		return a.ShowToast("Export failed: "+err.Error(), components.ToastError)
-	}
-	if err := f.Close(); err != nil {
+	if err := writeExportFile(exportPath, []byte(sb.String())); err != nil {
 		return a.ShowToast("Export failed: "+err.Error(), components.ToastError)
 	}
 	return a.ShowToast("Exported to "+exportPath, components.ToastSuccess)
+}
+
+func writeExportFile(path string, data []byte) error {
+	// Keep symlink behavior explicit: exports should never write through links.
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing to follow symlink: %s", path)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat export path: %w", err)
+	}
+
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, filepath.Base(path)+".tmp.*")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmp := f.Name()
+	cleanup := func() {
+		_ = os.Remove(tmp)
+	}
+
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		cleanup()
+		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		cleanup()
+		return fmt.Errorf("close temp file: %w", err)
+	}
+	if err := os.Chmod(tmp, 0o644); err != nil {
+		cleanup()
+		return fmt.Errorf("chmod temp file: %w", err)
+	}
+	if err := exportRename(tmp, path); err != nil {
+		cleanup()
+		return fmt.Errorf("rename temp file: %w", err)
+	}
+
+	return nil
 }
 
 func (a App) renderExportDialog() string {

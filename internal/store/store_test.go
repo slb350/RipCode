@@ -555,6 +555,25 @@ func TestAtomicWrite_ConcurrentSamePath_NoCorruption(t *testing.T) {
 	}
 }
 
+func TestAtomicWrite_RenameFailure_CleansUpTemp(t *testing.T) {
+	dir := testDir(t)
+	// Target is a directory — os.Rename(file, dir) fails on POSIX.
+	targetDir := filepath.Join(dir, "target-is-dir")
+	require.NoError(t, os.MkdirAll(targetDir, 0o755))
+
+	err := atomicWrite(targetDir, []byte("data"), 0o644)
+	assert.Error(t, err, "rename to a directory should fail")
+	assert.Contains(t, err.Error(), "rename temp file")
+
+	// No leftover temp files
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, e := range entries {
+		assert.False(t, strings.Contains(e.Name(), ".tmp."),
+			"leftover temp file found: %s", e.Name())
+	}
+}
+
 func TestLoad_IDMismatch_ReturnsError(t *testing.T) {
 	dir := testDir(t)
 	sess := makeTestSession(t)

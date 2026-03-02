@@ -101,6 +101,9 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 		a.setStreaming(false)
 		a.chat.CommitStream()
 		a.input.Focus()
+		if a.session != nil {
+			a.warnOnErr(store.Save(a.session), "session")
+		}
 		if event.Error != nil {
 			a.chat.AddEntry(components.ChatEntry{
 				Role:    components.RoleError,

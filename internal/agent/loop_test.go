@@ -343,6 +343,19 @@ func TestLoop_StreamEventError(t *testing.T) {
 	assert.Contains(t, errMsg, "stream broke")
 }
 
+// trackingTool records whether Execute was called.
+type trackingTool struct {
+	executed *bool
+}
+
+func (t *trackingTool) ID() string                 { return "track" }
+func (t *trackingTool) Description() string        { return "Tracks execution" }
+func (t *trackingTool) Parameters() map[string]any { return map[string]any{"type": "object"} }
+func (t *trackingTool) Execute(_ tool.Context, _ string) tool.Result {
+	*t.executed = true
+	return tool.Result{Output: "executed"}
+}
+
 // slowTool blocks until the context is cancelled, simulating a long-running tool.
 type slowTool struct {
 	started chan struct{} // closed when Execute begins
@@ -401,6 +414,49 @@ func TestLoop_CancelDuringToolExecution(t *testing.T) {
 	// The loop should terminate (channel closed) — it shouldn't hang
 	// The next iteration's ctx.Done() check prevents further provider calls
 	assert.Equal(t, 1, p.callCount, "should only call provider once before cancellation stops the loop")
+}
+
+func TestLoop_CancelMidStream_DiscardsPartialToolCalls(t *testing.T) {
+	// Provider returns tool calls, but we cancel the context before the loop
+	// processes the tool execution. The loop should discard the tool calls
+	// (set toolCalls = nil) and NOT execute the tool.
+	toolExecuted := false
+	trackTool := &trackingTool{executed: &toolExecuted}
+
+	p := &mockProvider{
+		responses: []mockResponse{
+			{events: []provider.StreamEvent{
+				{Type: provider.EventContentDelta, Content: "planning"},
+				{Type: provider.EventToolCall, ToolCall: &provider.ToolCall{
+					ID: "call_1", Name: "track", Args: "{}",
+				}},
+				{Type: provider.EventFinish, Meta: &provider.Metadata{
+					FinishReason: "tool_calls",
+				}},
+			}},
+		},
+	}
+
+	reg := newTestRegistry(trackTool)
+	sess := session.New("/tmp")
+	loop := NewLoop(p, reg, sess, BuildAgent(), 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Cancel immediately so the loop sees ctx.Err() after consuming the stream
+	cancel()
+
+	events := collectEvents(loop.Run(ctx, "test cancel"))
+
+	// Should get an error event (context cancelled)
+	var hasError bool
+	for _, e := range events {
+		if e.Type == EventError {
+			hasError = true
+		}
+	}
+	assert.True(t, hasError, "should emit error on cancellation")
+	assert.False(t, toolExecuted, "tool should NOT be executed when context is cancelled mid-stream")
 }
 
 func TestLoop_UnknownTool(t *testing.T) {

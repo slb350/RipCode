@@ -57,6 +57,9 @@ func loadState[T any](filename, desc string) (*T, error) {
 // atomicWrite writes data to path atomically via write-to-temp-then-rename.
 // On POSIX, os.Rename is atomic, so the target is either intact or fully replaced.
 // Each call uses a unique temp file so concurrent writes to the same path are safe.
+//
+// Unlike tool/edit.go's writeAtomic, this does not reject symlinks because
+// store paths are trusted internal locations (~/.ripcode/).
 func atomicWrite(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	f, err := os.CreateTemp(dir, filepath.Base(path)+".tmp.*")

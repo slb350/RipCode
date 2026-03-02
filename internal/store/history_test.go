@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -195,4 +196,19 @@ func TestAppendHistory_ManyEntries_AllPreserved(t *testing.T) {
 	assert.Len(t, loaded, 50)
 	assert.Equal(t, "entry-0", loaded[0].Prompt)
 	assert.Equal(t, "entry-49", loaded[49].Prompt)
+}
+
+func TestLoadHistory_LongSingleLine_DoesNotFailScanner(t *testing.T) {
+	testDir(t)
+
+	longPrompt := strings.Repeat("x", 70*1024) // exceeds default scanner token limit
+	require.NoError(t, SaveHistory([]HistoryEntry{
+		{Prompt: longPrompt, Mode: "normal"},
+	}))
+
+	loaded, skipped, err := LoadHistory()
+	require.NoError(t, err)
+	assert.Equal(t, 0, skipped)
+	require.Len(t, loaded, 1)
+	assert.Equal(t, longPrompt, loaded[0].Prompt)
 }
