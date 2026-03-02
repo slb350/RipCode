@@ -140,9 +140,10 @@ func (a *App) initRegistry() {
 			}
 			// Replace session messages with a single summary
 			a.session.ClearMessages()
-			a.session.AddUser("[compacted: " + fmt.Sprintf("%d", userCount) + " exchanges]")
+			a.session.AddUser(fmt.Sprintf("[compacted: %d exchanges]", userCount))
 			a.session.AddAssistant(summary.String(), nil, nil)
 			a.rebuildChatFromSession()
+			a.warnOnErr(store.Save(a.session), "session")
 			return a.ShowToast("Compacted session history", components.ToastSuccess)
 		},
 	})

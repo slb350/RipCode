@@ -2,6 +2,7 @@ package session
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/stephenbrandon/ripcode/internal/provider"
 )
@@ -45,6 +46,7 @@ func (s *Session) Revert() (string, error) {
 
 	// Truncate
 	s.messages = s.messages[:lastUser]
+	s.UpdatedAt = time.Now()
 
 	return prompt, nil
 }
@@ -61,6 +63,7 @@ func (s *Session) Unrevert() error {
 	s.redoStack = s.redoStack[:len(s.redoStack)-1]
 
 	s.messages = append(s.messages, last.messages...)
+	s.UpdatedAt = time.Now()
 	return nil
 }
 

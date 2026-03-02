@@ -428,3 +428,17 @@ func TestApp_SessionsLoadedMsg_WithError(t *testing.T) {
 	toast := a.toasts.Current()
 	assert.NotNil(t, toast, "should show error toast")
 }
+
+func TestApp_SessionsLoadedMsg_WithError_ClearsStaleEntries(t *testing.T) {
+	app := makeSessionApp(t)
+	model, _ := app.Update(components.InputSubmitMsg{Value: "/sessions"})
+	a := model.(App)
+	a.sessionsDialog.entries = []store.SessionSummary{
+		{ID: "stale", Title: "stale"},
+	}
+
+	model, _ = a.Update(SessionsLoadedMsg{Err: assert.AnError})
+	a = model.(App)
+
+	assert.Empty(t, a.sessionsDialog.entries, "stale entries should be cleared on load error")
+}

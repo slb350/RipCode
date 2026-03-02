@@ -93,5 +93,13 @@ func ValidatePath(path, workDir string, mustExist bool) (string, error) {
 
 // isWithin reports whether path is inside dir (but not equal to dir).
 func isWithin(path, dir string) bool {
+	path = filepath.Clean(path)
+	dir = filepath.Clean(dir)
+	if path == dir {
+		return false
+	}
+	if dir == string(filepath.Separator) {
+		return strings.HasPrefix(path, dir)
+	}
 	return strings.HasPrefix(path, dir+string(filepath.Separator))
 }

@@ -165,6 +165,7 @@ func (s *Session) Reset() {
 	defer s.mu.Unlock()
 	s.ID = generateID()
 	s.Title = ""
+	s.ParentID = ""
 	s.messages = nil
 	s.redoStack = nil
 	s.Tokens = TokenCount{}

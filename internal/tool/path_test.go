@@ -167,3 +167,9 @@ func TestValidatePath_DotSlashPathAllowed(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, dir, got)
 }
+
+func TestValidatePath_WorkDirRoot_AllowsAbsoluteChildPaths(t *testing.T) {
+	got, err := ValidatePath("/tmp", "/", true)
+	require.NoError(t, err)
+	assert.Equal(t, "/tmp", got)
+}

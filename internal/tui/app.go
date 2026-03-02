@@ -339,6 +339,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case SessionsLoadedMsg:
 		if msg.Err != nil {
+			a.sessionsDialog.entries = nil
 			a.sessionsDialog.loaded = true
 			return a, a.ShowToast("Failed to load sessions", components.ToastError)
 		}

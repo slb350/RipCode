@@ -423,6 +423,21 @@ func TestApp_CompactCommand_ReducesMessages(t *testing.T) {
 	assert.Less(t, a.session.Len(), 4)
 }
 
+func TestApp_CompactCommand_PersistsSession(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	a := makeSessionAppWithHistory(t)
+	require.NoError(t, store.Save(a.session))
+	origID := a.session.ID
+
+	model, _ := a.Update(components.InputSubmitMsg{Value: "/compact"})
+	a = model.(App)
+	require.Len(t, a.session.Records(), 2)
+
+	loaded, err := store.Load(origID)
+	require.NoError(t, err)
+	assert.Len(t, loaded.Records(), 2, "compacted session should be persisted to disk")
+}
+
 // --- Editor command tests ---
 
 func TestApp_EditorCommand_NoEditorVar_ShowsWarning(t *testing.T) {

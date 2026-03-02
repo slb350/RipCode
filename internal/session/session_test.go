@@ -333,6 +333,13 @@ func TestSession_Reset_ClearsTitle(t *testing.T) {
 	assert.Empty(t, s.Title)
 }
 
+func TestSession_Reset_ClearsParentID(t *testing.T) {
+	s := New("/tmp")
+	s.ParentID = "sess-parent"
+	s.Reset()
+	assert.Empty(t, s.ParentID)
+}
+
 // --- Revert/Unrevert tests ---
 
 func TestSession_Revert_TruncatesFromUserMessage(t *testing.T) {
@@ -356,6 +363,19 @@ func TestSession_Revert_ReturnsPromptText(t *testing.T) {
 	prompt, err := s.Revert()
 	require.NoError(t, err)
 	assert.Equal(t, "hello world", prompt)
+}
+
+func TestSession_Revert_UpdatesUpdatedAt(t *testing.T) {
+	s := New("/tmp")
+	s.AddUser("hello")
+	s.AddAssistant("hi", nil, nil)
+
+	before := s.UpdatedAt
+	time.Sleep(time.Millisecond)
+
+	_, err := s.Revert()
+	require.NoError(t, err)
+	assert.True(t, s.UpdatedAt.After(before), "revert should refresh UpdatedAt")
 }
 
 func TestSession_Revert_EmptySession_ReturnsError(t *testing.T) {
@@ -390,6 +410,21 @@ func TestSession_Unrevert_RestoresMessages(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, s.messages, 4)
 	assert.Equal(t, "second", s.messages[2].Message.Content)
+}
+
+func TestSession_Unrevert_UpdatesUpdatedAt(t *testing.T) {
+	s := New("/tmp")
+	s.AddUser("first")
+	s.AddAssistant("resp1", nil, nil)
+	_, err := s.Revert()
+	require.NoError(t, err)
+
+	before := s.UpdatedAt
+	time.Sleep(time.Millisecond)
+
+	err = s.Unrevert()
+	require.NoError(t, err)
+	assert.True(t, s.UpdatedAt.After(before), "unrevert should refresh UpdatedAt")
 }
 
 func TestSession_CanRedo_TrueAfterRevert(t *testing.T) {
