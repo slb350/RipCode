@@ -117,11 +117,25 @@ func (e *EditTool) Execute(ctx Context, argsJSON string) Result {
 // writeAtomic writes data to path atomically via a temp file, rejecting symlinks.
 // Atomic write-to-temp-then-rename prevents corruption on crash or close failure.
 // Each call uses a unique temp file so concurrent writes to the same path are safe.
+//
+// NOTE: The Lstat-then-Rename sequence has a TOCTOU race window where a symlink
+// could be created between the check and the rename. This is defense-in-depth for
+// a single-user local CLI, not a security boundary. Full prevention would require
+// OS-level atomic operations not available in pure Go.
 func writeAtomic(path string, data []byte, perm os.FileMode) error {
-	// Reject symlinks at the target path.
+	// Reject symlinks at the target path (best-effort; see TOCTOU note above).
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("refusing to follow symlink: %s", path)
+		}
+		// Preserve prior writability semantics: if the target exists but is not
+		// writable, fail rather than replacing it via rename.
+		f, err := OpenNoFollow(path, os.O_WRONLY, 0)
+		if err != nil {
+			return err
+		}
+		if err := f.Close(); err != nil {
+			return err
 		}
 	}
 	dir := filepath.Dir(path)
@@ -143,7 +157,13 @@ func writeAtomic(path string, data []byte, perm os.FileMode) error {
 		os.Remove(tmp)
 		return err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		if rmErr := os.Remove(tmp); rmErr != nil {
+			return fmt.Errorf("rename temp file: %w (cleanup also failed: %v)", err, rmErr)
+		}
+		return fmt.Errorf("rename temp file: %w", err)
+	}
+	return nil
 }
 
 // whitespaceFlexibleReplace normalizes leading whitespace (tabs → spaces)

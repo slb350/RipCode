@@ -3,6 +3,7 @@ package tool
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -39,6 +40,38 @@ func TestWrite_OverwriteFile(t *testing.T) {
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	assert.Equal(t, "new content", string(data))
+}
+
+func TestWrite_OverwritePreservesPermissions(t *testing.T) {
+	w := NewWriteTool()
+	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "script.sh")
+	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\necho old\n"), 0o755))
+
+	result := w.Execute(ctx, `{"file_path":"`+path+`","content":"#!/bin/sh\necho new\n"}`)
+	require.NoError(t, result.Error)
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o755), info.Mode().Perm())
+}
+
+func TestWrite_ReadOnlyFileBlocked(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("read-only mode semantics differ on Windows")
+	}
+
+	w := NewWriteTool()
+	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "readonly.txt")
+	require.NoError(t, os.WriteFile(path, []byte("old"), 0o444))
+
+	result := w.Execute(ctx, `{"file_path":"`+path+`","content":"new"}`)
+	assert.Error(t, result.Error)
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "old", string(data))
 }
 
 func TestWrite_CreatesParentDirs(t *testing.T) {

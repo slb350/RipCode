@@ -116,6 +116,17 @@ type Context struct {
 	OnStatus  func(title string) // optional callback for TUI status
 }
 
+// Valid checks that required fields are populated.
+func (c Context) Valid() error {
+	if c.Abort == nil {
+		return fmt.Errorf("context requires non-nil Abort")
+	}
+	if c.WorkDir == "" {
+		return fmt.Errorf("context requires WorkDir")
+	}
+	return nil
+}
+
 // Result holds the output of a tool execution.
 type Result struct {
 	Output string

@@ -14,13 +14,6 @@ import (
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 )
 
-// stubToast returns a handler that shows a "Not yet implemented" toast.
-func stubToast(name string) func(a *App) tea.Cmd {
-	return func(a *App) tea.Cmd {
-		return a.ShowToast(fmt.Sprintf("/%s: Not yet implemented", name), components.ToastInfo)
-	}
-}
-
 func (a *App) initRegistry() {
 	r := NewCommandRegistry()
 

@@ -3,6 +3,7 @@ package tool
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -122,6 +123,24 @@ func TestEdit_PreservesFilePermissions(t *testing.T) {
 	info, err := os.Stat(path)
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0755), info.Mode().Perm())
+}
+
+func TestEdit_ReadOnlyFileBlocked(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("read-only mode semantics differ on Windows")
+	}
+
+	e := NewEditTool()
+	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "readonly.txt")
+	require.NoError(t, os.WriteFile(path, []byte("old"), 0o444))
+
+	result := e.Execute(ctx, `{"file_path":"`+path+`","old_string":"old","new_string":"new"}`)
+	assert.Error(t, result.Error)
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "old", string(data))
 }
 
 func TestEdit_Parameters(t *testing.T) {
@@ -306,4 +325,20 @@ func TestEdit_AtomicWrite_NoTmpLeftOnSuccess(t *testing.T) {
 		assert.False(t, strings.Contains(entry.Name(), ".tmp."),
 			"leftover temp file found: %s", entry.Name())
 	}
+}
+
+func TestEdit_WhitespaceFallback_NonUnique(t *testing.T) {
+	e := NewEditTool()
+	ctx := newTestCtx(t)
+	path := filepath.Join(ctx.WorkDir, "dupe.go")
+	// Two identical tab-indented lines. After normalization both match the
+	// space-indented search string, producing a non-unique flexible match.
+	content := "\treturn\n\treturn\n"
+	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
+
+	// Search with spaces — exact match finds 0 (tabs ≠ spaces),
+	// whitespace-flexible normalizes both to "    return" and finds 2 matches.
+	result := e.Execute(ctx, `{"file_path":"`+path+`","old_string":"    return","new_string":"    return 0"}`)
+	require.Error(t, result.Error)
+	assert.Contains(t, result.Error.Error(), "no match")
 }

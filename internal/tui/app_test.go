@@ -8,6 +8,7 @@ import (
 
 	"github.com/stephenbrandon/ripcode/internal/agent"
 	"github.com/stephenbrandon/ripcode/internal/session"
+	"github.com/stephenbrandon/ripcode/internal/store"
 	"github.com/stephenbrandon/ripcode/internal/tool"
 	"github.com/stephenbrandon/ripcode/internal/tui/components"
 	"github.com/stretchr/testify/assert"
@@ -182,4 +183,34 @@ func TestApp_SessionResetPreservesWorkDir(t *testing.T) {
 	assert.Empty(t, sess.Records(), "Reset should clear messages")
 	assert.Equal(t, 0, sess.Tokens.Input, "Reset should clear tokens")
 	assert.NotEqual(t, oldID, sess.ID, "Reset should generate new ID")
+}
+
+func TestApp_SetFullModelID_RestoresSavedVariant(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	p := &modelListProvider{}
+	app.SetProvider(p)
+	if app.modelPrefs == nil {
+		app.modelPrefs = &store.ModelPrefs{}
+	}
+	app.modelPrefs.SetVariant("anthropic/claude-sonnet-4-thinking", "high")
+
+	app.SetFullModelID("anthropic/claude-sonnet-4-thinking")
+
+	assert.Equal(t, "high", app.activeVariant)
+	assert.Equal(t, "high", p.reasoningEffort)
+}
+
+func TestApp_SetFullModelID_ClearsVariantWhenUnsupported(t *testing.T) {
+	t.Setenv("RIPCODE_DIR", t.TempDir())
+	app := NewApp()
+	p := &modelListProvider{}
+	app.SetProvider(p)
+	app.activeVariant = "high"
+	p.reasoningEffort = "high"
+
+	app.SetFullModelID("openai/gpt-4o")
+
+	assert.Equal(t, "", app.activeVariant)
+	assert.Equal(t, "", p.reasoningEffort)
 }

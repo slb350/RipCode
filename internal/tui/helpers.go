@@ -87,12 +87,7 @@ func repeatStr(ch string, n int) string {
 }
 
 func containsWhitespace(s string) bool {
-	for _, r := range s {
-		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
-			return true
-		}
-	}
-	return false
+	return strings.ContainsAny(s, " \t\n\r")
 }
 
 func shortSessionTitle(id string) string {

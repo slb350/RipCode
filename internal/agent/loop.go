@@ -177,16 +177,7 @@ func (l *Loop) executeTool(ctx context.Context, tc provider.ToolCall, ch chan<- 
 
 	t, ok := l.registry.Get(tc.Name)
 	if !ok {
-		errMsg := fmt.Sprintf("unknown tool %q", tc.Name)
-		l.session.AddToolResult(tc.ID, "error: "+errMsg)
-		ch <- Event{
-			Type: EventToolEnd,
-			Tool: &ToolEvent{
-				ID:    tc.ID,
-				Name:  tc.Name,
-				Error: errMsg,
-			},
-		}
+		l.emitToolError(tc, fmt.Sprintf("unknown tool %q", tc.Name), ch)
 		return
 	}
 
@@ -194,6 +185,10 @@ func (l *Loop) executeTool(ctx context.Context, tc provider.ToolCall, ch chan<- 
 		SessionID: l.session.ID,
 		WorkDir:   l.session.WorkDir,
 		Abort:     ctx,
+	}
+	if err := toolCtx.Valid(); err != nil {
+		l.emitToolError(tc, fmt.Sprintf("invalid tool context: %v", err), ch)
+		return
 	}
 
 	result := t.Execute(toolCtx, tc.Args)
@@ -219,6 +214,19 @@ func (l *Loop) executeTool(ctx context.Context, tc provider.ToolCall, ch chan<- 
 			Args:   tc.Args,
 			Output: output,
 			Error:  errStr,
+		},
+	}
+}
+
+// emitToolError records a tool error result and emits an EventToolEnd with the error.
+func (l *Loop) emitToolError(tc provider.ToolCall, errMsg string, ch chan<- Event) {
+	l.session.AddToolResult(tc.ID, "error: "+errMsg)
+	ch <- Event{
+		Type: EventToolEnd,
+		Tool: &ToolEvent{
+			ID:    tc.ID,
+			Name:  tc.Name,
+			Error: errMsg,
 		},
 	}
 }

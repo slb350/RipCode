@@ -13,11 +13,10 @@ import (
 )
 
 func (a App) openModelDialog(query string) App {
+	a.closeAllDialogs()
 	a.modelDialog.open = true
 	a.modelDialog.query = strings.TrimSpace(query)
 	a.modelDialog.selected = 0
-	a.commandPalette.open = false
-	a.inline.open = false
 	a.input.Blur()
 	return a
 }

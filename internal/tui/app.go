@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -248,6 +249,21 @@ func (a *App) SetModel(model string) {
 // SetFullModelID updates the full model ID (e.g. "anthropic/claude-4").
 func (a *App) SetFullModelID(id string) {
 	a.fullModelID = id
+
+	variants := provider.VariantsFor(id)
+	if len(variants) == 0 {
+		a.applyVariant("")
+		return
+	}
+
+	if a.modelPrefs != nil {
+		if saved := a.modelPrefs.GetVariant(id); slices.Contains(variants, saved) {
+			a.applyVariant(saved)
+			return
+		}
+	}
+
+	a.applyVariant("")
 }
 
 // SetMaxSteps sets the max agent loop steps.

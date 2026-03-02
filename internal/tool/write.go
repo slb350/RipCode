@@ -55,13 +55,20 @@ func (w *WriteTool) Execute(ctx Context, argsJSON string) Result {
 		return Result{Error: err}
 	}
 
+	perm := os.FileMode(0o644)
+	if info, err := os.Lstat(validated); err == nil {
+		perm = info.Mode().Perm()
+	} else if !os.IsNotExist(err) {
+		return Result{Error: fmt.Errorf("stat file: %w", err)}
+	}
+
 	// Create parent directories
 	dir := filepath.Dir(validated)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return Result{Error: fmt.Errorf("create directories: %w", err)}
 	}
 
-	if err := writeAtomic(validated, []byte(args.Content), 0o644); err != nil {
+	if err := writeAtomic(validated, []byte(args.Content), perm); err != nil {
 		return Result{Error: fmt.Errorf("write file: %w", err)}
 	}
 

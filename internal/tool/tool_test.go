@@ -185,3 +185,34 @@ func TestClassifyError_Default(t *testing.T) {
 func TestClassifyError_Nil_ReturnsUnknown(t *testing.T) {
 	assert.Equal(t, "unknown", classifyError(nil))
 }
+
+// --- Context.Valid() tests ---
+
+func TestContext_Valid_Complete(t *testing.T) {
+	ctx := Context{
+		SessionID: "sess-1",
+		WorkDir:   "/tmp/test",
+		Abort:     context.Background(),
+	}
+	assert.NoError(t, ctx.Valid())
+}
+
+func TestContext_Valid_NilAbort(t *testing.T) {
+	ctx := Context{
+		SessionID: "sess-1",
+		WorkDir:   "/tmp/test",
+	}
+	err := ctx.Valid()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Abort")
+}
+
+func TestContext_Valid_EmptyWorkDir(t *testing.T) {
+	ctx := Context{
+		SessionID: "sess-1",
+		Abort:     context.Background(),
+	}
+	err := ctx.Valid()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "WorkDir")
+}

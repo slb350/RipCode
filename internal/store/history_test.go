@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -161,4 +162,37 @@ func TestSaveHistory_Overwrite_ReplacesContent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, loaded, 1, "should have replaced, not appended")
 	assert.Equal(t, "new1", loaded[0].Prompt)
+}
+
+func TestSaveHistory_LargeHistory_SaveAndLoadPreserved(t *testing.T) {
+	testDir(t)
+	// Save 300 entries — verifies no implicit truncation at the store layer.
+	entries := make([]HistoryEntry, 300)
+	for i := range entries {
+		entries[i] = HistoryEntry{Prompt: fmt.Sprintf("prompt-%d", i), Mode: "normal"}
+	}
+	require.NoError(t, SaveHistory(entries))
+
+	loaded, skipped, err := LoadHistory()
+	require.NoError(t, err)
+	assert.Equal(t, 0, skipped)
+	assert.Len(t, loaded, 300, "store layer should preserve all entries; truncation is caller's job")
+	assert.Equal(t, "prompt-0", loaded[0].Prompt)
+	assert.Equal(t, "prompt-299", loaded[299].Prompt)
+}
+
+func TestAppendHistory_ManyEntries_AllPreserved(t *testing.T) {
+	testDir(t)
+	// Append 50 entries one at a time.
+	for i := range 50 {
+		require.NoError(t, AppendHistory(HistoryEntry{
+			Prompt: fmt.Sprintf("entry-%d", i),
+			Mode:   "normal",
+		}))
+	}
+	loaded, _, err := LoadHistory()
+	require.NoError(t, err)
+	assert.Len(t, loaded, 50)
+	assert.Equal(t, "entry-0", loaded[0].Prompt)
+	assert.Equal(t, "entry-49", loaded[49].Prompt)
 }

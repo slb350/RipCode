@@ -2,6 +2,7 @@ package tui
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -63,7 +64,7 @@ func (a App) handleAgentEvent(event agent.Event) (tea.Model, tea.Cmd) {
 					FilePath string `json:"file_path"`
 				}
 				if err := json.Unmarshal([]byte(event.Tool.Args), &parsed); err != nil {
-					store.LogError("events: parse tool args for "+event.Tool.Name, err)
+					store.LogError(fmt.Sprintf("events: parse tool args for %s: args=%q", event.Tool.Name, event.Tool.Args), err)
 				} else if parsed.FilePath != "" {
 					a.trackModifiedFile(parsed.FilePath)
 				}

@@ -313,3 +313,23 @@ func TestBash_Parameters(t *testing.T) {
 	required := params["required"].([]string)
 	assert.Contains(t, required, "command")
 }
+
+func TestBash_Timeout_ZeroUsesDefault(t *testing.T) {
+	b := NewBashTool()
+	ctx := newTestCtx(t)
+
+	// timeout=0 should use the default timeout, not expire immediately.
+	result := b.Execute(ctx, `{"command":"echo fast","timeout":0}`)
+	require.NoError(t, result.Error)
+	assert.Contains(t, result.Output, "fast")
+}
+
+func TestBash_Timeout_NegativeUsesDefault(t *testing.T) {
+	b := NewBashTool()
+	ctx := newTestCtx(t)
+
+	// Negative timeout should also use default.
+	result := b.Execute(ctx, `{"command":"echo ok","timeout":-1}`)
+	require.NoError(t, result.Error)
+	assert.Contains(t, result.Output, "ok")
+}

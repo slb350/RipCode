@@ -149,7 +149,7 @@ func (a *App) switchModel(modelID string) bool {
 
 	setter.SetModel(modelID)
 	a.SetModel(displayModelName(modelID))
-	a.fullModelID = modelID
+	a.SetFullModelID(modelID)
 	// Track in recents
 	if a.modelPrefs != nil {
 		ref := store.ModelRef{
@@ -158,13 +158,6 @@ func (a *App) switchModel(modelID string) bool {
 		}
 		a.modelPrefs.AddRecent(ref)
 		a.warnOnErr(a.modelPrefs.Save(), "model recents")
-	}
-	// Update variant for new model
-	variants := provider.VariantsFor(modelID)
-	if len(variants) == 0 {
-		a.applyVariant("")
-	} else if a.modelPrefs != nil {
-		a.applyVariant(a.modelPrefs.GetVariant(modelID))
 	}
 	a.chat.AddEntry(components.ChatEntry{
 		Role:    components.RoleSystem,
@@ -212,47 +205,6 @@ func (a App) handleModelsLoaded(msg ModelsLoadedMsg) (tea.Model, tea.Cmd) {
 	a.modelsLoaded = true
 	a = a.openModelDialog(msg.Query)
 	return a, nil
-}
-
-// displayModels renders filtered model results into the chat.
-func (a App) displayModels(models []provider.ModelInfo, query string) App {
-	filtered := filterModels(models, query)
-	if len(filtered) == 0 {
-		msg := "No models found."
-		if query != "" {
-			msg = fmt.Sprintf("No models found for %q.", query)
-		}
-		a.chat.AddEntry(components.ChatEntry{
-			Role:    components.RoleSystem,
-			Content: msg,
-		})
-		return a
-	}
-
-	const maxDisplay = 120
-	lines := make([]string, 0, min(len(filtered), maxDisplay)+2)
-	if query == "" {
-		lines = append(lines, fmt.Sprintf("Available models: %d total (showing up to %d)", len(filtered), maxDisplay))
-	} else {
-		lines = append(lines, fmt.Sprintf("Filtered models for %q: %d matches (showing up to %d)", query, len(filtered), maxDisplay))
-	}
-
-	display := filtered
-	if len(display) > maxDisplay {
-		display = display[:maxDisplay]
-	}
-	for _, m := range display {
-		lines = append(lines, modelLine(m))
-	}
-	if len(filtered) > maxDisplay {
-		lines = append(lines, fmt.Sprintf("... %d more matches not shown", len(filtered)-maxDisplay))
-	}
-
-	a.chat.AddEntry(components.ChatEntry{
-		Role:    components.RoleSystem,
-		Content: strings.Join(lines, "\n"),
-	})
-	return a
 }
 
 // loadModelsCmd returns a Cmd that fetches models from the provider in a goroutine.
